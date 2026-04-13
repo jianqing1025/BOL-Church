@@ -1,0 +1,184 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocalization } from '../hooks/useLocalization';
+import { Language } from '../types';
+import { MenuIcon, CloseIcon, LogoIcon } from './icons/Icons';
+
+interface HeaderProps {
+  isTransparent: boolean;
+}
+
+const useHeaderStyle = () => {
+    const { isTransparent } = React.useContext(HeaderContext);
+    const [isScrolled, setIsScrolled] = useState(!isTransparent);
+
+    useEffect(() => {
+        if (!isTransparent) {
+            setIsScrolled(true);
+            return;
+        }
+        const handleScroll = () => setIsScrolled(window.scrollY > 50);
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        handleScroll();
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [isTransparent]);
+
+    return {
+        isScrolled,
+        headerClasses: isScrolled
+            ? 'bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm transition-all duration-300'
+            : 'bg-transparent absolute top-5 z-50 w-full transition-all duration-300',
+        logoClasses: isScrolled ? 'text-gray-800 hover:text-blue-600' : 'text-white hover:text-gray-200',
+        navLinkClasses: isScrolled ? 'text-gray-600 hover:text-blue-600' : 'text-white hover:text-gray-200',
+        mobileIconColor: isScrolled ? 'text-gray-800' : 'text-white',
+    };
+}
+
+const HeaderContext = React.createContext<{ isTransparent: boolean }>({ isTransparent: true });
+
+
+const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
+  const { language, toggleLanguage, t } = useLocalization();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  
+  const navLinks = [
+    { href: '#/', key: 'header.navHome' },
+    { key: 'header.navAbout', subLinks: [
+        { href: '#/about/our-church', key: 'aboutPage.navOurChurch' },
+        { href: '#/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
+        { href: '#/about/job-opportunities', key: 'aboutPage.navJobOpportunities' },
+        { href: '#/about/ministry-leaders', key: 'aboutPage.navMinistryLeaders' },
+        { href: '#/about/becoming-a-member', key: 'aboutPage.navBecomingAMember' },
+    ]},
+    { key: 'header.navEvents', subLinks: [
+        { href: '#/events/kids', key: 'eventsPage.navKids' },
+        { href: '#/events/men', key: 'eventsPage.navMen' },
+        { href: '#/events/women', key: 'eventsPage.navWomen' },
+        { href: '#/events/joint', key: 'eventsPage.navJoint' },
+        { href: '#/events/alpha', key: 'eventsPage.navAlpha' },
+        { href: '#/events/prayer', key: 'eventsPage.navPrayer' },
+    ]},
+    { key: 'header.navSermons', subLinks: [
+        { href: '#/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
+        { href: '#/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
+        { href: '#/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
+        { href: '#/sermons/live-stream', key: 'sermonsPage.navLiveStream' },
+    ]},
+    { key: 'header.navGiving', subLinks: [
+        { href: '#/giving/why-we-give', key: 'givingPage.navWhyWeGive' },
+        { href: '#/giving/what-is-tithing', key: 'givingPage.navWhatIsTithing' },
+        { href: '#/giving/ways-to-give', key: 'givingPage.navWaysToGive' },
+        { href: '#/giving/other-ways-to-give', key: 'givingPage.navOtherWaysToGive' },
+    ]},
+    { key: 'header.navContact', subLinks: [
+        { href: '#/contact/contact-us', key: 'header.navContact' },
+        { href: '#/contact/join-us', key: 'contactPage.navJoinUs' },
+        { href: '#/contact/prayer-request', key: 'contactPage.navPrayerRequest' },
+    ]},
+  ];
+
+  const handleDropdownToggle = (key: string) => {
+    setActiveDropdown(prev => (prev === key ? null : key));
+  };
+
+  const handleLinkClick = () => {
+    setActiveDropdown(null);
+    setIsMenuOpen(false);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (headerRef.current && !headerRef.current.contains(event.target as Node)) {
+        setActiveDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const { headerClasses, logoClasses, navLinkClasses, mobileIconColor } = useHeaderStyle();
+
+  return (
+    <HeaderContext.Provider value={{ isTransparent }}>
+      <header className={headerClasses} ref={headerRef}>
+        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
+          <a href="#/" onClick={handleLinkClick} className={`flex items-center gap-3 transition-colors ${logoClasses}`}>
+            <LogoIcon className="h-9 w-9" />
+            <span className="text-3xl font-bold">{t('header.logo')}</span>
+          </a>
+          <nav className="hidden md:flex items-center space-x-8">
+            {navLinks.map(link => (
+              link.subLinks ? (
+                <div key={link.key} className="relative">
+                   <button 
+                    onClick={() => handleDropdownToggle(link.key)} 
+                    className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2 flex items-center gap-1`}
+                    aria-haspopup="true"
+                    aria-expanded={activeDropdown === link.key}
+                   >
+                    {t(link.key)}
+                    <svg className={`w-4 h-4 transition-transform ${activeDropdown === link.key ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </button>
+                  {activeDropdown === link.key && (
+                    <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white/80 backdrop-blur-lg border border-white/30 rounded-xl shadow-lg p-2 z-10`}>
+                      {link.subLinks.map(subLink => (
+                         <a key={subLink.key} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">{t(subLink.key)}</a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <a key={link.key} href={link.href!} onClick={handleLinkClick} className={`transition-colors text-lg font-bold ${navLinkClasses}`}>
+                  {t(link.key)}
+                </a>
+              )
+            ))}
+          </nav>
+          <div className="hidden md:flex items-center space-x-4">
+            <button onClick={toggleLanguage} className={`text-base font-semibold transition-colors w-20 text-center ${navLinkClasses}`}>
+              {language === Language.EN ? '中文' : 'English'}
+            </button>
+            <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-5 py-2 rounded-full hover:bg-blue-700 transition-all text-base font-semibold">
+              {t('header.newHere')}
+            </a>
+          </div>
+          <div className={`md:hidden ${mobileIconColor}`}>
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
+              {isMenuOpen ? <CloseIcon /> : <MenuIcon />}
+            </button>
+          </div>
+        </div>
+        
+        {isMenuOpen && (
+          <div className="md:hidden bg-white shadow-lg absolute top-full left-0 w-full">
+            <nav className="flex flex-col items-center space-y-4 p-6">
+              {navLinks.map(link => (
+                link.href ? (
+                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                        {t(link.key)}
+                    </a>
+                ) : (
+                    <a key={link.key} href={link.subLinks![0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                        {t(link.key)}
+                    </a>
+                )
+              ))}
+              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-6 py-3 rounded-full hover:bg-blue-700 transition-all text-lg font-semibold mt-4">
+                {t('header.newHere')}
+              </a>
+              <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-lg font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-2">
+                {language === Language.EN ? '中文' : 'English'}
+              </button>
+            </nav>
+          </div>
+        )}
+      </header>
+    </HeaderContext.Provider>
+  );
+};
+
+export default Header;
