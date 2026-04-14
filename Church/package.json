@@ -6,17 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cf:dev": "vite build && wrangler dev",
+    "cf:deploy": "vite build && wrangler deploy",
+    "d1:migrate:local": "wrangler d1 migrations apply bol-church --local",
+    "firebase:export": "node ./scripts/export-firebase-to-d1.mjs",
+    "firebase:sql": "node ./scripts/firebase-export-to-sql.mjs"
   },
   "dependencies": {
+    "immer": "^10.2.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "immer": "^10.2.0"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260414.1",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "firebase": "^12.12.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "wrangler": "^4.82.2"
   }
 }

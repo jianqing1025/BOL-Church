@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
+import { resizeImageToBlob } from '../imageUpload';
 
 const imagesConfig = [
   { key: 'hero.image1', src: 'https://images.unsplash.com/photo-1438232992991-995b7058bbb3?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2673' },
@@ -11,53 +12,9 @@ const imagesConfig = [
 
   //  { key: 'hero.image3', src: 'https://picsum.photos/1920/1080?random=3' },]
 
-// Helper function to resize images before saving
-const resizeImage = (file: File, maxWidth: number, maxHeight: number, quality: number = 0.7): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      if (!event.target?.result) {
-        return reject(new Error("FileReader did not return a result."));
-      }
-      img.src = event.target.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height *= maxWidth / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width *= maxHeight / height;
-            height = maxHeight;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          return reject(new Error('Could not get canvas context'));
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        resolve(canvas.toDataURL('image/jpeg', quality)); 
-      };
-      img.onerror = (err) => reject(err);
-    };
-    reader.onerror = (err) => reject(err);
-  });
-};
-
-
 const Hero: React.FC = () => {
   const { t } = useLocalization();
-  const { images, isAdminMode, updateImage } = useAdmin();
+  const { images, isAdminMode, uploadImage } = useAdmin();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,8 +35,8 @@ const Hero: React.FC = () => {
       if (file) {
           try {
               const currentImageKey = imagesConfig[currentImageIndex].key;
-              const resizedDataUrl = await resizeImage(file, 1920, 1080); // Higher res for hero
-              updateImage(currentImageKey, resizedDataUrl);
+              const resizedImage = await resizeImageToBlob(file, 1920, 1080);
+              await uploadImage(currentImageKey, resizedImage, file.name);
           } catch (error) {
               console.error("Image processing failed", error);
               alert("Failed to process image. Please try a different one.");

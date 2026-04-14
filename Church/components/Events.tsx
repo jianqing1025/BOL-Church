@@ -1,50 +1,7 @@
-
-
 import React, { useRef } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { useAdmin } from '../hooks/useAdmin';
-
-const resizeImage = (file: File, maxWidth: number, maxHeight: number, quality: number = 0.7): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      if (!event.target?.result) {
-        return reject(new Error("FileReader did not return a result."));
-      }
-      img.src = event.target.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height *= maxWidth / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width *= maxHeight / height;
-            height = maxHeight;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          return reject(new Error('Could not get canvas context'));
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        resolve(canvas.toDataURL('image/jpeg', quality)); 
-      };
-      img.onerror = (err) => reject(err);
-    };
-    reader.onerror = (err) => reject(err);
-  });
-};
+import { resizeImageToBlob } from '../imageUpload';
 
 interface EditableImageProps {
   imageKey: string;
@@ -54,51 +11,52 @@ interface EditableImageProps {
 }
 
 const EditableImage: React.FC<EditableImageProps> = ({ imageKey, className, alt, placeholderSrc }) => {
-    const { isAdminMode, images, updateImage } = useAdmin();
-    const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isAdminMode, images, uploadImage } = useAdmin();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const imageUrl = images[imageKey] || placeholderSrc;
+  const imageUrl = images[imageKey] || placeholderSrc;
 
-    const handleImageClick = () => {
-        if (isAdminMode) {
-            fileInputRef.current?.click();
-        }
-    };
+  const handleImageClick = () => {
+    if (isAdminMode) {
+      fileInputRef.current?.click();
+    }
+  };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            try {
-                const resizedDataUrl = await resizeImage(file, 800, 600);
-                updateImage(imageKey, resizedDataUrl);
-            } catch (error) {
-                console.error("Image processing failed", error);
-                alert("Failed to process image. Please try a different one.");
-            }
-        }
-    };
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
 
-    return (
-        <div className={`relative ${isAdminMode ? 'cursor-pointer group' : ''}`} onClick={handleImageClick}>
-            <img src={imageUrl} alt={alt} className={className} />
-            {isAdminMode && (
-                <>
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="text-white font-bold text-lg">Change Image</span>
-                    </div>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        accept="image/*"
-                    />
-                </>
-            )}
-        </div>
-    );
+    try {
+      const resizedImage = await resizeImageToBlob(file, 800, 600);
+      await uploadImage(imageKey, resizedImage, file.name);
+    } catch (error) {
+      console.error('Image processing failed', error);
+      alert('Failed to process image. Please try a different one.');
+    }
+  };
+
+  return (
+    <div className={`relative ${isAdminMode ? 'cursor-pointer group' : ''}`} onClick={handleImageClick}>
+      <img src={imageUrl} alt={alt} className={className} />
+      {isAdminMode && (
+        <>
+          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <span className="text-white font-bold text-lg">Change Image</span>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept="image/*"
+          />
+        </>
+      )}
+    </div>
+  );
 };
-
 
 interface EventCardProps {
   imageSrc: string;
@@ -110,10 +68,10 @@ interface EventCardProps {
 const EventCard: React.FC<EventCardProps> = ({ imageSrc, title, date, imageKey }) => (
   <div className="bg-white rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-transform duration-300">
     <EditableImage
-        imageKey={imageKey}
-        placeholderSrc={imageSrc}
-        alt={title}
-        className="w-full h-48 object-cover"
+      imageKey={imageKey}
+      placeholderSrc={imageSrc}
+      alt={title}
+      className="w-full h-48 object-cover"
     />
     <div className="p-6">
       <h3 className="font-bold text-xl mb-2">{title}</h3>
@@ -142,9 +100,9 @@ const Events: React.FC = () => {
           ))}
         </div>
         <div className="text-center mt-12">
-           <a href="#/events/" className="bg-gray-800 text-white px-8 py-3 rounded-full hover:bg-gray-900 transition-all font-semibold">
-             {t('events.button')}
-           </a>
+          <a href="#/events/" className="bg-gray-800 text-white px-8 py-3 rounded-full hover:bg-gray-900 transition-all font-semibold">
+            {t('events.button')}
+          </a>
         </div>
       </div>
     </section>
