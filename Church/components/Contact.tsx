@@ -37,7 +37,7 @@ const Contact: React.FC = () => {
                 </a>
             </ContactInfoItem>
              <ContactInfoItem title={t('contact.phone')}>
-              <a href="tel:425-898-7650" className="hover:text-blue-600">(425) 898-7650</a>
+              <a href="tel:425-246-0264" className="hover:text-blue-600">(425) 246-0264</a>
             </ContactInfoItem>
              <ContactInfoItem title={t('contact.email')}>
               <a href="mailto:bolccop@gmail.com" className="hover:text-blue-600">bolccop@gmail.com</a>
