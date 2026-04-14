@@ -36,6 +36,8 @@ logs/
 
 # Cloudflare
 .wrangler/
+Church/wrangler.toml/
+Church/wrangler.toml
 
 # Firebase
 .firebase/

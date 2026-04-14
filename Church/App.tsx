@@ -7,7 +7,6 @@ import Events from './components/Events';
 import Sermons from './components/Sermons';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
-import AdminPanel from './components/AdminPanel';
 import Support from './components/Support';
 import SermonDetailPage from './components/SermonDetailPage';
 import AboutPage from './components/AboutPage';
@@ -125,7 +124,6 @@ function App() {
         {renderPage()}
       </main>
       <Footer />
-      <AdminPanel />
     </div>
   );
 }

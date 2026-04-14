@@ -6,6 +6,7 @@ import { DEFAULT_SITE_BOOTSTRAP, type Donation, type Message, type PrayerRequest
 interface AdminContextType {
   isAdminMode: boolean;
   loading: boolean;
+  hasUnsavedContent: boolean;
   login: (password: string) => boolean;
   logout: () => void;
   content: typeof DEFAULT_SITE_BOOTSTRAP.content;
@@ -54,6 +55,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [prayerRequests, setPrayerRequests] = useState<PrayerRequest[]>([]);
   const [donations, setDonations] = useState<Donation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasUnsavedContent, setHasUnsavedContent] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +69,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setMessages(data.messages);
         setPrayerRequests(data.prayerRequests);
         setDonations(data.donations);
+        setHasUnsavedContent(false);
       })
       .catch(error => {
         console.error('Failed to load site data', error);
@@ -96,6 +99,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setContent(produce(draft => {
       setNestedValue(draft, path, value);
     }));
+    setHasUnsavedContent(true);
   };
 
   const updateImage = async (key: string, url: string) => {
@@ -112,6 +116,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const saveChanges = async () => {
     await api.saveContent(content);
+    setHasUnsavedContent(false);
     alert('所有文字更改已保存到 D1。');
   };
 
@@ -170,6 +175,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       value={{
         isAdminMode: isAuthenticated,
         loading,
+        hasUnsavedContent,
         login,
         logout,
         content,
