@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
 import HeroImageManager from './HeroImageManager';
 import SermonManager from './SermonManager';
 import TextContentManager from './TextContentManager';
+import { api } from '../api';
+import type { AnalyticsSummary } from '../data';
 
 type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'inbox';
 type InboxTab = 'messages' | 'prayer' | 'giving';
@@ -39,6 +41,13 @@ function formatDate(isoString: string) {
   });
 }
 
+function formatShortDate(isoString: string) {
+  return new Date(isoString).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 const AdminDashboard: React.FC = () => {
   const {
     isAdminMode,
@@ -59,6 +68,9 @@ const AdminDashboard: React.FC = () => {
   } = useAdmin();
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [inboxTab, setInboxTab] = useState<InboxTab>('messages');
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
@@ -92,6 +104,30 @@ const AdminDashboard: React.FC = () => {
       .slice(0, 8);
   }, [messages, prayerRequests, sermons]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    api.analyticsSummary()
+      .then(result => {
+        if (cancelled) return;
+        setAnalytics(result);
+        setAnalyticsError(result.error ?? null);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setAnalyticsError(error instanceof Error ? error.message : 'Failed to load analytics.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnalyticsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!isAdminMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
@@ -118,6 +154,89 @@ const AdminDashboard: React.FC = () => {
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="text-sm font-medium text-gray-500">Recorded donations</div>
           <div className="mt-2 text-3xl font-bold text-gray-900">${totalGiven.toLocaleString()}</div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Website analytics</h2>
+              <p className="text-sm text-gray-500">Cloudflare Web Analytics overview for the last 7 days.</p>
+            </div>
+            <div className="text-xs text-gray-400">
+              {analytics?.lastUpdated ? `Updated ${formatDate(analytics.lastUpdated)}` : ''}
+            </div>
+          </div>
+
+          {analyticsLoading ? (
+            <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+              Loading analytics...
+            </div>
+          ) : analyticsError ? (
+            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {analyticsError}
+            </div>
+          ) : analytics && analytics.configured ? (
+            <div className="mt-6 space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pageviews</div>
+                  <div className="mt-2 text-3xl font-bold text-gray-900">{analytics.pageviews.toLocaleString()}</div>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Visitors</div>
+                  <div className="mt-2 text-3xl font-bold text-gray-900">{analytics.visitors.toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 text-sm font-semibold text-gray-900">7-day trend</div>
+                <div className="space-y-3">
+                  {analytics.timeseries.map(point => {
+                    const maxValue = Math.max(...analytics.timeseries.map(item => item.pageviews), 1);
+                    const width = `${Math.max((point.pageviews / maxValue) * 100, 6)}%`;
+
+                    return (
+                      <div key={point.date} className="grid grid-cols-[70px_1fr_78px_78px] items-center gap-3 text-sm">
+                        <div className="text-gray-500">{formatShortDate(point.date)}</div>
+                        <div className="h-2 rounded-full bg-gray-100">
+                          <div className="h-2 rounded-full bg-blue-600" style={{ width }} />
+                        </div>
+                        <div className="text-right font-semibold text-gray-900">{point.pageviews}</div>
+                        <div className="text-right text-gray-500">{point.visitors} visitors</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+              Cloudflare analytics is not configured yet. Add the Web Analytics beacon token on the frontend and the API token plus zone ID on the Worker to show dashboard traffic and regions here.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-bold text-gray-900">Top regions</h2>
+          <p className="mt-1 text-sm text-gray-500">Most active countries by request volume in the same 7-day window.</p>
+          <div className="mt-6 space-y-3">
+            {analyticsLoading ? (
+              <div className="text-sm text-gray-500">Loading regions...</div>
+            ) : analytics && analytics.configured && analytics.countries.length > 0 ? (
+              analytics.countries.map(country => (
+                <div key={country.country} className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-3">
+                  <div className="text-sm font-semibold text-gray-900">{country.country}</div>
+                  <div className="text-sm text-gray-500">{country.requests.toLocaleString()} requests</div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+                Region data will appear here once Cloudflare analytics is configured.
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

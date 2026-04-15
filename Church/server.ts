@@ -7,6 +7,8 @@ type Env = {
   DB: D1Database;
   MEDIA_BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  CLOUDFLARE_ZONE_ID?: string;
+  CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
 };
 
 type LocalizedText = { en: string; zh: string };
@@ -57,6 +59,39 @@ type DonationRow = {
   status: 'completed';
 };
 
+type CloudflareGraphQLResponse<T> = {
+  data?: T;
+  errors?: Array<{ message?: string }>;
+};
+
+type CloudflareAnalyticsGraphQLData = {
+  viewer?: {
+    zones?: Array<{
+      totals?: Array<{
+        count?: number;
+        sum?: {
+          visits?: number;
+        };
+      }>;
+      byCountry?: Array<{
+        count?: number;
+        dimensions?: {
+          clientCountryName?: string;
+        };
+      }>;
+      byDay?: Array<{
+        count?: number;
+        sum?: {
+          visits?: number;
+        };
+        dimensions?: {
+          datetimeHour?: string;
+        };
+      }>;
+    }>;
+  };
+};
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -74,6 +109,17 @@ function badRequest(message: string): Response {
 
 function asLocalizedText(en = '', zh = ''): LocalizedText {
   return { en, zh };
+}
+
+function startOfUtcDay(date: Date): string {
+  const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return utcDate.toISOString();
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
 
 function mapSermon(row: SermonRow) {
@@ -207,12 +253,171 @@ async function handleBootstrap(env: Env): Promise<Response> {
   });
 }
 
+async function handleAnalyticsSummary(env: Env): Promise<Response> {
+  const zoneId = env.CLOUDFLARE_ZONE_ID;
+  const apiToken = env.CLOUDFLARE_ANALYTICS_API_TOKEN;
+
+  if (!zoneId || !apiToken) {
+    return json({
+      configured: false,
+      source: 'cloudflare',
+      period: '7d',
+      pageviews: 0,
+      visitors: 0,
+      countries: [],
+      timeseries: [],
+      lastUpdated: new Date().toISOString(),
+      error: 'Cloudflare analytics is not configured. Set CLOUDFLARE_ZONE_ID and CLOUDFLARE_ANALYTICS_API_TOKEN in Wrangler.',
+    });
+  }
+
+  const now = new Date();
+  const todayStart = startOfUtcDay(now);
+  const since = startOfUtcDay(addUtcDays(now, -6));
+  const until = addUtcDays(new Date(todayStart), 1).toISOString();
+  const query = `
+    query WebsiteAnalyticsSummary($zoneTag: string, $datetimeStart: Time, $datetimeEnd: Time) {
+      viewer {
+        zones(filter: { zoneTag: $zoneTag }) {
+          totals: httpRequestsAdaptiveGroups(
+            limit: 1
+            filter: {
+              datetime_geq: $datetimeStart
+              datetime_lt: $datetimeEnd
+              requestSource: "eyeball"
+            }
+          ) {
+            count
+            sum {
+              visits
+            }
+          }
+          byCountry: httpRequestsAdaptiveGroups(
+            limit: 8
+            orderBy: [count_DESC]
+            filter: {
+              datetime_geq: $datetimeStart
+              datetime_lt: $datetimeEnd
+              requestSource: "eyeball"
+            }
+          ) {
+            count
+            dimensions {
+              clientCountryName
+            }
+          }
+          byDay: httpRequestsAdaptiveGroups(
+            limit: 168
+            orderBy: [datetimeHour_ASC]
+            filter: {
+              datetime_geq: $datetimeStart
+              datetime_lt: $datetimeEnd
+              requestSource: "eyeball"
+            }
+          ) {
+            count
+            sum {
+              visits
+            }
+            dimensions {
+              datetimeHour
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const dayRanges = Array.from({ length: 7 }, (_, index) => {
+    const start = startOfUtcDay(addUtcDays(now, -6 + index));
+    const end = addUtcDays(new Date(start), 1).toISOString();
+    return { start, end };
+  });
+
+  const dayResponses = await Promise.all(dayRanges.map(async ({ start, end }) => {
+    const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          zoneTag: zoneId,
+          datetimeStart: start,
+          datetimeEnd: end,
+        },
+      }),
+    });
+
+    const payload = await response.json<CloudflareGraphQLResponse<CloudflareAnalyticsGraphQLData>>();
+    return { response, payload, start };
+  }));
+
+  const failedResponse = dayResponses.find(({ response, payload }) => !response.ok || !payload.data?.viewer?.zones?.[0]);
+  if (failedResponse) {
+    const message = failedResponse.payload.errors?.map(error => error.message).filter(Boolean).join('; ') || 'Failed to load Cloudflare analytics from GraphQL API.';
+    return json({
+      configured: true,
+      source: 'cloudflare',
+      period: '7d',
+      pageviews: 0,
+      visitors: 0,
+      countries: [],
+      timeseries: [],
+      lastUpdated: new Date().toISOString(),
+      error: message,
+    }, failedResponse.response.ok ? 200 : failedResponse.response.status);
+  }
+
+  const countryMap = new Map<string, number>();
+  const timeseries = dayResponses.map(({ payload, start }) => {
+    const zone = payload.data?.viewer?.zones?.[0];
+    const totals = zone?.totals?.[0];
+    for (const point of zone?.byCountry ?? []) {
+      const country = point.dimensions?.clientCountryName || 'Unknown';
+      const requests = Number(point.count ?? 0);
+      countryMap.set(country, (countryMap.get(country) ?? 0) + requests);
+    }
+
+    return {
+      date: start.slice(0, 10),
+      pageviews: Number(totals?.count ?? 0),
+      visitors: Number(totals?.sum?.visits ?? 0),
+    };
+  });
+
+  const countries = Array.from(countryMap.entries())
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, 8)
+    .map(([country, requests]) => ({ country, requests }));
+
+  const pageviews = timeseries.reduce((sum, point) => sum + point.pageviews, 0);
+  const visitors = timeseries.reduce((sum, point) => sum + point.visitors, 0);
+
+  return json({
+    configured: true,
+    source: 'cloudflare',
+    period: '7d',
+    pageviews,
+    visitors,
+    countries,
+    timeseries,
+    lastUpdated: new Date().toISOString(),
+  });
+}
+
 async function readJson<T>(request: Request): Promise<T> {
   return request.json<T>();
 }
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'upload.jpg';
+}
+
+function isUploadBlob(value: FormDataEntryValue | null): value is Blob {
+  return Boolean(value && typeof value === 'object' && 'arrayBuffer' in value);
 }
 
 async function handleImageObject(env: Env, key: string): Promise<Response> {
@@ -235,6 +440,10 @@ const worker: ExportedHandler<Env> = {
       return handleBootstrap(env);
     }
 
+    if (url.pathname === '/api/analytics/summary' && request.method === 'GET') {
+      return handleAnalyticsSummary(env);
+    }
+
     if (url.pathname === '/api/content' && request.method === 'PUT') {
       const content = await readJson(request);
       await putSetting(env, 'website_content', content);
@@ -254,10 +463,11 @@ const worker: ExportedHandler<Env> = {
       }
       const formData = await request.formData();
       const file = formData.get('file');
-      if (!(file instanceof File)) {
+      if (!isUploadBlob(file)) {
         return badRequest('Missing upload file');
       }
-      const extension = sanitizeFileName(file.name).split('.').pop() || 'jpg';
+      const originalName = file instanceof File ? file.name : 'upload.jpg';
+      const extension = sanitizeFileName(originalName).split('.').pop() || 'jpg';
       const objectKey = `images/${imageKey.replace(/[^a-zA-Z0-9._/-]+/g, '-')}-${Date.now()}.${extension}`;
       await env.MEDIA_BUCKET.put(objectKey, await file.arrayBuffer(), {
         httpMetadata: { contentType: file.type || 'image/jpeg' },

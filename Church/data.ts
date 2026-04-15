@@ -42,6 +42,29 @@ export interface Donation {
   status: 'completed';
 }
 
+export interface AnalyticsCountry {
+  country: string;
+  requests: number;
+}
+
+export interface AnalyticsTimeseriesPoint {
+  date: string;
+  pageviews: number;
+  visitors: number;
+}
+
+export interface AnalyticsSummary {
+  configured: boolean;
+  source: 'cloudflare';
+  period: '7d';
+  pageviews: number;
+  visitors: number;
+  countries: AnalyticsCountry[];
+  timeseries: AnalyticsTimeseriesPoint[];
+  lastUpdated: string;
+  error?: string;
+}
+
 export interface SiteBootstrap {
   content: typeof translations;
   images: Record<string, string>;

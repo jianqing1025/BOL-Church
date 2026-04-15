@@ -1,4 +1,4 @@
-import type { Donation, Message, PrayerRequest, Sermon, SiteBootstrap } from './data';
+import type { AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap } from './data';
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -10,7 +10,18 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
+    const raw = await response.text();
+    let message = raw;
+
+    try {
+      const parsed = JSON.parse(raw) as { error?: string };
+      if (parsed?.error) {
+        message = parsed.error;
+      }
+    } catch {
+      // Keep raw text when the response body is not JSON.
+    }
+
     throw new Error(message || `Request failed: ${response.status}`);
   }
 
@@ -55,4 +66,6 @@ export const api = {
     request<{ ok: true }>(`/api/prayer-requests/${id}`, { method: 'DELETE' }),
   submitDonation: (payload: Omit<Donation, 'id' | 'date' | 'status'>) =>
     request<Donation>('/api/donations', { method: 'POST', body: JSON.stringify(payload) }),
+  analyticsSummary: () =>
+    request<AnalyticsSummary>('/api/analytics/summary'),
 };

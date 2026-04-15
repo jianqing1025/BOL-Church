@@ -85,7 +85,8 @@ const HeroImageManager: React.FC = () => {
       event.target.value = '';
     } catch (error) {
       console.error('Image processing failed', error);
-      alert('Failed to process image. Please try a different one.');
+      const message = error instanceof Error ? error.message : 'Image upload failed.';
+      alert(message);
     }
   };
 

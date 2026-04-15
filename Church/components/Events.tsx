@@ -33,7 +33,8 @@ const EditableImage: React.FC<EditableImageProps> = ({ imageKey, className, alt,
       await uploadImage(imageKey, resizedImage, file.name);
     } catch (error) {
       console.error('Image processing failed', error);
-      alert('Failed to process image. Please try a different one.');
+      const message = error instanceof Error ? error.message : 'Image upload failed.';
+      alert(message);
     }
   };
 
