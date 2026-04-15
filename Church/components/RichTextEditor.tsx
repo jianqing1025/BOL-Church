@@ -9,7 +9,7 @@ interface RichTextEditorProps {
   onImageUpload?: (file: Blob, fileName: string) => Promise<string>;
 }
 
-const toolbarButtonClassName = 'rounded border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50';
+const toolbarButtonClassName = 'flex h-8 w-8 items-center justify-center rounded border border-gray-300 bg-white text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50';
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
   value,
@@ -81,21 +81,43 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
   };
 
+  const toolbarButtons = [
+    { label: 'Bold', icon: 'B', action: () => applyCommand('bold'), className: 'font-black' },
+    { label: 'Italic', icon: 'I', action: () => applyCommand('italic'), className: 'italic' },
+    { label: 'Underline', icon: 'U', action: () => applyCommand('underline'), className: 'underline' },
+    { label: 'Heading 2', icon: 'H2', action: () => applyCommand('formatBlock', '<h2>') },
+    { label: 'Heading 3', icon: 'H3', action: () => applyCommand('formatBlock', '<h3>') },
+    { label: 'Paragraph', icon: 'P', action: () => applyCommand('formatBlock', '<p>') },
+    { label: 'Bulleted list', icon: '*', action: () => applyCommand('insertUnorderedList') },
+    { label: 'Numbered list', icon: '1.', action: () => applyCommand('insertOrderedList') },
+    { label: 'Add link', icon: '->', action: handleAddLink },
+    { label: 'Clear formatting', icon: 'Tx', action: () => applyCommand('removeFormat') },
+  ];
+
   return (
     <div className={`rounded-lg border border-gray-300 bg-white ${className}`}>
       <div className="flex flex-wrap gap-2 border-b border-gray-200 bg-gray-50 p-2">
-        <button type="button" onClick={() => applyCommand('bold')} className={toolbarButtonClassName}>Bold</button>
-        <button type="button" onClick={() => applyCommand('italic')} className={toolbarButtonClassName}>Italic</button>
-        <button type="button" onClick={() => applyCommand('underline')} className={toolbarButtonClassName}>Underline</button>
-        <button type="button" onClick={() => applyCommand('formatBlock', '<h2>')} className={toolbarButtonClassName}>H2</button>
-        <button type="button" onClick={() => applyCommand('formatBlock', '<h3>')} className={toolbarButtonClassName}>H3</button>
-        <button type="button" onClick={() => applyCommand('formatBlock', '<p>')} className={toolbarButtonClassName}>P</button>
-        <button type="button" onClick={() => applyCommand('insertUnorderedList')} className={toolbarButtonClassName}>Bullets</button>
-        <button type="button" onClick={() => applyCommand('insertOrderedList')} className={toolbarButtonClassName}>Numbers</button>
-        <button type="button" onClick={handleAddLink} className={toolbarButtonClassName}>Link</button>
-        <button type="button" onClick={() => applyCommand('removeFormat')} className={toolbarButtonClassName}>Clear</button>
-        <button type="button" onClick={handleImagePick} className={toolbarButtonClassName} disabled={isUploadingImage}>
-          {isUploadingImage ? 'Uploading...' : 'Image'}
+        {toolbarButtons.map(button => (
+          <button
+            key={button.label}
+            type="button"
+            onClick={button.action}
+            className={`${toolbarButtonClassName} ${button.className ?? ''}`}
+            aria-label={button.label}
+            title={button.label}
+          >
+            {button.icon}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={handleImagePick}
+          className={toolbarButtonClassName}
+          disabled={isUploadingImage}
+          aria-label={isUploadingImage ? 'Uploading image' : 'Insert image'}
+          title={isUploadingImage ? 'Uploading image' : 'Insert image'}
+        >
+          {isUploadingImage ? '...' : '[]'}
         </button>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
       </div>

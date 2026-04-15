@@ -119,6 +119,41 @@ function classifyEntry(path: string): PrimarySection['id'] {
   return 'content';
 }
 
+function shouldUseRichEditor(path: string): boolean {
+  const lastPart = path.split('.').pop()?.toLowerCase() ?? '';
+  return lastPart.includes('content');
+}
+
+function pageHrefForEntry(path: string): string {
+  const pageRoutes: Array<[string, string]> = [
+    ['aboutPage.ourChurch', '#/about/our-church'],
+    ['aboutPage.ourBeliefs', '#/about/our-beliefs'],
+    ['aboutPage.jobOpportunities', '#/about/job-opportunities'],
+    ['aboutPage.ministryLeaders', '#/about/ministry-leaders'],
+    ['aboutPage.becomingAMember', '#/about/becoming-a-member'],
+    ['eventsPage.kids', '#/events/kids'],
+    ['eventsPage.men', '#/events/men'],
+    ['eventsPage.women', '#/events/women'],
+    ['eventsPage.joint', '#/events/joint'],
+    ['eventsPage.alpha', '#/events/alpha'],
+    ['eventsPage.prayer', '#/events/prayer'],
+    ['sermonsPage.dailyManna', '#/sermons/daily-manna'],
+    ['sermonsPage.sundayWorship', '#/sermons/sunday-worship'],
+    ['sermonsPage.recentSermons', '#/sermons/recent-sermons'],
+    ['sermonsPage.liveStream', '#/sermons/live-stream'],
+    ['givingPage.whyWeGive', '#/giving/why-we-give'],
+    ['givingPage.whatIsTithing', '#/giving/what-is-tithing'],
+    ['givingPage.waysToGive', '#/giving/ways-to-give'],
+    ['givingPage.otherWaysToGive', '#/giving/other-ways-to-give'],
+    ['contactPage', '#/contact/contact-us'],
+    ['prayerRequestPage', '#/prayer-request/submit-request'],
+    ['header', '#/'],
+    ['footer', '#/'],
+  ];
+
+  return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '#/';
+}
+
 const TextContentManager: React.FC = () => {
   const { content, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
   const [activePrimarySection, setActivePrimarySection] = useState<PrimarySection['id']>('all');
@@ -218,28 +253,56 @@ const TextContentManager: React.FC = () => {
           </div>
         ) : (
           visibleEntries.map(entry => {
+            const usesRichEditor = shouldUseRichEditor(entry.path);
+            const renderTextField = (language: 'en' | 'zh', value: string) => {
+              const fieldId = `${entry.path}.${language}`;
+              const commonClassName = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500';
+
+              return (
+                <input
+                  id={fieldId}
+                  type="text"
+                  value={value}
+                  onChange={event => updateContent(fieldId, event.target.value)}
+                  className={commonClassName}
+                />
+              );
+            };
+
             return (
               <div key={entry.path} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="mb-3">
-                  <div className="text-sm font-semibold text-gray-900">{labelFromPath(entry.path)}</div>
-                  <div className="mt-1 text-xs text-gray-500">{entry.path}</div>
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{labelFromPath(entry.path)}</div>
+                    <div className="mt-1 text-xs text-gray-500">{entry.path}</div>
+                  </div>
+                  <a
+                    href={pageHrefForEntry(entry.path)}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    Open Page
+                  </a>
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <label className="space-y-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                    <RichTextEditor
-                      value={entry.en}
-                      onChange={value => updateContent(`${entry.path}.en`, value)}
-                      onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.en.${Date.now()}`, file, fileName)}
-                    />
+                    {usesRichEditor ? (
+                      <RichTextEditor
+                        value={entry.en}
+                        onChange={value => updateContent(`${entry.path}.en`, value)}
+                        onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.en.${Date.now()}`, file, fileName)}
+                      />
+                    ) : renderTextField('en', entry.en)}
                   </label>
                   <label className="space-y-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                    <RichTextEditor
-                      value={entry.zh}
-                      onChange={value => updateContent(`${entry.path}.zh`, value)}
-                      onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.zh.${Date.now()}`, file, fileName)}
-                    />
+                    {usesRichEditor ? (
+                      <RichTextEditor
+                        value={entry.zh}
+                        onChange={value => updateContent(`${entry.path}.zh`, value)}
+                        onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.zh.${Date.now()}`, file, fileName)}
+                      />
+                    ) : renderTextField('zh', entry.zh)}
                   </label>
                 </div>
               </div>
