@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import { useAdmin } from '../hooks/useAdmin';
 import type { Sermon } from '../data';
 
-const emptySermon: Omit<Sermon, 'id'> = {
+const buildEmptyEntry = (entryType: Sermon['type']): Omit<Sermon, 'id'> => ({
   title: { en: '', zh: '' },
   speaker: { en: '', zh: '' },
   date: new Date().toISOString().split('T')[0],
@@ -11,14 +11,21 @@ const emptySermon: Omit<Sermon, 'id'> = {
   passage: { en: '', zh: '' },
   youtubeId: '',
   imageUrl: '',
-  type: 'sermon'
-};
+  type: entryType,
+});
 
-const SermonManager: React.FC = () => {
+interface SermonManagerProps {
+  entryType?: Sermon['type'];
+}
+
+const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) => {
   const { sermons, createSermon, updateSermonRecord, deleteSermonRecord } = useAdmin();
   const [isAdding, setIsAdding] = useState(false);
   const [editingSermonId, setEditingSermonId] = useState<string | null>(null);
-  const [sermonData, setSermonData] = useState<Omit<Sermon, 'id'>>(emptySermon);
+  const [sermonData, setSermonData] = useState<Omit<Sermon, 'id'>>(buildEmptyEntry(entryType));
+
+  const isManna = entryType === 'daily-manna';
+  const visibleEntries = sermons.filter(sermon => sermon.type === entryType);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>, lang?: 'en' | 'zh', field?: 'title' | 'speaker' | 'series' | 'passage') => {
     const { name, value } = e.target;
@@ -50,7 +57,7 @@ const SermonManager: React.FC = () => {
   const handleEdit = (sermon: Sermon) => {
     setEditingSermonId(sermon.id);
     const { id, ...data } = sermon;
-    setSermonData(data);
+    setSermonData({ ...data, type: entryType });
     setIsAdding(false);
   };
 
@@ -64,31 +71,19 @@ const SermonManager: React.FC = () => {
   const resetForm = () => {
     setIsAdding(false);
     setEditingSermonId(null);
-    setSermonData(emptySermon);
+    setSermonData(buildEmptyEntry(entryType));
   };
 
   return (
     <div>
       {isAdding || editingSermonId !== null ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg mb-4 bg-gray-50">
-          <div className="md:col-span-2 flex flex-col gap-2">
-            <label className="text-sm font-bold text-gray-700">信息類型</label>
-            <select
-              name="type"
-              value={sermonData.type}
-              onChange={handleInputChange}
-              className="p-2 border rounded bg-white"
-            >
-              <option value="sermon">主日信息 (Sunday Worship)</option>
-              <option value="daily-manna">每日天言 (Daily Manna)</option>
-            </select>
-          </div>
           <input type="text" placeholder="Title (EN)" value={sermonData.title.en} onChange={(e) => handleInputChange(e, 'en', 'title')} className="p-2 border rounded" />
           <input type="text" placeholder="標題 (ZH)" value={sermonData.title.zh} onChange={(e) => handleInputChange(e, 'zh', 'title')} className="p-2 border rounded" />
           <input type="date" name="date" value={sermonData.date} onChange={handleInputChange} className="p-2 border rounded" />
           <input type="text" name="youtubeId" placeholder="YouTube ID (e.g. kYm9S2v7Y7U)" value={sermonData.youtubeId} onChange={handleInputChange} className="p-2 border rounded" />
 
-          {sermonData.type === 'sermon' && (
+          {!isManna && (
             <>
               <input type="text" placeholder="Speaker (EN)" value={sermonData.speaker.en} onChange={(e) => handleInputChange(e, 'en', 'speaker')} className="p-2 border rounded" />
               <input type="text" placeholder="講員 (ZH)" value={sermonData.speaker.zh} onChange={(e) => handleInputChange(e, 'zh', 'speaker')} className="p-2 border rounded" />
@@ -101,16 +96,18 @@ const SermonManager: React.FC = () => {
           </div>
         </div>
       ) : (
-        <button onClick={() => setIsAdding(true)} className="bg-green-600 text-white px-6 py-2 rounded-lg mb-4 font-bold shadow hover:bg-green-700 transition-colors">新增信息 / 每日天言</button>
+        <button onClick={() => setIsAdding(true)} className="bg-green-600 text-white px-6 py-2 rounded-lg mb-4 font-bold shadow hover:bg-green-700 transition-colors">
+          {isManna ? '新增每日天言' : '新增主日信息'}
+        </button>
       )}
 
       <ul className="space-y-2">
-        {sermons.map(sermon => (
+        {visibleEntries.map(sermon => (
           <li key={sermon.id} className="p-3 bg-white border rounded-md flex justify-between items-center shadow-sm">
             <div>
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${sermon.type === 'daily-manna' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                  {sermon.type === 'daily-manna' ? '每日天言' : '主日信息'}
+                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${isManna ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {isManna ? '每日天言' : '主日信息'}
                 </span>
                 <p className="font-bold">{sermon.title.zh || sermon.title.en}</p>
               </div>

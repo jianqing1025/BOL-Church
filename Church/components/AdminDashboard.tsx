@@ -7,8 +7,7 @@ import TextContentManager from './TextContentManager';
 import { api } from '../api';
 import type { AnalyticsSummary } from '../data';
 
-type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'inbox';
-type InboxTab = 'messages' | 'prayer' | 'giving';
+type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving';
 
 const sectionLabels: Record<Section, string> = {
   overview: 'Overview',
@@ -16,7 +15,10 @@ const sectionLabels: Record<Section, string> = {
   text: 'Text',
   media: 'Media',
   sermons: 'Sermons',
+  manna: 'Manna',
   inbox: 'Inbox',
+  prayer: 'Prayer Request',
+  giving: 'Giving',
 };
 
 const heroFields = [
@@ -67,7 +69,6 @@ const AdminDashboard: React.FC = () => {
     sermons,
   } = useAdmin();
   const [activeSection, setActiveSection] = useState<Section>('overview');
-  const [inboxTab, setInboxTab] = useState<InboxTab>('messages');
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -75,6 +76,8 @@ const AdminDashboard: React.FC = () => {
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
   const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
+  const sermonCount = sermons.filter(item => item.type === 'sermon').length;
+  const mannaCount = sermons.filter(item => item.type === 'daily-manna').length;
 
   const recentActivity = useMemo(() => {
     const messageItems = messages.slice(0, 3).map(item => ({
@@ -131,7 +134,10 @@ const AdminDashboard: React.FC = () => {
   if (!isAdminMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
-        <AdminLogin onClose={() => { window.location.hash = '#/'; }} />
+        <AdminLogin
+          onClose={() => { window.location.hash = '#/'; }}
+          onSuccess={() => undefined}
+        />
       </div>
     );
   }
@@ -149,7 +155,7 @@ const AdminDashboard: React.FC = () => {
         </div>
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="text-sm font-medium text-gray-500">Published sermons</div>
-          <div className="mt-2 text-3xl font-bold text-gray-900">{sermons.length}</div>
+          <div className="mt-2 text-3xl font-bold text-gray-900">{sermonCount}</div>
         </div>
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="text-sm font-medium text-gray-500">Recorded donations</div>
@@ -294,6 +300,12 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <span>Sermon manager</span>
               <button onClick={() => setActiveSection('sermons')} className="font-semibold text-blue-600 hover:text-blue-700">
+                Open
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Daily manna manager</span>
+              <button onClick={() => setActiveSection('manna')} className="font-semibold text-blue-600 hover:text-blue-700">
                 Open
               </button>
             </div>
@@ -516,35 +528,6 @@ const AdminDashboard: React.FC = () => {
     </div>
   );
 
-  const renderInbox = () => (
-    <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setInboxTab('messages')}
-          className={`rounded-md px-4 py-2 text-sm font-semibold ${inboxTab === 'messages' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
-        >
-          Messages {unreadMessages > 0 ? `(${unreadMessages} unread)` : ''}
-        </button>
-        <button
-          onClick={() => setInboxTab('prayer')}
-          className={`rounded-md px-4 py-2 text-sm font-semibold ${inboxTab === 'prayer' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
-        >
-          Prayer Requests {newPrayerRequests > 0 ? `(${newPrayerRequests} new)` : ''}
-        </button>
-        <button
-          onClick={() => setInboxTab('giving')}
-          className={`rounded-md px-4 py-2 text-sm font-semibold ${inboxTab === 'giving' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
-        >
-          Giving
-        </button>
-      </div>
-
-      {inboxTab === 'messages' && renderMessages()}
-      {inboxTab === 'prayer' && renderPrayerRequests()}
-      {inboxTab === 'giving' && renderGiving()}
-    </div>
-  );
-
   const renderSection = () => {
     if (loading) {
       return <div className="rounded-lg bg-white p-8 text-sm text-gray-500 shadow-sm">Loading admin data...</div>;
@@ -568,13 +551,33 @@ const AdminDashboard: React.FC = () => {
           <div className="rounded-lg bg-white p-6 shadow-sm">
             <div className="mb-5">
               <h2 className="text-2xl font-bold text-gray-900">Sermons</h2>
-              <p className="text-sm text-gray-600">Create, update, and remove Sunday worship messages and daily manna entries.</p>
+              <p className="text-sm text-gray-600">Create, update, and remove Sunday worship messages.</p>
             </div>
-            <SermonManager />
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              {sermonCount} sermon entries are currently published.
+            </div>
+            <SermonManager entryType="sermon" />
+          </div>
+        );
+      case 'manna':
+        return (
+          <div className="rounded-lg bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-2xl font-bold text-gray-900">Manna</h2>
+              <p className="text-sm text-gray-600">Manage daily manna content separately from Sunday worship messages.</p>
+            </div>
+            <div className="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-800">
+              {mannaCount} daily manna entries are currently published.
+            </div>
+            <SermonManager entryType="daily-manna" />
           </div>
         );
       case 'inbox':
-        return renderInbox();
+        return renderMessages();
+      case 'prayer':
+        return renderPrayerRequests();
+      case 'giving':
+        return renderGiving();
       default:
         return null;
     }
@@ -588,10 +591,29 @@ const AdminDashboard: React.FC = () => {
           <div className="mt-1 text-sm text-white/60">Bread of Life Christian Church</div>
         </div>
         <nav className="space-y-1 p-4">
-          {(Object.keys(sectionLabels) as Section[]).map(section => {
+          {(['overview', 'homepage', 'text', 'media', 'sermons', 'manna'] as Section[]).map(section => {
+            const badge = section === 'text' && hasUnsavedContent ? 1 : 0;
+
+            return (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section)}
+                className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
+                  activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <span>{sectionLabels[section]}</span>
+                {badge > 0 && (
+                  <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
+                )}
+              </button>
+            );
+          })}
+          <div className="my-3 border-t border-white/10" />
+          {(['inbox', 'prayer', 'giving'] as Section[]).map(section => {
             const badge =
-              section === 'inbox' ? unreadMessages + newPrayerRequests :
-              section === 'text' && hasUnsavedContent ? 1 :
+              section === 'inbox' ? unreadMessages :
+              section === 'prayer' ? newPrayerRequests :
               0;
 
             return (
@@ -628,7 +650,7 @@ const AdminDashboard: React.FC = () => {
               <p className="text-sm text-gray-500">Everything that used to live in the bottom admin bar now lives here.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:hidden">
-              {(Object.keys(sectionLabels) as Section[]).map(section => (
+              {(['overview', 'homepage', 'text', 'media', 'sermons', 'manna', 'inbox', 'prayer', 'giving'] as Section[]).map(section => (
                 <button
                   key={section}
                   onClick={() => setActiveSection(section)}

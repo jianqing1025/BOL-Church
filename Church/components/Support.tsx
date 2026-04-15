@@ -12,10 +12,10 @@ const Support: React.FC = () => {
         />
         <div className="w-24 h-1 bg-blue-600 mb-8"></div>
         <Editable 
-          as="p" 
+          as="div" 
           contentKey="support.text" 
           isTextarea={true}
-          className="max-w-3xl text-gray-600 mb-10 leading-relaxed" 
+          className="prose prose-lg mb-10 max-w-3xl text-left text-gray-600" 
         />
         <a href="#/giving/ways-to-give"
           className="bg-orange-500 text-white px-10 py-3 rounded-full hover:bg-orange-600 transition-all font-semibold text-lg transform hover:scale-105 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"

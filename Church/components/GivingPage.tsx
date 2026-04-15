@@ -138,13 +138,6 @@ const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }
 
   const currentContent = contentMap[activeTab];
   
-  const renderContent = (content: string) => {
-    return content.split('\n\n').map((paragraph, index) => {
-      // Simple renderer, can be expanded for markdown
-      return <p key={index} className="text-gray-600 leading-relaxed mb-4">{paragraph}</p>;
-    });
-  };
-
   return (
     <div>
       <PageHeader
@@ -186,7 +179,6 @@ const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }
                         as="div"
                         contentKey={currentContent.contentKey}
                         isTextarea={true}
-                        render={text => <>{renderContent(text)}</>}
                     />
                 </div>
             </div>

@@ -6,9 +6,10 @@ import { CloseIcon } from './icons/Icons';
 
 interface AdminLoginProps {
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const AdminLogin: React.FC<AdminLoginProps> = ({ onClose }) => {
+const AdminLogin: React.FC<AdminLoginProps> = ({ onClose, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login } = useAdmin();
@@ -17,7 +18,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onClose }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (login(password)) {
-      onClose();
+      onSuccess?.();
     } else {
       setError(t('admin.errorPassword'));
       setPassword('');

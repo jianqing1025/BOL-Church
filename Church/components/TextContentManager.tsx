@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import RichTextEditor from './RichTextEditor';
 
 type LocalizedEntry = {
   path: string;
@@ -13,6 +14,11 @@ type Section = {
   prefixes: string[];
 };
 
+type PrimarySection = {
+  id: 'all' | 'navigation' | 'buttons' | 'page-titles' | 'content';
+  label: string;
+};
+
 const sections: Section[] = [
   { id: 'home', label: 'Home Sections', prefixes: ['about.', 'events.', 'sermons.', 'support.', 'contact.'] },
   { id: 'about', label: 'About Page', prefixes: ['aboutPage.'] },
@@ -21,6 +27,14 @@ const sections: Section[] = [
   { id: 'giving', label: 'Giving Page', prefixes: ['giving.', 'givingPage.'] },
   { id: 'contact', label: 'Contact & Prayer', prefixes: ['contactPage.', 'prayerRequestPage.'] },
   { id: 'shared', label: 'Header & Footer', prefixes: ['header.', 'footer.'] },
+];
+
+const primarySections: PrimarySection[] = [
+  { id: 'all', label: 'All' },
+  { id: 'navigation', label: 'Navigation' },
+  { id: 'buttons', label: 'Buttons' },
+  { id: 'page-titles', label: 'Page Titles' },
+  { id: 'content', label: 'Content' },
 ];
 
 function isLocalizedLeaf(value: unknown): value is { en: string; zh: string } {
@@ -58,8 +72,56 @@ function labelFromPath(path: string): string {
     .join(' / ');
 }
 
+function classifyEntry(path: string): PrimarySection['id'] {
+  const lowerPath = path.toLowerCase();
+  const pathParts = lowerPath.split('.');
+  const lastPart = pathParts[pathParts.length - 1] ?? '';
+
+  if (
+    lastPart.startsWith('nav') ||
+    lowerPath.startsWith('header.nav') ||
+    lowerPath.startsWith('aboutpage.nav') ||
+    lowerPath.startsWith('eventspage.nav') ||
+    lowerPath.startsWith('sermonspage.nav') ||
+    lowerPath.startsWith('givingpage.nav') ||
+    lowerPath.startsWith('contactpage.nav') ||
+    lowerPath.startsWith('prayerrequestpage.nav')
+  ) {
+    return 'navigation';
+  }
+
+  if (
+    lowerPath.includes('button') ||
+    lowerPath.includes('submit') ||
+    lowerPath.includes('watch') ||
+    lowerPath.includes('givenow') ||
+    lowerPath.includes('markread') ||
+    lowerPath.includes('markprayed') ||
+    lowerPath.includes('delete') ||
+    lowerPath.includes('signout') ||
+    lowerPath.includes('backtowebsite') ||
+    lowerPath.includes('newhere')
+  ) {
+    return 'buttons';
+  }
+
+  if (
+    lowerPath.includes('pagetitle') ||
+    lowerPath.includes('pagesubtitle') ||
+    lastPart === 'title' ||
+    lastPart === 'subtitle' ||
+    lastPart.endsWith('title') ||
+    lastPart.endsWith('subtitle')
+  ) {
+    return 'page-titles';
+  }
+
+  return 'content';
+}
+
 const TextContentManager: React.FC = () => {
-  const { content, updateContent, saveChanges, hasUnsavedContent } = useAdmin();
+  const { content, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
+  const [activePrimarySection, setActivePrimarySection] = useState<PrimarySection['id']>('all');
   const [activeSection, setActiveSection] = useState(sections[0].id);
   const [query, setQuery] = useState('');
 
@@ -75,6 +137,10 @@ const TextContentManager: React.FC = () => {
         return false;
       }
 
+      if (activePrimarySection !== 'all' && classifyEntry(entry.path) !== activePrimarySection) {
+        return false;
+      }
+
       if (!loweredQuery) {
         return true;
       }
@@ -85,7 +151,7 @@ const TextContentManager: React.FC = () => {
         entry.zh.toLowerCase().includes(loweredQuery)
       );
     });
-  }, [activeSection, allEntries, query]);
+  }, [activePrimarySection, activeSection, allEntries, query]);
 
   return (
     <div className="space-y-5">
@@ -105,6 +171,20 @@ const TextContentManager: React.FC = () => {
             Save Text Changes
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {primarySections.map(section => (
+          <button
+            key={section.id}
+            onClick={() => setActivePrimarySection(section.id)}
+            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              activePrimarySection === section.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            {section.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -138,9 +218,6 @@ const TextContentManager: React.FC = () => {
           </div>
         ) : (
           visibleEntries.map(entry => {
-            const multiline = entry.en.length > 120 || entry.zh.length > 120 || entry.en.includes('\n') || entry.zh.includes('\n');
-            const Input = multiline ? 'textarea' : 'input';
-
             return (
               <div key={entry.path} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="mb-3">
@@ -150,22 +227,18 @@ const TextContentManager: React.FC = () => {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <label className="space-y-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                    <Input
+                    <RichTextEditor
                       value={entry.en}
-                      onChange={event => updateContent(`${entry.path}.en`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        multiline ? 'min-h-[120px] resize-y' : ''
-                      }`}
+                      onChange={value => updateContent(`${entry.path}.en`, value)}
+                      onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.en.${Date.now()}`, file, fileName)}
                     />
                   </label>
                   <label className="space-y-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                    <Input
+                    <RichTextEditor
                       value={entry.zh}
-                      onChange={event => updateContent(`${entry.path}.zh`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        multiline ? 'min-h-[120px] resize-y' : ''
-                      }`}
+                      onChange={value => updateContent(`${entry.path}.zh`, value)}
+                      onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.zh.${Date.now()}`, file, fileName)}
                     />
                   </label>
                 </div>

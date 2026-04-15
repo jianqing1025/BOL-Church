@@ -24,7 +24,15 @@ const Footer: React.FC = () => {
                     </div>
                 </div>
             </footer>
-            {isLoginModalOpen && <AdminLogin onClose={() => setIsLoginModalOpen(false)} />}
+            {isLoginModalOpen && (
+                <AdminLogin
+                    onClose={() => setIsLoginModalOpen(false)}
+                    onSuccess={() => {
+                        setIsLoginModalOpen(false);
+                        window.location.hash = '#/admin';
+                    }}
+                />
+            )}
         </>
     );
 };

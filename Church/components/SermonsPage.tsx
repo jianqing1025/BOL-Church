@@ -172,15 +172,6 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
 
   const currentHeader = headerContent[activeTab];
 
-  const renderContent = (content: string) => {
-    return content.split('\n\n').map((paragraph, index) => {
-      if (paragraph.startsWith('### ')) {
-        return <h3 key={index} className="text-2xl font-bold text-gray-800 mt-8 mb-4">{paragraph.substring(4)}</h3>;
-      }
-      return <p key={index} className="text-gray-600 leading-relaxed mb-4">{paragraph}</p>;
-    });
-  };
-
   return (
     <div>
       <PageHeader
@@ -225,7 +216,6 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
                 as="div"
                 contentKey={activeTab === 'sunday-worship' ? 'sermonsPage.sundayWorshipContent' : 'sermonsPage.liveStreamContent'}
                 isTextarea={true}
-                render={text => <>{renderContent(text)}</>}
               />
           </div>
         ) : null}

@@ -214,7 +214,7 @@ export const translations = {
     submit: { en: 'Submit Prayer Request', zh: '提交禱告請求' },
   },
   footer: {
-    copyright: { en: '© 2024 Bread of Life Christian Church. All Rights Reserved.', zh: '© 2024 信望愛靈糧堂. 版權所有.' },
+    copyright: { en: '@2026 Bread of Life Christian Church. All Rights Reserved.', zh: '@2026 信望愛靈糧堂. 版權所有.' },
   },
   admin: {
     loginTitle: { en: 'Admin Login', zh: '管理員登入' },
