@@ -148,7 +148,7 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
   useEffect(() => {
      const handleHashChange = () => {
         const hash = window.location.hash;
-        const subPage = (hash.split('/')[2] || 'daily-manna') as SermonSubPage;
+        const subPage = (hash.split('/')[2] || 'sunday-worship') as SermonSubPage;
         setActiveTab(subPage);
     };
     window.addEventListener('hashchange', handleHashChange);
@@ -157,8 +157,8 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
   }, []);
   
   const navItems: { key: SermonSubPage; textKey: string }[] = [
-    { key: 'daily-manna', textKey: 'sermonsPage.navDailyManna' },
     { key: 'sunday-worship', textKey: 'sermonsPage.navSundayWorship' },
+    { key: 'daily-manna', textKey: 'sermonsPage.navDailyManna' },
     { key: 'recent-sermons', textKey: 'sermonsPage.navRecentSermons' },
     { key: 'live-stream', textKey: 'sermonsPage.navLiveStream' },
   ];
