@@ -30,9 +30,9 @@ const ContactForm = () => {
       
       {submitted ? (
           <div className="bg-green-50 text-green-800 p-6 rounded-lg text-center">
-              <h3 className="text-xl font-bold mb-2">Message Sent!</h3>
-              <p>Thank you for contacting us. We will get back to you shortly.</p>
-              <button onClick={() => setSubmitted(false)} className="mt-4 text-sm underline">Send another message</button>
+              <h3 className="text-xl font-bold mb-2">{t('contactPage.successTitle')}</h3>
+              <p>{t('contactPage.successMessage')}</p>
+              <button onClick={() => setSubmitted(false)} className="mt-4 text-sm underline">{t('contactPage.sendAnother')}</button>
           </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -104,9 +104,9 @@ const PrayerRequestForm = () => {
       
       {submitted ? (
           <div className="bg-green-50 text-green-800 p-6 rounded-lg text-center">
-              <h3 className="text-xl font-bold mb-2">Request Received</h3>
-              <p>Your prayer request has been shared with our prayer team. We are standing with you in prayer.</p>
-              <button onClick={() => setSubmitted(false)} className="mt-4 text-sm underline">Submit another request</button>
+              <h3 className="text-xl font-bold mb-2">{t('prayerRequestPage.successTitle')}</h3>
+              <p>{t('prayerRequestPage.successMessage')}</p>
+              <button onClick={() => setSubmitted(false)} className="mt-4 text-sm underline">{t('prayerRequestPage.submitAnother')}</button>
           </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">

@@ -44,7 +44,12 @@ function formatDate(isoString: string) {
 }
 
 function formatShortDate(isoString: string) {
-  return new Date(isoString).toLocaleDateString('en-US', {
+  const dateOnlyMatch = isoString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(isoString);
+
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
   });

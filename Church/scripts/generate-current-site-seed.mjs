@@ -15,6 +15,31 @@ function sqlJson(value) {
   return sqlString(JSON.stringify(value));
 }
 
+function isLocalizedContent(value) {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof value.en === 'string' &&
+    typeof value.zh === 'string'
+  );
+}
+
+function flattenSiteContent(obj, prefix = '') {
+  return Object.entries(obj).flatMap(([key, value]) => {
+    const contentPath = prefix ? `${prefix}.${key}` : key;
+
+    if (isLocalizedContent(value)) {
+      return [{ path: contentPath, en: value.en, zh: value.zh }];
+    }
+
+    if (value && typeof value === 'object') {
+      return flattenSiteContent(value, contentPath);
+    }
+
+    return [];
+  });
+}
+
 function evaluateExportedValue(source, exportName) {
   const exportPattern = new RegExp(`export\\s+const\\s+${exportName}(?:\\s*:[^=]+)?\\s*=`);
   const match = exportPattern.exec(source);
@@ -72,6 +97,10 @@ const lines = [
   `INSERT INTO settings (key, value_json, updated_at)
 VALUES ('website_content', ${sqlJson(translations)}, ${sqlString(now)})
 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;`,
+  '',
+  ...flattenSiteContent(translations).map(row => `INSERT INTO site_content (path, en, zh, updated_at)
+VALUES (${sqlString(row.path)}, ${sqlString(row.en)}, ${sqlString(row.zh)}, ${sqlString(now)})
+ON CONFLICT(path) DO UPDATE SET en = excluded.en, zh = excluded.zh, updated_at = excluded.updated_at;`),
   '',
   `INSERT INTO settings (key, value_json, updated_at)
 VALUES ('images', '{}', ${sqlString(now)})

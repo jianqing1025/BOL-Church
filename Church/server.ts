@@ -59,6 +59,12 @@ type DonationRow = {
   status: 'completed';
 };
 
+type SiteContentRow = {
+  path: string;
+  en: string;
+  zh: string;
+};
+
 type CloudflareGraphQLResponse<T> = {
   data?: T;
   errors?: Array<{ message?: string }>;
@@ -190,10 +196,94 @@ async function putSetting(env: Env, key: string, value: unknown): Promise<void> 
   ).bind(key, JSON.stringify(value), new Date().toISOString()).run();
 }
 
+function isLocalizedContent(value: unknown): value is LocalizedText {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'en' in value &&
+    'zh' in value &&
+    typeof (value as { en?: unknown }).en === 'string' &&
+    typeof (value as { zh?: unknown }).zh === 'string'
+  );
+}
+
+function flattenSiteContent(obj: Record<string, unknown>, prefix = ''): SiteContentRow[] {
+  return Object.entries(obj).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+
+    if (isLocalizedContent(value)) {
+      return [{ path, en: value.en, zh: value.zh }];
+    }
+
+    if (value && typeof value === 'object') {
+      return flattenSiteContent(value as Record<string, unknown>, path);
+    }
+
+    return [];
+  });
+}
+
+function setNestedContentValue(obj: Record<string, any>, path: string, value: LocalizedText): void {
+  const keys = path.split('.');
+  const lastKey = keys.pop();
+  if (!lastKey) {
+    return;
+  }
+
+  let target = obj;
+  for (const key of keys) {
+    if (!target[key] || typeof target[key] !== 'object') {
+      target[key] = {};
+    }
+    target = target[key];
+  }
+  target[lastKey] = value;
+}
+
+function expandSiteContent(rows: SiteContentRow[], fallback: typeof translations): typeof translations {
+  const expanded = structuredClone(fallback) as Record<string, any>;
+  for (const row of rows) {
+    setNestedContentValue(expanded, row.path, asLocalizedText(row.en, row.zh));
+  }
+  return expanded as typeof translations;
+}
+
+async function getSiteContent(env: Env): Promise<typeof translations> {
+  const result = await env.DB.prepare('SELECT path, en, zh FROM site_content ORDER BY path').all<SiteContentRow>();
+  const rows = result.results ?? [];
+
+  if (rows.length > 0) {
+    return expandSiteContent(rows, translations);
+  }
+
+  return getSetting(env, 'website_content', translations);
+}
+
+async function putSiteContent(env: Env, content: typeof translations): Promise<void> {
+  const now = new Date().toISOString();
+  const rows = flattenSiteContent(content as Record<string, unknown>);
+
+  if (rows.length > 0) {
+    const statements = rows.map(row => env.DB.prepare(
+      `INSERT INTO site_content (path, en, zh, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET
+         en = excluded.en,
+         zh = excluded.zh,
+         updated_at = excluded.updated_at`
+    ).bind(row.path, row.en, row.zh, now));
+
+    await env.DB.batch(statements);
+  }
+
+  await putSetting(env, 'website_content', content);
+}
+
 async function ensureSeedData(env: Env): Promise<void> {
-  const contentExists = await env.DB.prepare('SELECT key FROM settings WHERE key = ?').bind('website_content').first();
-  if (!contentExists) {
-    await putSetting(env, 'website_content', translations);
+  const contentRowCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM site_content').first<{ count: number }>();
+  if (!contentRowCount || Number(contentRowCount.count) === 0) {
+    const legacyContent = await getSetting(env, 'website_content', translations);
+    await putSiteContent(env, legacyContent);
   }
 
   const imagesExists = await env.DB.prepare('SELECT key FROM settings WHERE key = ?').bind('images').first();
@@ -235,7 +325,7 @@ async function handleBootstrap(env: Env): Promise<Response> {
   await ensureSeedData(env);
 
   const [content, images, sermonsResult, messagesResult, prayerResult, donationsResult] = await Promise.all([
-    getSetting(env, 'website_content', translations),
+    getSiteContent(env),
     getSetting<Record<string, string>>(env, 'images', {}),
     env.DB.prepare('SELECT * FROM sermons ORDER BY date DESC').all<SermonRow>(),
     env.DB.prepare('SELECT * FROM messages ORDER BY date DESC').all<MessageRow>(),
@@ -446,7 +536,7 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === '/api/content' && request.method === 'PUT') {
       const content = await readJson(request);
-      await putSetting(env, 'website_content', content);
+      await putSiteContent(env, content as typeof translations);
       return json({ ok: true });
     }
 

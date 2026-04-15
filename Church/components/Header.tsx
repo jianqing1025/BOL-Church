@@ -79,13 +79,21 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     ]},
   ];
 
-  const handleDropdownToggle = (key: string) => {
-    setActiveDropdown(prev => (prev === key ? null : key));
-  };
-
   const handleLinkClick = () => {
     setActiveDropdown(null);
     setIsMenuOpen(false);
+  };
+
+  const navigateTo = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    event.preventDefault();
+    handleLinkClick();
+
+    if (window.location.hash === href) {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
+
+    window.location.hash = href;
   };
 
   useEffect(() => {
@@ -110,19 +118,25 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
             <LogoIcon className="h-9 w-9" />
             <span className="text-3xl font-bold">{t('header.logo')}</span>
           </a>
-          <nav className="hidden md:flex items-center space-x-8">
+          <nav className="hidden md:flex items-center space-x-5 lg:space-x-6">
             {navLinks.map(link => (
               link.subLinks ? (
-                <div key={link.key} className="relative">
-                   <button 
-                    onClick={() => handleDropdownToggle(link.key)} 
-                    className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2 flex items-center gap-1`}
+                <div
+                  key={link.key}
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown(link.key)}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                   <a
+                    href={link.subLinks[0].href}
+                    onClick={event => navigateTo(event, link.subLinks![0].href)}
+                    onFocus={() => setActiveDropdown(link.key)}
+                    className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2`}
                     aria-haspopup="true"
                     aria-expanded={activeDropdown === link.key}
                    >
                     {t(link.key)}
-                    <svg className={`w-4 h-4 transition-transform ${activeDropdown === link.key ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                  </button>
+                  </a>
                   {activeDropdown === link.key && (
                     <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white/80 backdrop-blur-lg border border-white/30 rounded-xl shadow-lg p-2 z-10`}>
                       {link.subLinks.map(subLink => (

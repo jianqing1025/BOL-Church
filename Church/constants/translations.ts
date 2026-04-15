@@ -191,6 +191,9 @@ export const translations = {
     privacy: { en: 'Privacy Policy', zh: '隱私政策' },
     and: { en: 'and', zh: '和' },
     submit: { en: 'Submit', zh: '提交' },
+    successTitle: { en: 'Message Sent!', zh: '訊息已送出！' },
+    successMessage: { en: 'Thank you for contacting us. We will get back to you shortly.', zh: '感謝您與我們聯繫。我們會盡快回覆您。' },
+    sendAnother: { en: 'Send another message', zh: '發送另一則訊息' },
     prayerFormTitle: { en: 'Submit a Prayer Request', zh: '提交禱告請求' },
     prayerFormSubtitle: { en: 'Your request is confidential.', zh: '您的請求將被保密。' },
     firstNameOptional: { en: 'First name (Optional)', zh: '名字 (選填)' },
@@ -212,6 +215,12 @@ export const translations = {
     phoneNumber: { en: 'Phone Number (Optional)', zh: '電話號碼 (選填)' },
     message: { en: 'Prayer Request', zh: '禱告事項' },
     submit: { en: 'Submit Prayer Request', zh: '提交禱告請求' },
+    successTitle: { en: 'Request Received', zh: '已收到您的禱告請求' },
+    successMessage: {
+      en: 'Your prayer request has been shared with our prayer team. We are standing with you in prayer.',
+      zh: '您的禱告請求已分享給我們的禱告團隊。我們會與您同心禱告。',
+    },
+    submitAnother: { en: 'Submit another request', zh: '提交另一個禱告請求' },
   },
   footer: {
     copyright: { en: '@2026 Bread of Life Christian Church. All Rights Reserved.', zh: '@2026 信望愛靈糧堂. 版權所有.' },

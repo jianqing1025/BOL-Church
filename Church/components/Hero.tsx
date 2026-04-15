@@ -3,28 +3,28 @@ import { useLocalization } from '../hooks/useLocalization';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 import { resizeImageToBlob } from '../imageUpload';
-
-const imagesConfig = [
-  { key: 'hero.image1', src: 'https://images.unsplash.com/photo-1438232992991-995b7058bbb3?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2673' },
-  { key: 'hero.image2', src: 'https://images.unsplash.com/photo-1478147427282-58a87a120781?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=3870' },
-  { key: 'hero.image3', src: 'https://images.unsplash.com/photo-1507692049790-de58290a4334?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2670' },]
-  //{ key: 'hero.image4', src: '../public/images/1.jpg' },]
-
-  //  { key: 'hero.image3', src: 'https://picsum.photos/1920/1080?random=3' },]
+import { buildMediaSlots } from '../media';
 
 const Hero: React.FC = () => {
   const { t } = useLocalization();
   const { images, isAdminMode, uploadImage } = useAdmin();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const heroSlides = buildMediaSlots('hero', images);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentImageIndex((prevIndex) => (prevIndex + 1) % imagesConfig.length);
+      setCurrentImageIndex(prevIndex => (prevIndex + 1) % heroSlides.length);
     }, 5000); // Change image every 5 seconds
 
     return () => clearInterval(timer);
-  }, []);
+  }, [heroSlides.length]);
+
+  useEffect(() => {
+    if (currentImageIndex >= heroSlides.length) {
+      setCurrentImageIndex(0);
+    }
+  }, [currentImageIndex, heroSlides.length]);
 
   const handleImageUploadClick = () => {
     fileInputRef.current?.click();
@@ -34,7 +34,7 @@ const Hero: React.FC = () => {
       const file = e.target.files?.[0];
       if (file) {
           try {
-              const currentImageKey = imagesConfig[currentImageIndex].key;
+              const currentImageKey = heroSlides[currentImageIndex]?.key ?? heroSlides[0].key;
               const resizedImage = await resizeImageToBlob(file, 1920, 1080);
               await uploadImage(currentImageKey, resizedImage, file.name);
           } catch (error) {
@@ -47,12 +47,12 @@ const Hero: React.FC = () => {
 
   return (
     <section id="home" className="relative h-screen flex items-center justify-center text-center text-white bg-black">
-      {imagesConfig.map((imageConfig, index) => (
+      {heroSlides.map((imageConfig, index) => (
         <div
           key={imageConfig.key}
           className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000"
           style={{
-            backgroundImage: `url(${images[imageConfig.key] || imageConfig.src})`,
+            backgroundImage: `url(${images[imageConfig.key] || imageConfig.placeholder})`,
             opacity: index === currentImageIndex ? 1 : 0,
           }}
         />

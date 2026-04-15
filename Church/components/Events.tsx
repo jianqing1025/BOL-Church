@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { useAdmin } from '../hooks/useAdmin';
 import { resizeImageToBlob } from '../imageUpload';
+import { buildMediaSlots, type MediaSlot } from '../media';
 
 interface EditableImageProps {
   imageKey: string;
@@ -60,17 +61,16 @@ const EditableImage: React.FC<EditableImageProps> = ({ imageKey, className, alt,
 };
 
 interface EventCardProps {
-  imageSrc: string;
+  slot: MediaSlot;
   title: string;
   date: string;
-  imageKey: string;
 }
 
-const EventCard: React.FC<EventCardProps> = ({ imageSrc, title, date, imageKey }) => (
+const EventCard: React.FC<EventCardProps> = ({ slot, title, date }) => (
   <div className="bg-white rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-transform duration-300">
     <EditableImage
-      imageKey={imageKey}
-      placeholderSrc={imageSrc}
+      imageKey={slot.key}
+      placeholderSrc={slot.placeholder}
       alt={title}
       className="w-full h-48 object-cover"
     />
@@ -83,21 +83,21 @@ const EventCard: React.FC<EventCardProps> = ({ imageSrc, title, date, imageKey }
 
 const Events: React.FC = () => {
   const { t } = useLocalization();
-
-  const eventData = [
-    { imageSrc: 'https://images.unsplash.com/photo-1630467355731-963887fa179a?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2670', titleKey: 'events.event1Title', dateKey: 'events.event1Date', imageKey: 'events.event1.image' },
-    { imageSrc: 'https://images.unsplash.com/photo-1501060380799-184ae00cf089?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2670', titleKey: 'events.event2Title', dateKey: 'events.event2Date', imageKey: 'events.event2.image' },
-    { imageSrc: 'https://images.unsplash.com/photo-1509021436665-8f07dbf5bf1d?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2274', titleKey: 'events.event3Title', dateKey: 'events.event3Date', imageKey: 'events.event3.image' },
-    { imageSrc: 'https://images.unsplash.com/photo-1600288480699-0b0d8a456dd8?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2670', titleKey: 'events.event4Title', dateKey: 'events.event4Date', imageKey: 'events.event4.image' },
-  ];
+  const { images } = useAdmin();
+  const eventCards = buildMediaSlots('event', images);
 
   return (
     <section id="events" className="py-20 bg-white">
       <div className="container mx-auto px-6">
         <h2 className="text-3xl md:text-4xl font-bold text-center mb-12 text-gray-800">{t('events.title')}</h2>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {eventData.map((event, index) => (
-            <EventCard key={index} imageSrc={event.imageSrc} title={t(event.titleKey)} date={t(event.dateKey)} imageKey={event.imageKey} />
+          {eventCards.map(slot => (
+            <EventCard
+              key={slot.key}
+              slot={slot}
+              title={t(`events.event${slot.index}Title`) === `events.event${slot.index}Title` ? slot.label : t(`events.event${slot.index}Title`)}
+              date={t(`events.event${slot.index}Date`) === `events.event${slot.index}Date` ? slot.hint : t(`events.event${slot.index}Date`)}
+            />
           ))}
         </div>
         <div className="text-center mt-12">
