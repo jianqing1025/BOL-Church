@@ -13,6 +13,7 @@
     "deploy:dev": "vite build && wrangler deploy --config .tmp/wrangler.church-dev.toml",
     "deploy:master": "vite build && wrangler deploy",
     "d1:migrate:local": "wrangler d1 migrations apply bol-church --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply bol-church --remote",
     "d1:seed:current": "node ./scripts/generate-current-site-seed.mjs",
     "firebase:export": "node ./scripts/export-firebase-to-d1.mjs",
     "firebase:sql": "node ./scripts/firebase-export-to-sql.mjs"

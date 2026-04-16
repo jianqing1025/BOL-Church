@@ -29,11 +29,19 @@ Key files:
 Before deploying on a new Cloudflare account:
 
 1. Copy `.env.example` to `.env`
-2. Set `VITE_ADMIN_PASSWORD`
-3. Optional but recommended: set `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` to your Cloudflare Web Analytics beacon token
-4. Copy `wrangler.example.toml` to `wrangler.toml`
-5. Fill in your own Worker name, D1 database name/id, and R2 bucket name
-6. If you want dashboard traffic stats, also set `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_ANALYTICS_API_TOKEN`
+2. Optional but recommended: set `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` to your Cloudflare Web Analytics beacon token
+3. Copy `wrangler.example.toml` to `wrangler.toml`
+4. Fill in your own Worker name, D1 database name/id, and R2 bucket name
+5. Set `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_NAME` for the first Owner account
+6. Set the first Owner password as a Worker secret: `npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD`
+7. If you want dashboard traffic stats, also set `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_ANALYTICS_API_TOKEN`
+
+Admin notes:
+
+- The first active Owner is created automatically after migrations if the `users` table is empty.
+- The first Owner is created when the deployed Worker first handles `/api/bootstrap`, `/api/auth/me`, or `/api/auth/login`.
+- After the first Owner signs in, create named accounts from Admin → Users and change the bootstrap password.
+- Admin users can edit normal admin content, sermons, manna, inbox, prayer, giving, and media, but cannot access Homepage or Users.
 
 Cloudflare analytics notes:
 
@@ -46,6 +54,9 @@ Useful commands:
 - Build frontend: `npm run build`
 - Local API only: `npm run api:dev`
 - Local D1 migration: `npm run d1:migrate:local`
+- Remote D1 migration: `npm run d1:migrate:remote`
+- Trigger first Owner creation locally after starting the Worker: `curl http://127.0.0.1:8787/api/auth/me`
+- Trigger first Owner creation remotely after deploy: `curl https://new.bolccop.org/api/auth/me`
 - Local Worker dev: `npm run cf:dev`
 - Deploy Worker + assets: `npm run cf:deploy`
 

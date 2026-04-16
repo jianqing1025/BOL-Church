@@ -81,7 +81,7 @@ const AdminPanel: React.FC = () => {
             </a>
             
             <button
-                onClick={logout}
+                onClick={() => void logout()}
                 className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
             >
                 Exit

@@ -42,6 +42,18 @@ export interface Donation {
   status: 'completed';
 }
 
+export type AdminRole = 'owner' | 'contributor';
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AnalyticsCountry {
   country: string;
   requests: number;
@@ -73,6 +85,8 @@ export interface SiteBootstrap {
   messages: Message[];
   prayerRequests: PrayerRequest[];
   donations: Donation[];
+  currentUser?: AdminUser | null;
+  users?: AdminUser[];
 }
 
 export const DEFAULT_SERMONS: Omit<Sermon, 'id'>[] = [

@@ -1,4 +1,4 @@
-import type { AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap } from './data';
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -6,6 +6,7 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
       ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...init?.headers,
     },
+    credentials: 'same-origin',
     ...init,
   });
 
@@ -34,6 +35,19 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   bootstrap: () => request<SiteBootstrap>('/api/bootstrap'),
+  me: () => request<{ user: AdminUser | null }>('/api/auth/me'),
+  login: (email: string, password: string) =>
+    request<{ user: AdminUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  logout: () =>
+    request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
+  updateMe: (payload: { name?: string; email?: string; currentPassword?: string; newPassword?: string }) =>
+    request<{ user: AdminUser }>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+  listUsers: () =>
+    request<AdminUser[]>('/api/users'),
+  createUser: (payload: { name: string; email: string; password: string; role: AdminRole }) =>
+    request<AdminUser>('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
+  updateUser: (id: string, payload: Partial<{ name: string; email: string; password: string; role: AdminRole; active: boolean }>) =>
+    request<AdminUser>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   saveContent: (content: SiteBootstrap['content']) =>
     request<{ ok: true }>('/api/content', { method: 'PUT', body: JSON.stringify(content) }),
   createSermon: (sermon: Omit<Sermon, 'id'>) =>

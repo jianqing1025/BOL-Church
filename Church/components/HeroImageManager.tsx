@@ -43,10 +43,15 @@ const MediaCard: React.FC<{
 );
 
 const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, addLabel }) => {
-  const { images, uploadImage } = useAdmin();
+  const { images, uploadImage, canEditContent } = useAdmin();
   const addInputRef = useRef<HTMLInputElement>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const slots = buildMediaSlots(kind, images);
+  const canEdit = slots.some(slot => canEditContent(slot.key));
+
+  if (!canEdit) {
+    return null;
+  }
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>, slot: MediaSlot) => {
     const file = event.target.files?.[0];
@@ -103,7 +108,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {slots.map(slot => (
+        {slots.filter(slot => canEditContent(slot.key)).map(slot => (
           <MediaCard
             key={slot.key}
             slot={slot}

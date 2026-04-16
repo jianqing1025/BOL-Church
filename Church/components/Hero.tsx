@@ -7,7 +7,7 @@ import { buildMediaSlots } from '../media';
 
 const Hero: React.FC = () => {
   const { t } = useLocalization();
-  const { images, isAdminMode, uploadImage } = useAdmin();
+  const { images, isAdminMode, uploadImage, canEditContent } = useAdmin();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const heroSlides = buildMediaSlots('hero', images);
@@ -58,7 +58,7 @@ const Hero: React.FC = () => {
         />
       ))}
       
-      {isAdminMode && (
+      {isAdminMode && canEditContent('hero.image') && (
         <>
             <div className="absolute top-24 right-4 z-20">
                 <button
