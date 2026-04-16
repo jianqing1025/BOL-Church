@@ -129,10 +129,10 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   return (
     <HeaderContext.Provider value={{ isTransparent }}>
       <header className={headerClasses} ref={headerRef}>
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <a href="#/" onClick={handleLinkClick} className={`flex items-center gap-3 transition-colors ${logoClasses}`}>
-            <LogoIcon className="h-9 w-9" />
-            <span className="text-3xl font-bold">{t('header.logo')}</span>
+        <div className="container mx-auto px-4 py-3 md:px-6 md:py-4 flex justify-between items-center">
+          <a href="#/" onClick={handleLinkClick} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
+            <LogoIcon className="h-7 w-7 flex-shrink-0 sm:h-8 sm:w-8 md:h-9 md:w-9" />
+            <span className="max-w-[13rem] truncate text-xl font-bold leading-none sm:max-w-none sm:text-2xl md:text-3xl">{t('header.logo')}</span>
           </a>
           <nav className="hidden md:flex items-center space-x-5 lg:space-x-6">
             {navLinks.map(link => (
@@ -188,27 +188,27 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         </div>
         
         {isMenuOpen && (
-          <div className="md:hidden bg-white shadow-lg absolute top-full left-0 w-full">
-            <nav className="flex flex-col items-center space-y-4 p-6">
+          <div className="md:hidden absolute right-3 top-full mt-2 w-[min(50vw,20rem)] max-h-[calc(100vh-84px)] overflow-y-auto rounded-3xl border border-white/35 bg-white/55 shadow-2xl shadow-black/15 backdrop-blur-2xl">
+            <nav className="flex flex-col items-center space-y-2 p-4">
               {navLinks.map(link => (
                 'href' in link ? (
-                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                         {t(link.key)}
                     </a>
                 ) : (
                     <div key={link.key} className="flex flex-col items-center gap-2">
-                      <a href={link.subLinks[0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                      <a href={link.subLinks[0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                           {t(link.key)}
                       </a>
                     </div>
                 )
               ))}
-              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-6 py-3 rounded-full hover:bg-blue-700 transition-all text-lg font-semibold mt-4">
-                {t('header.newHere')}
-              </a>
-              <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-lg font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-2">
+              <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
+              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+                {t('header.newHere')}
+              </a>
             </nav>
           </div>
         )}

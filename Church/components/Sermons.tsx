@@ -131,7 +131,7 @@ const Sermons: React.FC = () => {
             language={language}
             emptyText={t('sermonArchive.noResults')}
             ctaHref="#/sermons/daily-manna"
-            ctaText={t('sermons.button')}
+            ctaText={t('sermons.mannaButton')}
             entryHref={(sermon) => `#/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
           />
         </div>

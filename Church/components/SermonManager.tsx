@@ -202,7 +202,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
         </div>
       ) : (
         <button onClick={() => setIsAdding(true)} className="bg-green-600 text-white px-6 py-2 rounded-lg mb-4 font-bold shadow hover:bg-green-700 transition-colors">
-          {isManna ? '新增每日天言' : '新增主日信息'}
+          {isManna ? 'Add Daily Manna' : 'Add Sunday Message'}
         </button>
       )}
 
