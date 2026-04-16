@@ -54,15 +54,16 @@ const VideoSection: React.FC<{
   emptyText: string;
   ctaHref: string;
   ctaText: string;
+  entryHref: (sermon: Sermon) => string;
   headerExtra?: React.ReactNode;
-}> = ({ title, entries, language, emptyText, ctaHref, ctaText, headerExtra }) => (
+}> = ({ title, entries, language, emptyText, ctaHref, ctaText, entryHref, headerExtra }) => (
   <div className="rounded-[2rem] bg-white px-4 py-10 shadow-sm ring-1 ring-gray-200 sm:px-8">
     <h3 className="mb-8 text-center text-2xl font-extrabold text-gray-900 md:text-3xl">{title}</h3>
     {headerExtra}
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
       {entries.length > 0 ? (
         entries.map((sermon) => (
-          <a href={`#/sermons/${sermon.id}`} key={sermon.id}>
+          <a href={entryHref(sermon)} key={sermon.id}>
             <SermonCard
               imageSrc={sermon.imageUrl || getYouTubeThumbnail(sermon.youtubeId)}
               title={language === Language.EN ? sermon.title.en : sermon.title.zh}
@@ -110,6 +111,7 @@ const Sermons: React.FC = () => {
             emptyText={t('sermonArchive.noResults')}
             ctaHref="#/sermons/sunday-worship"
             ctaText={t('sermons.button')}
+            entryHref={(sermon) => `#/sermons/sunday-worship?video=${encodeURIComponent(sermon.id)}`}
             headerExtra={
               <div className="mb-10 max-w-lg mx-auto">
                 <input
@@ -130,6 +132,7 @@ const Sermons: React.FC = () => {
             emptyText={t('sermonArchive.noResults')}
             ctaHref="#/sermons/daily-manna"
             ctaText={t('sermons.button')}
+            entryHref={(sermon) => `#/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
           />
         </div>
       </div>

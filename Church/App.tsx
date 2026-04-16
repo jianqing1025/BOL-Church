@@ -70,7 +70,7 @@ function App() {
   const renderPage = () => {
     if (route.startsWith('#/sermons/')) {
       const parts = route.split('/');
-      const segment = parts[2] || 'sunday-worship'; 
+      const segment = (parts[2] || 'sunday-worship').split('?')[0]; 
       
       const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'recent-sermons', 'live-stream'];
       

@@ -8,6 +8,14 @@ interface HeaderProps {
   isTransparent: boolean;
 }
 
+type NavSubLink =
+  | { href: string; key: string; label?: never }
+  | { href: string; label: { en: string; zh: string }; key?: never };
+
+type NavLink =
+  | { href: string; key: string; subLinks?: never }
+  | { key: string; subLinks: NavSubLink[]; href?: never };
+
 const useHeaderStyle = () => {
     const { isTransparent } = React.useContext(HeaderContext);
     const [isScrolled, setIsScrolled] = useState(!isTransparent);
@@ -43,8 +51,11 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
   
-  const navLinks = [
-    { href: '#/', key: 'header.navHome' },
+  const navLinks: NavLink[] = [
+    { key: 'header.navHome', subLinks: [
+        { href: 'https://new.bolccop.org', label: { en: 'New Homepage', zh: '新版首頁' } },
+        { href: 'https://classic.bolccop.org', label: { en: 'Classic Homepage', zh: '舊版首頁' } },
+    ]},
     { key: 'header.navAbout', subLinks: [
         { href: '#/about/our-church', key: 'aboutPage.navOurChurch' },
         { href: '#/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
@@ -85,6 +96,11 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   };
 
   const navigateTo = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (href.startsWith('http')) {
+      handleLinkClick();
+      return;
+    }
+
     event.preventDefault();
     handleLinkClick();
 
@@ -120,7 +136,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
           </a>
           <nav className="hidden md:flex items-center space-x-5 lg:space-x-6">
             {navLinks.map(link => (
-              link.subLinks ? (
+              'subLinks' in link ? (
                 <div
                   key={link.key}
                   className="relative"
@@ -129,7 +145,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
                 >
                    <a
                     href={link.subLinks[0].href}
-                    onClick={event => navigateTo(event, link.subLinks![0].href)}
+                    onClick={event => navigateTo(event, link.subLinks[0].href)}
                     onFocus={() => setActiveDropdown(link.key)}
                     className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2`}
                     aria-haspopup="true"
@@ -138,10 +154,14 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
                     {t(link.key)}
                   </a>
                   {activeDropdown === link.key && (
-                    <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white/80 backdrop-blur-lg border border-white/30 rounded-xl shadow-lg p-2 z-10`}>
-                      {link.subLinks.map(subLink => (
-                         <a key={subLink.key} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">{t(subLink.key)}</a>
-                      ))}
+                    <div className="absolute left-0 top-full z-10 w-56 pt-2">
+                      <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
+                        {link.subLinks.map(subLink => (
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                            {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
+                           </a>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -171,14 +191,16 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
           <div className="md:hidden bg-white shadow-lg absolute top-full left-0 w-full">
             <nav className="flex flex-col items-center space-y-4 p-6">
               {navLinks.map(link => (
-                link.href ? (
+                'href' in link ? (
                     <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
                         {t(link.key)}
                     </a>
                 ) : (
-                    <a key={link.key} href={link.subLinks![0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
-                        {t(link.key)}
-                    </a>
+                    <div key={link.key} className="flex flex-col items-center gap-2">
+                      <a href={link.subLinks[0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                          {t(link.key)}
+                      </a>
+                    </div>
                 )
               ))}
               <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-6 py-3 rounded-full hover:bg-blue-700 transition-all text-lg font-semibold mt-4">

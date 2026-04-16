@@ -63,6 +63,13 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type'] }> = ({ entryT
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [sourceEntries]);
 
+  useEffect(() => {
+    const videoId = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('video');
+    if (videoId) {
+      setSelectedId(videoId);
+    }
+  }, [entryType]);
+
   const selectedEntry = useMemo(() => {
     return entries.find(entry => entry.id === selectedId) ?? entries[0] ?? null;
   }, [entries, selectedId]);
@@ -161,7 +168,11 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type'] }> = ({ entryT
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(entry.id)}
+                  onClick={() => {
+                    setSelectedId(entry.id);
+                    const page = entryType === 'daily-manna' ? 'daily-manna' : 'sunday-worship';
+                    window.history.replaceState(null, '', `#/sermons/${page}?video=${encodeURIComponent(entry.id)}`);
+                  }}
                   className={`shrink-0 rounded-full border px-7 py-3 text-sm font-extrabold transition-all md:ml-auto ${
                     isSelected
                       ? 'border-teal-700 bg-teal-700 text-white shadow-md shadow-teal-900/15'
@@ -282,7 +293,7 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
   useEffect(() => {
      const handleHashChange = () => {
         const hash = window.location.hash;
-        const subPage = (hash.split('/')[2] || 'sunday-worship') as SermonSubPage;
+        const subPage = ((hash.split('/')[2] || 'sunday-worship').split('?')[0]) as SermonSubPage;
         setActiveTab(subPage);
     };
     window.addEventListener('hashchange', handleHashChange);
