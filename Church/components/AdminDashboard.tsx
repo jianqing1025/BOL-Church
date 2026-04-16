@@ -72,6 +72,7 @@ const AdminDashboard: React.FC = () => {
     markPrayerPrayed,
     donations,
     sermons,
+    dailyManna,
   } = useAdmin();
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
@@ -81,8 +82,8 @@ const AdminDashboard: React.FC = () => {
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
   const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
-  const sermonCount = sermons.filter(item => item.type === 'sermon').length;
-  const mannaCount = sermons.filter(item => item.type === 'daily-manna').length;
+  const sermonCount = sermons.length;
+  const mannaCount = dailyManna.length;
 
   const recentActivity = useMemo(() => {
     const messageItems = messages.slice(0, 3).map(item => ({
@@ -104,13 +105,20 @@ const AdminDashboard: React.FC = () => {
       type: 'Sermon',
       summary: item.title.en || item.title.zh,
       date: item.date,
-      state: item.type === 'daily-manna' ? 'Daily Manna' : 'Sunday Worship',
+      state: 'Sunday Worship',
+    }));
+    const mannaItems = dailyManna.slice(0, 3).map(item => ({
+      id: item.id,
+      type: 'Manna',
+      summary: item.title.en || item.title.zh,
+      date: item.date,
+      state: 'Daily Manna',
     }));
 
-    return [...messageItems, ...prayerItems, ...sermonItems]
+    return [...messageItems, ...prayerItems, ...sermonItems, ...mannaItems]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 8);
-  }, [messages, prayerRequests, sermons]);
+  }, [messages, prayerRequests, sermons, dailyManna]);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,7 +353,8 @@ const AdminDashboard: React.FC = () => {
         <div className="space-y-4">
           {heroFields.map(field => {
             const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
-            const Input = field.multiline ? 'textarea' : 'input';
+            const isMultiline = 'multiline' in field && field.multiline;
+            const Input = isMultiline ? 'textarea' : 'input';
 
             return (
               <div key={field.key} className="rounded-lg bg-white p-5 shadow-sm">
@@ -360,7 +369,7 @@ const AdminDashboard: React.FC = () => {
                       value={value?.en ?? ''}
                       onChange={event => updateContent(`${field.key}.en`, event.target.value)}
                       className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        field.multiline ? 'min-h-[110px] resize-y' : ''
+                        isMultiline ? 'min-h-[110px] resize-y' : ''
                       }`}
                     />
                   </label>
@@ -370,7 +379,7 @@ const AdminDashboard: React.FC = () => {
                       value={value?.zh ?? ''}
                       onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
                       className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        field.multiline ? 'min-h-[110px] resize-y' : ''
+                        isMultiline ? 'min-h-[110px] resize-y' : ''
                       }`}
                     />
                   </label>

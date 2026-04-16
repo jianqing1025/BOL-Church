@@ -26,6 +26,31 @@ ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = ex
 );
 
 for (const sermon of data.sermons ?? []) {
+  if (sermon.type === 'daily-manna') {
+    lines.push(
+      `INSERT OR REPLACE INTO daily_manna (
+        id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh,
+        passage_en, passage_zh, youtube_id, image_url, created_at, updated_at
+      ) VALUES (
+        '${escape(sermon.id)}',
+        '${escape(sermon.title?.en)}',
+        '${escape(sermon.title?.zh)}',
+        '${escape(sermon.speaker?.en)}',
+        '${escape(sermon.speaker?.zh)}',
+        '${escape(sermon.date)}',
+        '${escape(sermon.series?.en)}',
+        '${escape(sermon.series?.zh)}',
+        '${escape(sermon.passage?.en)}',
+        '${escape(sermon.passage?.zh)}',
+        '${escape(sermon.youtubeId)}',
+        ${sermon.imageUrl ? `'${escape(sermon.imageUrl)}'` : 'NULL'},
+        '${new Date().toISOString()}',
+        '${new Date().toISOString()}'
+      );`
+    );
+    continue;
+  }
+
   lines.push(
     `INSERT OR REPLACE INTO sermons (
       id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh,
@@ -43,7 +68,7 @@ for (const sermon of data.sermons ?? []) {
       '${escape(sermon.passage?.zh)}',
       '${escape(sermon.youtubeId)}',
       ${sermon.imageUrl ? `'${escape(sermon.imageUrl)}'` : 'NULL'},
-      '${escape(sermon.type)}',
+      'sermon',
       '${new Date().toISOString()}',
       '${new Date().toISOString()}'
     );`

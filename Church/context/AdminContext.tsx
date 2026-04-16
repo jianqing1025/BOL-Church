@@ -16,6 +16,8 @@ interface AdminContextType {
   uploadImage: (key: string, file: Blob, fileName: string) => Promise<string>;
   sermons: Sermon[];
   setSermons: (sermons: Sermon[]) => void;
+  dailyManna: Sermon[];
+  setDailyManna: (sermons: Sermon[]) => void;
   saveChanges: () => Promise<void>;
   messages: Message[];
   prayerRequests: PrayerRequest[];
@@ -30,6 +32,9 @@ interface AdminContextType {
   createSermon: (sermon: Omit<Sermon, 'id'>) => Promise<void>;
   updateSermonRecord: (id: string, sermon: Omit<Sermon, 'id'>) => Promise<void>;
   deleteSermonRecord: (id: string) => Promise<void>;
+  createDailyManna: (sermon: Omit<Sermon, 'id'>) => Promise<void>;
+  updateDailyMannaRecord: (id: string, sermon: Omit<Sermon, 'id'>) => Promise<void>;
+  deleteDailyMannaRecord: (id: string) => Promise<void>;
 }
 
 export const AdminContext = createContext<AdminContextType | undefined>(undefined);
@@ -50,6 +55,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [content, setContent] = useState(DEFAULT_SITE_BOOTSTRAP.content);
   const [sermons, setSermons] = useState<Sermon[]>(DEFAULT_SITE_BOOTSTRAP.sermons);
+  const [dailyManna, setDailyManna] = useState<Sermon[]>(DEFAULT_SITE_BOOTSTRAP.dailyManna);
   const [images, setImages] = useState<Record<string, string>>(DEFAULT_SITE_BOOTSTRAP.images);
   const [messages, setMessages] = useState<Message[]>([]);
   const [prayerRequests, setPrayerRequests] = useState<PrayerRequest[]>([]);
@@ -65,7 +71,8 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (cancelled) return;
         setContent(data.content);
         setImages(data.images);
-        setSermons(data.sermons);
+        setSermons(data.sermons.filter(item => item.type === 'sermon'));
+        setDailyManna(data.dailyManna ?? data.sermons.filter(item => item.type === 'daily-manna'));
         setMessages(data.messages);
         setPrayerRequests(data.prayerRequests);
         setDonations(data.donations);
@@ -156,18 +163,33 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const createSermon = async (sermon: Omit<Sermon, 'id'>) => {
-    const created = await api.createSermon(sermon);
+    const created = await api.createSermon({ ...sermon, type: 'sermon' });
     setSermons(current => [created, ...current].sort((a, b) => b.date.localeCompare(a.date)));
   };
 
   const updateSermonRecord = async (id: string, sermon: Omit<Sermon, 'id'>) => {
-    const updated = await api.updateSermon(id, sermon);
+    const updated = await api.updateSermon(id, { ...sermon, type: 'sermon' });
     setSermons(current => current.map(item => (item.id === id ? updated : item)).sort((a, b) => b.date.localeCompare(a.date)));
   };
 
   const deleteSermonRecord = async (id: string) => {
     await api.deleteSermon(id);
     setSermons(current => current.filter(item => item.id !== id));
+  };
+
+  const createDailyManna = async (sermon: Omit<Sermon, 'id'>) => {
+    const created = await api.createDailyManna({ ...sermon, type: 'daily-manna' });
+    setDailyManna(current => [created, ...current].sort((a, b) => b.date.localeCompare(a.date)));
+  };
+
+  const updateDailyMannaRecord = async (id: string, sermon: Omit<Sermon, 'id'>) => {
+    const updated = await api.updateDailyManna(id, { ...sermon, type: 'daily-manna' });
+    setDailyManna(current => current.map(item => (item.id === id ? updated : item)).sort((a, b) => b.date.localeCompare(a.date)));
+  };
+
+  const deleteDailyMannaRecord = async (id: string) => {
+    await api.deleteDailyManna(id);
+    setDailyManna(current => current.filter(item => item.id !== id));
   };
 
   return (
@@ -185,6 +207,8 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         uploadImage,
         sermons,
         setSermons,
+        dailyManna,
+        setDailyManna,
         saveChanges,
         messages,
         prayerRequests,
@@ -199,6 +223,9 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         createSermon,
         updateSermonRecord,
         deleteSermonRecord,
+        createDailyManna,
+        updateDailyMannaRecord,
+        deleteDailyMannaRecord,
       }}
     >
       {children}

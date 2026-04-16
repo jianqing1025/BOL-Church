@@ -42,6 +42,12 @@ export const api = {
     request<Sermon>(`/api/sermons/${id}`, { method: 'PUT', body: JSON.stringify(sermon) }),
   deleteSermon: (id: string) =>
     request<{ ok: true }>(`/api/sermons/${id}`, { method: 'DELETE' }),
+  createDailyManna: (sermon: Omit<Sermon, 'id'>) =>
+    request<Sermon>('/api/daily-manna', { method: 'POST', body: JSON.stringify(sermon) }),
+  updateDailyManna: (id: string, sermon: Omit<Sermon, 'id'>) =>
+    request<Sermon>(`/api/daily-manna/${id}`, { method: 'PUT', body: JSON.stringify(sermon) }),
+  deleteDailyManna: (id: string) =>
+    request<{ ok: true }>(`/api/daily-manna/${id}`, { method: 'DELETE' }),
   saveImages: (images: Record<string, string>) =>
     request<Record<string, string>>('/api/images', { method: 'PUT', body: JSON.stringify(images) }),
   uploadImage: async (key: string, file: Blob, fileName: string) => {

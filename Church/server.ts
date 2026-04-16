@@ -29,6 +29,8 @@ type SermonRow = {
   type: 'sermon' | 'daily-manna';
 };
 
+type DailyMannaRow = Omit<SermonRow, 'type'>;
+
 type MessageRow = {
   id: string;
   date: string;
@@ -139,6 +141,20 @@ function mapSermon(row: SermonRow) {
     youtubeId: row.youtube_id,
     imageUrl: row.image_url ?? undefined,
     type: row.type,
+  };
+}
+
+function mapDailyManna(row: DailyMannaRow) {
+  return {
+    id: row.id,
+    title: asLocalizedText(row.title_en, row.title_zh),
+    speaker: asLocalizedText(row.speaker_en, row.speaker_zh),
+    date: row.date,
+    series: asLocalizedText(row.series_en, row.series_zh),
+    passage: asLocalizedText(row.passage_en, row.passage_zh),
+    youtubeId: row.youtube_id,
+    imageUrl: row.image_url ?? undefined,
+    type: 'daily-manna' as const,
   };
 }
 
@@ -293,7 +309,7 @@ async function ensureSeedData(env: Env): Promise<void> {
 
   const sermonCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM sermons').first<{ count: number }>();
   if (!sermonCount || Number(sermonCount.count) === 0) {
-    for (const sermon of DEFAULT_SERMONS) {
+    for (const sermon of DEFAULT_SERMONS.filter(item => item.type === 'sermon')) {
       await env.DB.prepare(
         `INSERT INTO sermons (
           id, title_en, title_zh, speaker_en, speaker_zh, date,
@@ -319,15 +335,44 @@ async function ensureSeedData(env: Env): Promise<void> {
       ).run();
     }
   }
+
+  const mannaCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM daily_manna').first<{ count: number }>();
+  if (!mannaCount || Number(mannaCount.count) === 0) {
+    for (const sermon of DEFAULT_SERMONS.filter(item => item.type === 'daily-manna')) {
+      await env.DB.prepare(
+        `INSERT INTO daily_manna (
+          id, title_en, title_zh, speaker_en, speaker_zh, date,
+          series_en, series_zh, passage_en, passage_zh, youtube_id, image_url,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        crypto.randomUUID(),
+        sermon.title.en,
+        sermon.title.zh,
+        sermon.speaker.en,
+        sermon.speaker.zh,
+        sermon.date,
+        sermon.series.en,
+        sermon.series.zh,
+        sermon.passage.en,
+        sermon.passage.zh,
+        sermon.youtubeId,
+        sermon.imageUrl ?? null,
+        new Date().toISOString(),
+        new Date().toISOString()
+      ).run();
+    }
+  }
 }
 
 async function handleBootstrap(env: Env): Promise<Response> {
   await ensureSeedData(env);
 
-  const [content, images, sermonsResult, messagesResult, prayerResult, donationsResult] = await Promise.all([
+  const [content, images, sermonsResult, dailyMannaResult, messagesResult, prayerResult, donationsResult] = await Promise.all([
     getSiteContent(env),
     getSetting<Record<string, string>>(env, 'images', {}),
-    env.DB.prepare('SELECT * FROM sermons ORDER BY date DESC').all<SermonRow>(),
+    env.DB.prepare("SELECT * FROM sermons WHERE type = 'sermon' ORDER BY date DESC").all<SermonRow>(),
+    env.DB.prepare('SELECT * FROM daily_manna ORDER BY date DESC').all<DailyMannaRow>(),
     env.DB.prepare('SELECT * FROM messages ORDER BY date DESC').all<MessageRow>(),
     env.DB.prepare('SELECT * FROM prayer_requests ORDER BY date DESC').all<PrayerRequestRow>(),
     env.DB.prepare('SELECT * FROM donations ORDER BY date DESC').all<DonationRow>(),
@@ -337,6 +382,7 @@ async function handleBootstrap(env: Env): Promise<Response> {
     content,
     images,
     sermons: (sermonsResult.results ?? []).map(mapSermon),
+    dailyManna: (dailyMannaResult.results ?? []).map(mapDailyManna),
     messages: (messagesResult.results ?? []).map(mapMessage),
     prayerRequests: (prayerResult.results ?? []).map(mapPrayerRequest),
     donations: (donationsResult.results ?? []).map(mapDonation),
@@ -506,7 +552,7 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'upload.jpg';
 }
 
-function isUploadBlob(value: FormDataEntryValue | null): value is Blob {
+function isUploadBlob(value: FormDataEntryValue | null): value is File {
   return Boolean(value && typeof value === 'object' && 'arrayBuffer' in value);
 }
 
@@ -595,12 +641,78 @@ const worker: ExportedHandler<Env> = {
         sermon.passage.zh,
         sermon.youtubeId,
         sermon.imageUrl ?? null,
-        sermon.type,
+        'sermon',
         now,
         now
       ).run();
       const row = await env.DB.prepare('SELECT * FROM sermons WHERE id = ?').bind(id).first<SermonRow>();
       return json(mapSermon(row as SermonRow), 201);
+    }
+
+    if (url.pathname === '/api/daily-manna' && request.method === 'POST') {
+      const sermon = await readJson<any>(request);
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO daily_manna (
+          id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh,
+          passage_en, passage_zh, youtube_id, image_url, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id,
+        sermon.title.en,
+        sermon.title.zh,
+        sermon.speaker.en,
+        sermon.speaker.zh,
+        sermon.date,
+        sermon.series.en,
+        sermon.series.zh,
+        sermon.passage.en,
+        sermon.passage.zh,
+        sermon.youtubeId,
+        sermon.imageUrl ?? null,
+        now,
+        now
+      ).run();
+      const row = await env.DB.prepare('SELECT * FROM daily_manna WHERE id = ?').bind(id).first<DailyMannaRow>();
+      return json(mapDailyManna(row as DailyMannaRow), 201);
+    }
+
+    if (url.pathname.startsWith('/api/daily-manna/')) {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      if (!id) {
+        return badRequest('Missing daily manna id');
+      }
+      if (request.method === 'PUT') {
+        const sermon = await readJson<any>(request);
+        await env.DB.prepare(
+          `UPDATE daily_manna SET
+            title_en = ?, title_zh = ?, speaker_en = ?, speaker_zh = ?, date = ?,
+            series_en = ?, series_zh = ?, passage_en = ?, passage_zh = ?,
+            youtube_id = ?, image_url = ?, updated_at = ?
+          WHERE id = ?`
+        ).bind(
+          sermon.title.en,
+          sermon.title.zh,
+          sermon.speaker.en,
+          sermon.speaker.zh,
+          sermon.date,
+          sermon.series.en,
+          sermon.series.zh,
+          sermon.passage.en,
+          sermon.passage.zh,
+          sermon.youtubeId,
+          sermon.imageUrl ?? null,
+          new Date().toISOString(),
+          id
+        ).run();
+        const row = await env.DB.prepare('SELECT * FROM daily_manna WHERE id = ?').bind(id).first<DailyMannaRow>();
+        return json(mapDailyManna(row as DailyMannaRow));
+      }
+      if (request.method === 'DELETE') {
+        await env.DB.prepare('DELETE FROM daily_manna WHERE id = ?').bind(id).run();
+        return json({ ok: true });
+      }
     }
 
     if (url.pathname.startsWith('/api/sermons/')) {
@@ -628,7 +740,7 @@ const worker: ExportedHandler<Env> = {
           sermon.passage.zh,
           sermon.youtubeId,
           sermon.imageUrl ?? null,
-          sermon.type,
+          'sermon',
           new Date().toISOString(),
           id
         ).run();

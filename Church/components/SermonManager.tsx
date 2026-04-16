@@ -14,18 +14,95 @@ const buildEmptyEntry = (entryType: Sermon['type']): Omit<Sermon, 'id'> => ({
   type: entryType,
 });
 
+const SPEAKER_OPTIONS = {
+  en: ['Pastor Andy Yu', 'Sister LingLing', 'Pastor Rainbow'],
+  zh: ['余大器 牧師', '琳琳师母', 'Rainbow 牧師'],
+};
+
+interface SpeakerComboboxProps {
+  placeholder: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}
+
+const SpeakerCombobox: React.FC<SpeakerComboboxProps> = ({ placeholder, value, options, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setIsOpen(false);
+        }
+      }}
+    >
+      <div className="relative">
+        <input
+          type="text"
+          placeholder={placeholder}
+          value={value}
+          onFocus={() => setIsOpen(true)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setIsOpen(true);
+          }}
+          className="w-full p-2 pr-10 border rounded"
+        />
+        <button
+          type="button"
+          onClick={() => setIsOpen(open => !open)}
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-gray-600 hover:text-gray-900"
+          aria-label={`Show ${placeholder} options`}
+        >
+          ▾
+        </button>
+      </div>
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+          {options.map(option => (
+            <button
+              key={option}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(option);
+                setIsOpen(false);
+              }}
+              className="block w-full px-3 py-3 text-left text-sm font-semibold text-gray-900 hover:bg-blue-50"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface SermonManagerProps {
   entryType?: Sermon['type'];
 }
 
 const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) => {
-  const { sermons, createSermon, updateSermonRecord, deleteSermonRecord } = useAdmin();
+  const normalizedEntryType = entryType as Sermon['type'];
+  const {
+    sermons,
+    dailyManna,
+    createSermon,
+    updateSermonRecord,
+    deleteSermonRecord,
+    createDailyManna,
+    updateDailyMannaRecord,
+    deleteDailyMannaRecord,
+  } = useAdmin();
   const [isAdding, setIsAdding] = useState(false);
   const [editingSermonId, setEditingSermonId] = useState<string | null>(null);
-  const [sermonData, setSermonData] = useState<Omit<Sermon, 'id'>>(buildEmptyEntry(entryType));
+  const [sermonData, setSermonData] = useState<Omit<Sermon, 'id'>>(buildEmptyEntry(normalizedEntryType));
 
-  const isManna = entryType === 'daily-manna';
-  const visibleEntries = sermons.filter(sermon => sermon.type === entryType);
+  const isManna = normalizedEntryType === 'daily-manna';
+  const visibleEntries = isManna ? dailyManna : sermons;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>, lang?: 'en' | 'zh', field?: 'title' | 'speaker' | 'series' | 'passage') => {
     const { name, value } = e.target;
@@ -40,12 +117,26 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
     }
   };
 
+  const handleLocalizedChange = (value: string, lang: 'en' | 'zh', field: 'title' | 'speaker' | 'series' | 'passage') => {
+    setSermonData(produce(draft => {
+      draft[field][lang] = value;
+    }));
+  };
+
   const handleSave = async () => {
     try {
       if (isAdding) {
-        await createSermon(sermonData);
+        if (isManna) {
+          await createDailyManna({ ...sermonData, type: 'daily-manna' });
+        } else {
+          await createSermon({ ...sermonData, type: 'sermon' });
+        }
       } else if (editingSermonId) {
-        await updateSermonRecord(editingSermonId, sermonData);
+        if (isManna) {
+          await updateDailyMannaRecord(editingSermonId, { ...sermonData, type: 'daily-manna' });
+        } else {
+          await updateSermonRecord(editingSermonId, { ...sermonData, type: 'sermon' });
+        }
       }
       resetForm();
     } catch (error) {
@@ -57,7 +148,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
   const handleEdit = (sermon: Sermon) => {
     setEditingSermonId(sermon.id);
     const { id, ...data } = sermon;
-    setSermonData({ ...data, type: entryType });
+    setSermonData({ ...data, type: normalizedEntryType });
     setIsAdding(false);
   };
 
@@ -65,13 +156,17 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
     if (!window.confirm('確定刪除此信息嗎？')) {
       return;
     }
-    await deleteSermonRecord(id);
+    if (isManna) {
+      await deleteDailyMannaRecord(id);
+    } else {
+      await deleteSermonRecord(id);
+    }
   };
 
   const resetForm = () => {
     setIsAdding(false);
     setEditingSermonId(null);
-    setSermonData(buildEmptyEntry(entryType));
+    setSermonData(buildEmptyEntry(normalizedEntryType));
   };
 
   return (
@@ -85,8 +180,18 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
 
           {!isManna && (
             <>
-              <input type="text" placeholder="Speaker (EN)" value={sermonData.speaker.en} onChange={(e) => handleInputChange(e, 'en', 'speaker')} className="p-2 border rounded" />
-              <input type="text" placeholder="講員 (ZH)" value={sermonData.speaker.zh} onChange={(e) => handleInputChange(e, 'zh', 'speaker')} className="p-2 border rounded" />
+              <SpeakerCombobox
+                placeholder="Speaker (EN)"
+                value={sermonData.speaker.en}
+                options={SPEAKER_OPTIONS.en}
+                onChange={(value) => handleLocalizedChange(value, 'en', 'speaker')}
+              />
+              <SpeakerCombobox
+                placeholder="講員 (ZH)"
+                value={sermonData.speaker.zh}
+                options={SPEAKER_OPTIONS.zh}
+                onChange={(value) => handleLocalizedChange(value, 'zh', 'speaker')}
+              />
             </>
           )}
 
