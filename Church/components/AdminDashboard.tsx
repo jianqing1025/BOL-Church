@@ -11,13 +11,12 @@ import { api } from '../api';
 import type { AnalyticsSummary } from '../data';
 import { adminRoleLabel } from '../utils/adminRoles';
 
-type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'account';
 
 const sectionLabels: Record<Section, string> = {
   overview: 'Overview',
   homepage: 'Homepage',
   text: 'Text',
-  media: 'Media',
   sermons: 'Sermons',
   manna: 'Manna',
   inbox: 'Inbox',
@@ -72,6 +71,21 @@ function initialsForUser(name: string, email: string) {
   return (parts[0]?.slice(0, 2) || email.slice(0, 2)).toUpperCase();
 }
 
+function formatPreviewText(value: unknown, fallback: string) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return fallback;
+  }
+
+  const cleaned = value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .trim();
+
+  return cleaned || fallback;
+}
+
 const AdminDashboard: React.FC = () => {
   const {
     isAdminMode,
@@ -105,7 +119,7 @@ const AdminDashboard: React.FC = () => {
   const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
   const sermonCount = sermons.length;
   const mannaCount = dailyManna.length;
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'media', 'sermons', 'manna', 'users'];
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
   const visibleMobileSections = [...primarySections, ...activitySections].filter(canAccessSection);
@@ -120,6 +134,7 @@ const AdminDashboard: React.FC = () => {
     const messageItems = messages.slice(0, 3).map(item => ({
       id: item.id,
       type: 'Message',
+      section: 'inbox' as const,
       summary: `${item.firstName} ${item.lastName}`.trim() || item.email,
       date: item.date,
       state: item.read ? 'Read' : 'Unread',
@@ -127,6 +142,7 @@ const AdminDashboard: React.FC = () => {
     const prayerItems = prayerRequests.slice(0, 3).map(item => ({
       id: item.id,
       type: 'Prayer',
+      section: 'prayer' as const,
       summary: `${item.firstName} ${item.lastName}`.trim() || 'Anonymous',
       date: item.date,
       state: item.status === 'new' ? 'New' : 'Prayed',
@@ -134,6 +150,7 @@ const AdminDashboard: React.FC = () => {
     const sermonItems = sermons.slice(0, 3).map(item => ({
       id: item.id,
       type: 'Sermon',
+      section: 'sermons' as const,
       summary: item.title.en || item.title.zh,
       date: item.date,
       state: 'Sunday Worship',
@@ -141,6 +158,7 @@ const AdminDashboard: React.FC = () => {
     const mannaItems = dailyManna.slice(0, 3).map(item => ({
       id: item.id,
       type: 'Manna',
+      section: 'manna' as const,
       summary: item.title.en || item.title.zh,
       date: item.date,
       state: 'Daily Manna',
@@ -305,7 +323,11 @@ const AdminDashboard: React.FC = () => {
           </div>
           <div className="space-y-3">
             {recentActivity.map(item => (
-              <div key={`${item.type}-${item.id}`} className="flex items-start justify-between rounded-md border border-gray-200 px-4 py-3">
+              <button
+                key={`${item.type}-${item.id}`}
+                onClick={() => setActiveSection(item.section)}
+                className="flex w-full items-start justify-between rounded-md border border-gray-200 px-4 py-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50"
+              >
                 <div>
                   <div className="text-sm font-semibold text-gray-900">{item.summary}</div>
                   <div className="mt-1 text-xs text-gray-500">{item.type}</div>
@@ -314,7 +336,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-xs font-semibold text-gray-700">{item.state}</div>
                   <div className="mt-1 text-xs text-gray-400">{formatDate(item.date)}</div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -342,12 +364,6 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             )}
-            <div className="flex items-center justify-between">
-              <span>Media library</span>
-              <button onClick={() => setActiveSection('media')} className="font-semibold text-blue-600 hover:text-blue-700">
-                Open
-              </button>
-            </div>
             <div className="flex items-center justify-between">
               <span>Sermon manager</span>
               <button onClick={() => setActiveSection('sermons')} className="font-semibold text-blue-600 hover:text-blue-700">
@@ -388,76 +404,112 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-4">
-          {[
-            { title: 'Hero Text', fields: heroTextFields, showLanguageLabels: true },
-            { title: 'Buttons', fields: heroButtonFields, showLanguageLabels: true },
-          ].map(group => (
-            <div key={group.title} className="rounded-lg bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-bold text-gray-900">{group.title}</h3>
-              <div className="mt-4 space-y-4">
-                {group.fields.map((field, fieldIndex) => {
-                  const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
-                  const isMultiline = 'multiline' in field && field.multiline;
-                  const showLanguageLabels = group.showLanguageLabels && fieldIndex === 0;
+        <div className="rounded-lg bg-white p-5 shadow-sm xl:col-span-2">
+          <h3 className="text-lg font-bold text-gray-900">Hero Text</h3>
+          <div className="mt-4 space-y-4">
+            {heroTextFields.map((field, fieldIndex) => {
+              const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
+              const isMultiline = 'multiline' in field && field.multiline;
+              const showLanguageLabels = fieldIndex === 0;
 
-                  return (
-                    <div key={field.key}>
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <label className="space-y-2">
-                          {showLanguageLabels && (
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                          )}
-                          {isMultiline ? (
-                            <RichTextEditor
-                              value={value?.en ?? ''}
-                              onChange={nextValue => updateContent(`${field.key}.en`, nextValue)}
-                              minHeightClassName="min-h-[90px]"
-                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.en.${Date.now()}`, file, fileName)}
-                            />
-                          ) : (
-                            <input
-                              value={value?.en ?? ''}
-                              onChange={event => updateContent(`${field.key}.en`, event.target.value)}
-                              aria-label={`${group.title} English`}
-                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                            />
-                          )}
-                        </label>
-                        <label className="space-y-2">
-                          {showLanguageLabels && (
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                          )}
-                          {isMultiline ? (
-                            <RichTextEditor
-                              value={value?.zh ?? ''}
-                              onChange={nextValue => updateContent(`${field.key}.zh`, nextValue)}
-                              minHeightClassName="min-h-[90px]"
-                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.zh.${Date.now()}`, file, fileName)}
-                            />
-                          ) : (
-                            <input
-                              value={value?.zh ?? ''}
-                              onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
-                              aria-label={`${group.title} Chinese`}
-                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                            />
-                          )}
-                        </label>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+              return (
+                <div key={field.key}>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <label className="space-y-2">
+                      {showLanguageLabels && (
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
+                      )}
+                      {isMultiline ? (
+                        <RichTextEditor
+                          value={value?.en ?? ''}
+                          onChange={nextValue => updateContent(`${field.key}.en`, nextValue)}
+                          minHeightClassName="min-h-[90px]"
+                          onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.en.${Date.now()}`, file, fileName)}
+                        />
+                      ) : (
+                        <input
+                          value={value?.en ?? ''}
+                          onChange={event => updateContent(`${field.key}.en`, event.target.value)}
+                          aria-label="Hero Text English"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        />
+                      )}
+                    </label>
+                    <label className="space-y-2">
+                      {showLanguageLabels && (
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
+                      )}
+                      {isMultiline ? (
+                        <RichTextEditor
+                          value={value?.zh ?? ''}
+                          onChange={nextValue => updateContent(`${field.key}.zh`, nextValue)}
+                          minHeightClassName="min-h-[90px]"
+                          onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.zh.${Date.now()}`, file, fileName)}
+                        />
+                      ) : (
+                        <input
+                          value={value?.zh ?? ''}
+                          onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
+                          aria-label="Hero Text Chinese"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        />
+                      )}
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <div>
-          <div className="w-full self-start rounded-lg bg-gray-950 p-6 text-white shadow-sm">
+        <div className="h-full rounded-lg bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900">Buttons</h3>
+          <div className="mt-4 space-y-4">
+            {heroButtonFields.map((field, fieldIndex) => {
+              const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
+              const showLanguageLabels = fieldIndex === 0;
+
+              return (
+                <div key={field.key}>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <label className="space-y-2">
+                      {showLanguageLabels && (
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
+                      )}
+                      <input
+                        value={value?.en ?? ''}
+                        onChange={event => updateContent(`${field.key}.en`, event.target.value)}
+                        aria-label="Buttons English"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      {showLanguageLabels && (
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
+                      )}
+                      <input
+                        value={value?.zh ?? ''}
+                        onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
+                        aria-label="Buttons Chinese"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="h-full">
+          <div className="flex h-full w-full flex-col rounded-lg bg-gray-950 p-6 text-white shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/60">Live Preview</div>
-            <div className="mt-4 text-3xl font-bold leading-tight">{getNestedValue(content, 'hero.title.en') || 'Hero title'}</div>
-            <div className="mt-3 text-sm leading-6 text-white/80">{getNestedValue(content, 'hero.subtitle.en') || 'Hero subtitle'}</div>
+            <div className="mt-4 whitespace-pre-line text-3xl font-bold leading-tight">
+              {formatPreviewText(getNestedValue(content, 'hero.title.en'), 'Hero title')}
+            </div>
+            <div className="mt-3 whitespace-pre-line text-sm leading-6 text-white/80">
+              {formatPreviewText(getNestedValue(content, 'hero.subtitle.en'), 'Hero subtitle')}
+            </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <div className="rounded-md border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold">
                 {getNestedValue(content, 'hero.whoWeAre.en') || 'Who We Are'}
@@ -618,12 +670,6 @@ const AdminDashboard: React.FC = () => {
         return renderHomepage();
       case 'text':
         return <TextContentManager />;
-      case 'media':
-        return (
-          <div className="rounded-lg bg-white p-6 shadow-sm">
-            <HeroImageManager />
-          </div>
-        );
       case 'sermons':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">

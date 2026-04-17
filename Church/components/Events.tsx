@@ -64,26 +64,50 @@ interface EventCardProps {
   slot: MediaSlot;
   title: string;
   date: string;
+  href: string;
+  isAdminMode: boolean;
 }
 
-const EventCard: React.FC<EventCardProps> = ({ slot, title, date }) => (
-  <div className="bg-white rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-transform duration-300">
-    <EditableImage
-      imageKey={slot.key}
-      placeholderSrc={slot.placeholder}
-      alt={title}
-      className="w-full h-48 object-cover"
-    />
-    <div className="p-6">
-      <h3 className="font-bold text-xl mb-2">{title}</h3>
-      <p className="text-gray-600">{date}</p>
-    </div>
-  </div>
-);
+const EventCard: React.FC<EventCardProps> = ({ slot, title, date, href, isAdminMode }) => {
+  const cardContent = (
+    <>
+      <EditableImage
+        imageKey={slot.key}
+        placeholderSrc={slot.placeholder}
+        alt={title}
+        className="w-full h-48 object-cover"
+      />
+      <div className="p-6">
+        <h3 className="font-bold text-xl mb-2">{title}</h3>
+        <p className="text-gray-600">{date}</p>
+      </div>
+    </>
+  );
+
+  if (isAdminMode) {
+    return <div className="bg-white rounded-lg shadow-lg overflow-hidden">{cardContent}</div>;
+  }
+
+  return (
+    <a
+      href={href}
+      className="block overflow-hidden rounded-lg bg-white shadow-lg transition-transform duration-300 hover:-translate-y-2"
+    >
+      {cardContent}
+    </a>
+  );
+};
+
+const ministryCardLinks: Record<number, string> = {
+  1: '#/events/joint',
+  2: '#/events/women',
+  3: '#/events/',
+  4: '#/events/prayer',
+};
 
 const Events: React.FC = () => {
   const { t } = useLocalization();
-  const { images } = useAdmin();
+  const { images, isAdminMode } = useAdmin();
   const eventCards = buildMediaSlots('event', images);
 
   return (
@@ -97,6 +121,8 @@ const Events: React.FC = () => {
               slot={slot}
               title={t(`events.event${slot.index}Title`) === `events.event${slot.index}Title` ? slot.label : t(`events.event${slot.index}Title`)}
               date={t(`events.event${slot.index}Date`) === `events.event${slot.index}Date` ? slot.hint : t(`events.event${slot.index}Date`)}
+              href={ministryCardLinks[slot.index] ?? '#/events/'}
+              isAdminMode={isAdminMode}
             />
           ))}
         </div>

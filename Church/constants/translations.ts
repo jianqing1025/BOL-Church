@@ -85,7 +85,7 @@ export const translations = {
   sermons: {
     title: { en: 'Sunday Messages', zh: '主日信息' },
     button: { en: 'View All Messages', zh: '查看所有信息' },
-    mannaButton: { en: 'View All Manna', zh: '查看全部每日天言' },
+    mannaButton: { en: 'View All Manna', zh: '查看所有每日天言' },
   },
   sermonsPage: {
     pageTitle: { en: 'MESSAGES', zh: '主 日 信 息' },
