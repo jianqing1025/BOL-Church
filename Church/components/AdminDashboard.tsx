@@ -3,6 +3,7 @@ import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
 import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
+import RichTextEditor from './RichTextEditor';
 import SermonManager from './SermonManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
@@ -33,6 +34,9 @@ const heroFields = [
   { key: 'hero.sundayService', label: 'Secondary button: Sermons' },
   { key: 'hero.button', label: 'Primary button' },
 ] as const;
+
+const heroTextFields = heroFields.slice(0, 2);
+const heroButtonFields = heroFields.slice(2);
 
 function getNestedValue(obj: any, path: string) {
   return path.split('.').reduce((acc, part) => acc && acc[part], obj);
@@ -77,6 +81,7 @@ const AdminDashboard: React.FC = () => {
     canAccessSection,
     content,
     updateContent,
+    uploadImage,
     saveChanges,
     hasUnsavedContent,
     messages,
@@ -376,54 +381,80 @@ const AdminDashboard: React.FC = () => {
         </div>
         <button
           onClick={() => void saveChanges()}
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+          className="self-start rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 lg:self-auto"
         >
           Save Text Changes
         </button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
-          {heroFields.map(field => {
-            const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
-            const isMultiline = 'multiline' in field && field.multiline;
-            const Input = isMultiline ? 'textarea' : 'input';
+          {[
+            { title: 'Hero Text', fields: heroTextFields, showLanguageLabels: true },
+            { title: 'Buttons', fields: heroButtonFields, showLanguageLabels: true },
+          ].map(group => (
+            <div key={group.title} className="rounded-lg bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-gray-900">{group.title}</h3>
+              <div className="mt-4 space-y-4">
+                {group.fields.map((field, fieldIndex) => {
+                  const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
+                  const isMultiline = 'multiline' in field && field.multiline;
+                  const showLanguageLabels = group.showLanguageLabels && fieldIndex === 0;
 
-            return (
-              <div key={field.key} className="rounded-lg bg-white p-5 shadow-sm">
-                <div className="mb-3">
-                  <div className="font-semibold text-gray-900">{field.label}</div>
-                  <div className="text-xs text-gray-500">{field.key}</div>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                    <Input
-                      value={value?.en ?? ''}
-                      onChange={event => updateContent(`${field.key}.en`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        isMultiline ? 'min-h-[110px] resize-y' : ''
-                      }`}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                    <Input
-                      value={value?.zh ?? ''}
-                      onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        isMultiline ? 'min-h-[110px] resize-y' : ''
-                      }`}
-                    />
-                  </label>
-                </div>
+                  return (
+                    <div key={field.key}>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <label className="space-y-2">
+                          {showLanguageLabels && (
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
+                          )}
+                          {isMultiline ? (
+                            <RichTextEditor
+                              value={value?.en ?? ''}
+                              onChange={nextValue => updateContent(`${field.key}.en`, nextValue)}
+                              minHeightClassName="min-h-[90px]"
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.en.${Date.now()}`, file, fileName)}
+                            />
+                          ) : (
+                            <input
+                              value={value?.en ?? ''}
+                              onChange={event => updateContent(`${field.key}.en`, event.target.value)}
+                              aria-label={`${group.title} English`}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                          )}
+                        </label>
+                        <label className="space-y-2">
+                          {showLanguageLabels && (
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
+                          )}
+                          {isMultiline ? (
+                            <RichTextEditor
+                              value={value?.zh ?? ''}
+                              onChange={nextValue => updateContent(`${field.key}.zh`, nextValue)}
+                              minHeightClassName="min-h-[90px]"
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.zh.${Date.now()}`, file, fileName)}
+                            />
+                          ) : (
+                            <input
+                              value={value?.zh ?? ''}
+                              onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
+                              aria-label={`${group.title} Chinese`}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-lg bg-gray-950 p-6 text-white shadow-sm">
+        <div>
+          <div className="w-full self-start rounded-lg bg-gray-950 p-6 text-white shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/60">Live Preview</div>
             <div className="mt-4 text-3xl font-bold leading-tight">{getNestedValue(content, 'hero.title.en') || 'Hero title'}</div>
             <div className="mt-3 text-sm leading-6 text-white/80">{getNestedValue(content, 'hero.subtitle.en') || 'Hero subtitle'}</div>
@@ -439,11 +470,11 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
           </div>
-
-          <div className="rounded-lg bg-white p-5 shadow-sm">
-            <HeroImageManager />
-          </div>
         </div>
+      </div>
+
+      <div className="rounded-lg bg-white p-5 shadow-sm">
+        <HeroImageManager />
       </div>
     </div>
   );

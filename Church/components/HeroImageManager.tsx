@@ -15,7 +15,9 @@ const MediaCard: React.FC<{
   imageUrl: string;
   isUploading: boolean;
   onUpload: (event: React.ChangeEvent<HTMLInputElement>, slot: MediaSlot) => void;
-}> = ({ slot, imageUrl, isUploading, onUpload }) => (
+  onDelete?: (slot: MediaSlot) => void;
+  canDelete?: boolean;
+}> = ({ slot, imageUrl, isUploading, onUpload, onDelete, canDelete = false }) => (
   <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
     <img
       src={imageUrl}
@@ -28,22 +30,33 @@ const MediaCard: React.FC<{
         <div className="text-sm text-gray-500">{slot.hint}</div>
         <div className="mt-1 break-all text-xs text-gray-400">{slot.key}</div>
       </div>
-      <label className="inline-flex cursor-pointer items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-        {isUploading ? 'Uploading...' : 'Switch Image'}
-        <input
-          type="file"
-          className="hidden"
-          accept="image/*"
-          disabled={isUploading}
-          onChange={event => onUpload(event, slot)}
-        />
-      </label>
+      <div className="flex flex-wrap gap-2">
+        <label className="inline-flex cursor-pointer items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          {isUploading ? 'Uploading...' : 'Switch Image'}
+          <input
+            type="file"
+            className="hidden"
+            accept="image/*"
+            disabled={isUploading}
+            onChange={event => onUpload(event, slot)}
+          />
+        </label>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete?.(slot)}
+            className="rounded-md bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+          >
+            Delete
+          </button>
+        )}
+      </div>
     </div>
   </div>
 );
 
 const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, addLabel }) => {
-  const { images, uploadImage, canEditContent } = useAdmin();
+  const { images, uploadImage, deleteImage, canEditContent } = useAdmin();
   const addInputRef = useRef<HTMLInputElement>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const slots = buildMediaSlots(kind, images);
@@ -81,6 +94,19 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
     }
   };
 
+  const handleDelete = async (slot: MediaSlot) => {
+    if (!window.confirm(`Delete ${slot.label}?`)) {
+      return;
+    }
+    try {
+      await deleteImage(slot.key);
+    } catch (error) {
+      console.error('Image delete failed', error);
+      const message = error instanceof Error ? error.message : 'Image delete failed.';
+      alert(message);
+    }
+  };
+
   return (
     <section className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -107,7 +133,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {slots.filter(slot => canEditContent(slot.key)).map(slot => (
           <MediaCard
             key={slot.key}
@@ -115,6 +141,8 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
             imageUrl={images[slot.key] || slot.placeholder}
             isUploading={uploadingKey === slot.key}
             onUpload={(event, currentSlot) => void handleUpload(event, currentSlot)}
+            onDelete={currentSlot => void handleDelete(currentSlot)}
+            canDelete={kind === 'hero' && Boolean(images[slot.key])}
           />
         ))}
       </div>

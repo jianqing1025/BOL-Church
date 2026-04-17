@@ -18,6 +18,7 @@ interface AdminContextType {
   updateContent: (path: string, value: string) => void;
   images: Record<string, string>;
   updateImage: (key: string, url: string) => Promise<void>;
+  deleteImage: (key: string) => Promise<void>;
   uploadImage: (key: string, file: Blob, fileName: string) => Promise<string>;
   sermons: Sermon[];
   setSermons: (sermons: Sermon[]) => void;
@@ -167,6 +168,16 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await api.saveImages(newImages);
   };
 
+  const deleteImage = async (key: string) => {
+    if (!canEditContent(key)) {
+      return;
+    }
+    const newImages = { ...images };
+    delete newImages[key];
+    setImages(newImages);
+    await api.saveImages(newImages);
+  };
+
   const uploadImage = async (key: string, file: Blob, fileName: string) => {
     if (!canEditContent(key)) {
       throw new Error('You do not have permission to edit this image.');
@@ -283,6 +294,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateContent,
         images,
         updateImage,
+        deleteImage,
         uploadImage,
         sermons,
         setSermons,

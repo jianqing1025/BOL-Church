@@ -19,6 +19,11 @@ type PrimarySection = {
   label: string;
 };
 
+type EntryGroup = {
+  title: string;
+  entries: LocalizedEntry[];
+};
+
 const sections: Section[] = [
   { id: 'home', label: 'Home Sections', prefixes: ['about.', 'events.', 'sermons.', 'support.', 'contact.'] },
   { id: 'about', label: 'About Page', prefixes: ['aboutPage.'] },
@@ -72,6 +77,11 @@ function labelFromPath(path: string): string {
     .join(' / ');
 }
 
+function compactLabelFromPath(path: string): string {
+  const parts = labelFromPath(path).split(' / ');
+  return parts.length > 2 ? `${parts[0]} / ${parts.slice(1).join(' ')}` : parts.join(' / ');
+}
+
 function classifyEntry(path: string): PrimarySection['id'] {
   const lowerPath = path.toLowerCase();
   const pathParts = lowerPath.split('.');
@@ -121,7 +131,7 @@ function classifyEntry(path: string): PrimarySection['id'] {
 
 function shouldUseRichEditor(path: string): boolean {
   const lastPart = path.split('.').pop()?.toLowerCase() ?? '';
-  return lastPart.includes('content');
+  return lastPart.includes('content') || path === 'about.text' || path === 'support.text';
 }
 
 function pageHrefForEntry(path: string): string {
@@ -152,6 +162,31 @@ function pageHrefForEntry(path: string): string {
   ];
 
   return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '#/';
+}
+
+function sectionLabelForPath(path: string): string {
+  return sections.find(section => section.prefixes.some(prefix => path.startsWith(prefix)))?.label ?? 'Other';
+}
+
+function groupTitleForEntry(path: string, activePrimarySection: PrimarySection['id']): string {
+  const sectionLabel = sectionLabelForPath(path);
+  if (activePrimarySection === 'all') {
+    return `${sectionLabel} / ${primarySections.find(section => section.id === classifyEntry(path))?.label ?? 'Content'}`;
+  }
+  return `${sectionLabel} / ${primarySections.find(section => section.id === activePrimarySection)?.label ?? 'Content'}`;
+}
+
+function groupEntries(entries: LocalizedEntry[], activePrimarySection: PrimarySection['id']): EntryGroup[] {
+  const groups = new Map<string, LocalizedEntry[]>();
+  for (const entry of entries) {
+    const title = groupTitleForEntry(entry.path, activePrimarySection);
+    groups.set(title, [...(groups.get(title) ?? []), entry]);
+  }
+
+  return Array.from(groups.entries()).map(([title, groupEntries]) => ({
+    title,
+    entries: groupEntries,
+  }));
 }
 
 const TextContentManager: React.FC = () => {
@@ -187,6 +222,21 @@ const TextContentManager: React.FC = () => {
       );
     });
   }, [activePrimarySection, activeSection, allEntries, query]);
+
+  const groupedEntries = useMemo(
+    () => groupEntries(visibleEntries, activePrimarySection),
+    [activePrimarySection, visibleEntries]
+  );
+
+  const renderTextField = (fieldId: string, value: string) => (
+    <input
+      id={fieldId}
+      type="text"
+      value={value}
+      onChange={event => updateContent(fieldId, event.target.value)}
+      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+    />
+  );
 
   return (
     <div className="space-y-5">
@@ -252,62 +302,58 @@ const TextContentManager: React.FC = () => {
             No matching text fields in this section.
           </div>
         ) : (
-          visibleEntries.map(entry => {
-            const usesRichEditor = shouldUseRichEditor(entry.path);
-            const renderTextField = (language: 'en' | 'zh', value: string) => {
-              const fieldId = `${entry.path}.${language}`;
-              const commonClassName = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500';
-
-              return (
-                <input
-                  id={fieldId}
-                  type="text"
-                  value={value}
-                  onChange={event => updateContent(fieldId, event.target.value)}
-                  className={commonClassName}
-                />
-              );
-            };
-
-            return (
-              <div key={entry.path} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">{labelFromPath(entry.path)}</div>
-                    <div className="mt-1 text-xs text-gray-500">{entry.path}</div>
-                  </div>
-                  <a
-                    href={pageHrefForEntry(entry.path)}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    Open Page
-                  </a>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                    {usesRichEditor ? (
-                      <RichTextEditor
-                        value={entry.en}
-                        onChange={value => updateContent(`${entry.path}.en`, value)}
-                        onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.en.${Date.now()}`, file, fileName)}
-                      />
-                    ) : renderTextField('en', entry.en)}
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                    {usesRichEditor ? (
-                      <RichTextEditor
-                        value={entry.zh}
-                        onChange={value => updateContent(`${entry.path}.zh`, value)}
-                        onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.zh.${Date.now()}`, file, fileName)}
-                      />
-                    ) : renderTextField('zh', entry.zh)}
-                  </label>
-                </div>
+          groupedEntries.map(group => (
+            <div key={group.title} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 border-b border-gray-200 pb-4">
+                <h3 className="text-lg font-bold text-gray-900">{group.title}</h3>
               </div>
-            );
-          })
+
+              <div className="divide-y divide-gray-100">
+                {group.entries.map(entry => {
+                  const usesRichEditor = shouldUseRichEditor(entry.path);
+
+                  return (
+                    <div key={entry.path} className="py-4 first:pt-0 last:pb-0">
+                      <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0">
+                          <span className="text-sm font-semibold text-gray-900">{compactLabelFromPath(entry.path)}</span>
+                          <span className="ml-2 break-all text-xs text-gray-500">[{entry.path}]</span>
+                        </div>
+                        <a
+                          href={pageHrefForEntry(entry.path)}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                        >
+                          Open Page
+                        </a>
+                      </div>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">English</span>
+                          {usesRichEditor ? (
+                            <RichTextEditor
+                              value={entry.en}
+                              onChange={value => updateContent(`${entry.path}.en`, value)}
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.en.${Date.now()}`, file, fileName)}
+                            />
+                          ) : renderTextField(`${entry.path}.en`, entry.en)}
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">Chinese</span>
+                          {usesRichEditor ? (
+                            <RichTextEditor
+                              value={entry.zh}
+                              onChange={value => updateContent(`${entry.path}.zh`, value)}
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${entry.path}.zh.${Date.now()}`, file, fileName)}
+                            />
+                          ) : renderTextField(`${entry.path}.zh`, entry.zh)}
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>

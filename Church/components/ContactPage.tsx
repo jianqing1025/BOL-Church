@@ -169,7 +169,7 @@ const LocationInfo = () => {
                     </ContactInfoItem>
                     <ContactInfoItem title={t('contact.onlineServiceTitle')}>
                         <a 
-                            href="https://www.youtube.com/@信望愛網路教會BreadofLife" 
+                            href="https://www.youtube.com/@信望愛網路教會BreadofLi" 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="hover:text-blue-600 transition-colors"
