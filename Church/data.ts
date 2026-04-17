@@ -42,6 +42,18 @@ export interface Donation {
   status: 'completed';
 }
 
+export type AdminRole = 'owner' | 'contributor';
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AnalyticsCountry {
   country: string;
   requests: number;
@@ -69,9 +81,12 @@ export interface SiteBootstrap {
   content: typeof translations;
   images: Record<string, string>;
   sermons: Sermon[];
+  dailyManna: Sermon[];
   messages: Message[];
   prayerRequests: PrayerRequest[];
   donations: Donation[];
+  currentUser?: AdminUser | null;
+  users?: AdminUser[];
 }
 
 export const DEFAULT_SERMONS: Omit<Sermon, 'id'>[] = [
@@ -116,7 +131,12 @@ export const DEFAULT_SERMONS: Omit<Sermon, 'id'>[] = [
 export const DEFAULT_SITE_BOOTSTRAP: SiteBootstrap = {
   content: translations,
   images: {},
-  sermons: DEFAULT_SERMONS.map((sermon, index) => ({ ...sermon, id: `default-${index + 1}` })),
+  sermons: DEFAULT_SERMONS
+    .filter(sermon => sermon.type === 'sermon')
+    .map((sermon, index) => ({ ...sermon, id: `default-sermon-${index + 1}` })),
+  dailyManna: DEFAULT_SERMONS
+    .filter(sermon => sermon.type === 'daily-manna')
+    .map((sermon, index) => ({ ...sermon, id: `default-manna-${index + 1}` })),
   messages: [],
   prayerRequests: [],
   donations: []

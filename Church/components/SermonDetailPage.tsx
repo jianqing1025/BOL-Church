@@ -10,7 +10,7 @@ interface SermonDetailPageProps {
 }
 
 const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
-  const { sermons, loading } = useAdmin();
+  const { sermons, dailyManna, loading } = useAdmin();
   const { t, language } = useLocalization();
 
   if (loading) {
@@ -22,7 +22,8 @@ const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
     );
   }
 
-  const sermon = sermons.find(s => s.id === sermonId);
+  const allEntries = [...sermons, ...dailyManna];
+  const sermon = allEntries.find(s => s.id === sermonId);
   
   if (!sermon) {
     return (
@@ -36,7 +37,7 @@ const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
     );
   }
 
-  const otherSermonsInSeries = sermons.filter(
+  const otherSermonsInSeries = allEntries.filter(
     s => (s.series.en === sermon.series.en) && (s.id !== sermon.id)
   );
   

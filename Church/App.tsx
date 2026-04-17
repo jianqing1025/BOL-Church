@@ -70,8 +70,7 @@ function App() {
   const renderPage = () => {
     if (route.startsWith('#/sermons/')) {
       const parts = route.split('/');
-      // Default changed to daily-manna
-      const segment = parts[2] || 'daily-manna'; 
+      const segment = (parts[2] || 'sunday-worship').split('?')[0]; 
       
       const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'recent-sermons', 'live-stream'];
       
@@ -80,7 +79,7 @@ function App() {
         return <SermonDetailPage sermonId={segment} />;
       }
       
-      const subPage = (validSubPages.find(p => p === segment) ?? 'daily-manna') as SermonSubPage;
+      const subPage = (validSubPages.find(p => p === segment) ?? 'sunday-worship') as SermonSubPage;
       return <SermonsPage activeSubPage={subPage} />;
     }
     if (route.startsWith('#/events/')) {

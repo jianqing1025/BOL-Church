@@ -7,7 +7,7 @@ import { buildMediaSlots } from '../media';
 
 const Hero: React.FC = () => {
   const { t } = useLocalization();
-  const { images, isAdminMode, uploadImage } = useAdmin();
+  const { images, isAdminMode, uploadImage, canEditContent } = useAdmin();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const heroSlides = buildMediaSlots('hero', images);
@@ -58,7 +58,7 @@ const Hero: React.FC = () => {
         />
       ))}
       
-      {isAdminMode && (
+      {isAdminMode && canEditContent('hero.image') && (
         <>
             <div className="absolute top-24 right-4 z-20">
                 <button
@@ -79,27 +79,27 @@ const Hero: React.FC = () => {
       )}
 
       <div className="absolute inset-0 bg-black opacity-40"></div>
-      <div className="relative z-10 p-6">
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center px-4 pb-10 pt-28 sm:px-6 sm:pt-32 md:pt-40">
         <Editable
           as="h1"
           contentKey="hero.title"
-          className="text-4xl md:text-6xl font-bold mb-4 leading-tight tracking-tight drop-shadow-lg"
+          className="mx-auto mb-3 max-w-[17rem] text-2xl font-bold leading-tight tracking-tight drop-shadow-lg min-[380px]:max-w-[20rem] min-[380px]:text-3xl sm:max-w-2xl sm:text-4xl md:max-w-4xl md:text-6xl"
         />
         <Editable
           as="p"
           contentKey="hero.subtitle"
-          className="text-lg md:text-2xl mb-8 drop-shadow-md"
+          className="mx-auto mb-6 max-w-[17rem] text-base leading-relaxed drop-shadow-md min-[380px]:max-w-xs min-[380px]:text-lg sm:mb-8 sm:max-w-2xl sm:text-xl md:text-2xl"
         />
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <div className="flex flex-row gap-4">
-            <a href="#about" className="bg-white/20 backdrop-blur-sm border border-white text-white px-8 py-3 rounded-full hover:bg-white/30 transition-all font-semibold text-lg transform hover:scale-105">
+        <div className="flex w-full max-w-xs flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:gap-4">
+            <a href="#about" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.whoWeAre" />
             </a>
-            <a href="#/sermons/recent-sermons" className="bg-white/20 backdrop-blur-sm border border-white text-white px-8 py-3 rounded-full hover:bg-white/30 transition-all font-semibold text-lg transform hover:scale-105">
+            <a href="#/sermons/sunday-worship" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.sundayService" />
             </a>
           </div>
-          <a href="#contact" className="bg-blue-600 text-white px-8 py-4 rounded-full hover:bg-blue-700 transition-all font-bold text-lg transform hover:scale-105">
+          <a href="#/contact/join-us" className="w-full bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all font-bold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
             <Editable as="span" contentKey="hero.button" />
           </a>
         </div>

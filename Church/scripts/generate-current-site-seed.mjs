@@ -108,9 +108,12 @@ ON CONFLICT(key) DO NOTHING;`,
   '',
 ];
 
-if (defaultSermons.length > 0) {
-  const sermonSelects = defaultSermons.map((sermon, index) => {
-    const id = `default-${index + 1}`;
+const defaultSundaySermons = defaultSermons.filter(sermon => sermon.type === 'sermon');
+const defaultDailyManna = defaultSermons.filter(sermon => sermon.type === 'daily-manna');
+
+if (defaultSundaySermons.length > 0) {
+  const sermonSelects = defaultSundaySermons.map((sermon, index) => {
+    const id = `default-sermon-${index + 1}`;
     return `SELECT
   ${sqlString(id)} AS id,
   ${sqlString(sermon.title?.en)} AS title_en,
@@ -140,6 +143,41 @@ FROM (
 ${sermonSelects.join('\nUNION ALL\n')}
 )
 WHERE NOT EXISTS (SELECT 1 FROM sermons);`,
+    ''
+  );
+}
+
+if (defaultDailyManna.length > 0) {
+  const mannaSelects = defaultDailyManna.map((sermon, index) => {
+    const id = `default-manna-${index + 1}`;
+    return `SELECT
+  ${sqlString(id)} AS id,
+  ${sqlString(sermon.title?.en)} AS title_en,
+  ${sqlString(sermon.title?.zh)} AS title_zh,
+  ${sqlString(sermon.speaker?.en)} AS speaker_en,
+  ${sqlString(sermon.speaker?.zh)} AS speaker_zh,
+  ${sqlString(sermon.date)} AS date,
+  ${sqlString(sermon.series?.en)} AS series_en,
+  ${sqlString(sermon.series?.zh)} AS series_zh,
+  ${sqlString(sermon.passage?.en)} AS passage_en,
+  ${sqlString(sermon.passage?.zh)} AS passage_zh,
+  ${sqlString(sermon.youtubeId)} AS youtube_id,
+  ${sermon.imageUrl ? sqlString(sermon.imageUrl) : 'NULL'} AS image_url,
+  ${sqlString(now)} AS created_at,
+  ${sqlString(now)} AS updated_at`;
+  });
+
+  lines.push(
+    `INSERT INTO daily_manna (
+  id, title_en, title_zh, speaker_en, speaker_zh, date,
+  series_en, series_zh, passage_en, passage_zh, youtube_id, image_url,
+  created_at, updated_at
+)
+SELECT *
+FROM (
+${mannaSelects.join('\nUNION ALL\n')}
+)
+WHERE NOT EXISTS (SELECT 1 FROM daily_manna);`,
     ''
   );
 }

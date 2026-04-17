@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
+import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
+import RichTextEditor from './RichTextEditor';
 import SermonManager from './SermonManager';
 import TextContentManager from './TextContentManager';
+import UserManager from './UserManager';
 import { api } from '../api';
 import type { AnalyticsSummary } from '../data';
+import { adminRoleLabel } from '../utils/adminRoles';
 
-type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving';
+type Section = 'overview' | 'homepage' | 'text' | 'media' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'account';
 
 const sectionLabels: Record<Section, string> = {
   overview: 'Overview',
@@ -19,6 +23,8 @@ const sectionLabels: Record<Section, string> = {
   inbox: 'Inbox',
   prayer: 'Prayer Request',
   giving: 'Giving',
+  users: 'Users',
+  account: 'My Account',
 };
 
 const heroFields = [
@@ -28,6 +34,9 @@ const heroFields = [
   { key: 'hero.sundayService', label: 'Secondary button: Sermons' },
   { key: 'hero.button', label: 'Primary button' },
 ] as const;
+
+const heroTextFields = heroFields.slice(0, 2);
+const heroButtonFields = heroFields.slice(2);
 
 function getNestedValue(obj: any, path: string) {
   return path.split('.').reduce((acc, part) => acc && acc[part], obj);
@@ -55,13 +64,24 @@ function formatShortDate(isoString: string) {
   });
 }
 
+function initialsForUser(name: string, email: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) || email.slice(0, 2)).toUpperCase();
+}
+
 const AdminDashboard: React.FC = () => {
   const {
     isAdminMode,
+    currentUser,
     loading,
     logout,
+    canAccessSection,
     content,
     updateContent,
+    uploadImage,
     saveChanges,
     hasUnsavedContent,
     messages,
@@ -72,8 +92,10 @@ const AdminDashboard: React.FC = () => {
     markPrayerPrayed,
     donations,
     sermons,
+    dailyManna,
   } = useAdmin();
   const [activeSection, setActiveSection] = useState<Section>('overview');
+  const [accountMode, setAccountMode] = useState<'profile' | 'password'>('profile');
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -81,8 +103,18 @@ const AdminDashboard: React.FC = () => {
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
   const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
-  const sermonCount = sermons.filter(item => item.type === 'sermon').length;
-  const mannaCount = sermons.filter(item => item.type === 'daily-manna').length;
+  const sermonCount = sermons.length;
+  const mannaCount = dailyManna.length;
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'media', 'sermons', 'manna', 'users'];
+  const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
+  const visiblePrimarySections = primarySections.filter(canAccessSection);
+  const visibleMobileSections = [...primarySections, ...activitySections].filter(canAccessSection);
+
+  useEffect(() => {
+    if (isAdminMode && !canAccessSection(activeSection)) {
+      setActiveSection('overview');
+    }
+  }, [activeSection, canAccessSection, isAdminMode]);
 
   const recentActivity = useMemo(() => {
     const messageItems = messages.slice(0, 3).map(item => ({
@@ -104,16 +136,28 @@ const AdminDashboard: React.FC = () => {
       type: 'Sermon',
       summary: item.title.en || item.title.zh,
       date: item.date,
-      state: item.type === 'daily-manna' ? 'Daily Manna' : 'Sunday Worship',
+      state: 'Sunday Worship',
+    }));
+    const mannaItems = dailyManna.slice(0, 3).map(item => ({
+      id: item.id,
+      type: 'Manna',
+      summary: item.title.en || item.title.zh,
+      date: item.date,
+      state: 'Daily Manna',
     }));
 
-    return [...messageItems, ...prayerItems, ...sermonItems]
+    return [...messageItems, ...prayerItems, ...sermonItems, ...mannaItems]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 8);
-  }, [messages, prayerRequests, sermons]);
+  }, [messages, prayerRequests, sermons, dailyManna]);
 
   useEffect(() => {
+    if (!isAdminMode) {
+      return;
+    }
+
     let cancelled = false;
+    setAnalyticsLoading(true);
 
     api.analyticsSummary()
       .then(result => {
@@ -134,7 +178,7 @@ const AdminDashboard: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAdminMode]);
 
   if (!isAdminMode) {
     return (
@@ -290,12 +334,14 @@ const AdminDashboard: React.FC = () => {
             </button>
           </div>
           <div className="mt-6 space-y-3 text-sm text-gray-600">
-            <div className="flex items-center justify-between">
-              <span>Homepage hero</span>
-              <button onClick={() => setActiveSection('homepage')} className="font-semibold text-blue-600 hover:text-blue-700">
-                Open
-              </button>
-            </div>
+            {canAccessSection('homepage') && (
+              <div className="flex items-center justify-between">
+                <span>Homepage hero</span>
+                <button onClick={() => setActiveSection('homepage')} className="font-semibold text-blue-600 hover:text-blue-700">
+                  Open
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span>Media library</span>
               <button onClick={() => setActiveSection('media')} className="font-semibold text-blue-600 hover:text-blue-700">
@@ -335,53 +381,80 @@ const AdminDashboard: React.FC = () => {
         </div>
         <button
           onClick={() => void saveChanges()}
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+          className="self-start rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 lg:self-auto"
         >
           Save Text Changes
         </button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
-          {heroFields.map(field => {
-            const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
-            const Input = field.multiline ? 'textarea' : 'input';
+          {[
+            { title: 'Hero Text', fields: heroTextFields, showLanguageLabels: true },
+            { title: 'Buttons', fields: heroButtonFields, showLanguageLabels: true },
+          ].map(group => (
+            <div key={group.title} className="rounded-lg bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-gray-900">{group.title}</h3>
+              <div className="mt-4 space-y-4">
+                {group.fields.map((field, fieldIndex) => {
+                  const value = getNestedValue(content, field.key) as { en: string; zh: string } | undefined;
+                  const isMultiline = 'multiline' in field && field.multiline;
+                  const showLanguageLabels = group.showLanguageLabels && fieldIndex === 0;
 
-            return (
-              <div key={field.key} className="rounded-lg bg-white p-5 shadow-sm">
-                <div className="mb-3">
-                  <div className="font-semibold text-gray-900">{field.label}</div>
-                  <div className="text-xs text-gray-500">{field.key}</div>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
-                    <Input
-                      value={value?.en ?? ''}
-                      onChange={event => updateContent(`${field.key}.en`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        field.multiline ? 'min-h-[110px] resize-y' : ''
-                      }`}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
-                    <Input
-                      value={value?.zh ?? ''}
-                      onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
-                      className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 ${
-                        field.multiline ? 'min-h-[110px] resize-y' : ''
-                      }`}
-                    />
-                  </label>
-                </div>
+                  return (
+                    <div key={field.key}>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <label className="space-y-2">
+                          {showLanguageLabels && (
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">English</span>
+                          )}
+                          {isMultiline ? (
+                            <RichTextEditor
+                              value={value?.en ?? ''}
+                              onChange={nextValue => updateContent(`${field.key}.en`, nextValue)}
+                              minHeightClassName="min-h-[90px]"
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.en.${Date.now()}`, file, fileName)}
+                            />
+                          ) : (
+                            <input
+                              value={value?.en ?? ''}
+                              onChange={event => updateContent(`${field.key}.en`, event.target.value)}
+                              aria-label={`${group.title} English`}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                          )}
+                        </label>
+                        <label className="space-y-2">
+                          {showLanguageLabels && (
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Chinese</span>
+                          )}
+                          {isMultiline ? (
+                            <RichTextEditor
+                              value={value?.zh ?? ''}
+                              onChange={nextValue => updateContent(`${field.key}.zh`, nextValue)}
+                              minHeightClassName="min-h-[90px]"
+                              onImageUpload={(file, fileName) => uploadImage(`rich-text/${field.key}.zh.${Date.now()}`, file, fileName)}
+                            />
+                          ) : (
+                            <input
+                              value={value?.zh ?? ''}
+                              onChange={event => updateContent(`${field.key}.zh`, event.target.value)}
+                              aria-label={`${group.title} Chinese`}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-lg bg-gray-950 p-6 text-white shadow-sm">
+        <div>
+          <div className="w-full self-start rounded-lg bg-gray-950 p-6 text-white shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/60">Live Preview</div>
             <div className="mt-4 text-3xl font-bold leading-tight">{getNestedValue(content, 'hero.title.en') || 'Hero title'}</div>
             <div className="mt-3 text-sm leading-6 text-white/80">{getNestedValue(content, 'hero.subtitle.en') || 'Hero subtitle'}</div>
@@ -397,11 +470,11 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
           </div>
-
-          <div className="rounded-lg bg-white p-5 shadow-sm">
-            <HeroImageManager />
-          </div>
         </div>
+      </div>
+
+      <div className="rounded-lg bg-white p-5 shadow-sm">
+        <HeroImageManager />
       </div>
     </div>
   );
@@ -583,6 +656,10 @@ const AdminDashboard: React.FC = () => {
         return renderPrayerRequests();
       case 'giving':
         return renderGiving();
+      case 'users':
+        return <UserManager />;
+      case 'account':
+        return <AccountManager initialMode={accountMode} />;
       default:
         return null;
     }
@@ -590,13 +667,13 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      <aside className="hidden w-72 flex-shrink-0 bg-gray-950 text-white lg:block">
+      <aside className="sticky top-0 hidden h-screen w-72 flex-shrink-0 flex-col bg-gray-950 text-white lg:flex">
         <div className="border-b border-white/10 p-6">
           <div className="text-xl font-bold">Admin Dashboard</div>
           <div className="mt-1 text-sm text-white/60">Bread of Life Christian Church</div>
         </div>
-        <nav className="space-y-1 p-4">
-          {(['overview', 'homepage', 'text', 'media', 'sermons', 'manna'] as Section[]).map(section => {
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
+          {visiblePrimarySections.map(section => {
             const badge = section === 'text' && hasUnsavedContent ? 1 : 0;
 
             return (
@@ -614,8 +691,8 @@ const AdminDashboard: React.FC = () => {
               </button>
             );
           })}
-          <div className="my-3 border-t border-white/10" />
-          {(['inbox', 'prayer', 'giving'] as Section[]).map(section => {
+          <div className="my-4 border-t border-white/25" />
+          {activitySections.filter(canAccessSection).map(section => {
             const badge =
               section === 'inbox' ? unreadMessages :
               section === 'prayer' ? newPrayerRequests :
@@ -636,14 +713,59 @@ const AdminDashboard: React.FC = () => {
               </button>
             );
           })}
-        </nav>
-        <div className="mt-auto border-t border-white/10 p-4">
-          <button onClick={logout} className="w-full rounded-md px-4 py-3 text-left text-sm font-medium text-white/75 hover:bg-red-900 hover:text-white">
-            Sign Out
-          </button>
-          <a href="#/" className="mt-2 block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
+          <div className="my-4 border-t border-white/25" />
+          <a href="#/" className="block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
             Back to Website
           </a>
+        </nav>
+        <div className="border-t border-white/10 p-4">
+          {currentUser && (
+            <div className="relative">
+              <div className="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-3">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                  {initialsForUser(currentUser.name, currentUser.email)}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-white">{currentUser.name}</div>
+                    <div className="truncate text-xs text-white/60">{currentUser.email}</div>
+                </div>
+                <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white/75">
+                  {adminRoleLabel(currentUser.role)}
+                </span>
+                <details className="group">
+                  <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md text-xl leading-none text-white/70 hover:bg-white/10 hover:text-white">
+                    ...
+                  </summary>
+                  <div className="absolute bottom-full right-0 z-20 mb-2 w-48 rounded-lg border border-white/15 bg-gray-900 p-2 shadow-2xl">
+                    <button
+                      onClick={() => {
+                        setAccountMode('profile');
+                        setActiveSection('account');
+                      }}
+                      className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white"
+                    >
+                      Profile Setting
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAccountMode('password');
+                        setActiveSection('account');
+                      }}
+                      className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white"
+                    >
+                      Change Password
+                    </button>
+                    <button
+                      onClick={() => void logout()}
+                      className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-white/75 hover:bg-red-900 hover:text-white"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -655,7 +777,7 @@ const AdminDashboard: React.FC = () => {
               <p className="text-sm text-gray-500">Everything that used to live in the bottom admin bar now lives here.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:hidden">
-              {(['overview', 'homepage', 'text', 'media', 'sermons', 'manna', 'inbox', 'prayer', 'giving'] as Section[]).map(section => (
+              {visibleMobileSections.map(section => (
                 <button
                   key={section}
                   onClick={() => setActiveSection(section)}
@@ -667,6 +789,12 @@ const AdminDashboard: React.FC = () => {
                 </button>
               ))}
               <a href="#/" className="rounded-md bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">Website</a>
+              <button
+                onClick={() => void logout()}
+                className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Sign Out
+              </button>
             </div>
           </div>
         </div>

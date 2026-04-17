@@ -19,7 +19,7 @@ const getNestedValue = (obj: any, path: string) => {
 };
 
 const Editable: React.FC<EditableProps> = ({ as: Component = 'span', contentKey, className, isTextarea = false, render }) => {
-  const { isAdminMode, content, updateContent, uploadImage } = useAdmin();
+  const { isAdminMode, content, updateContent, uploadImage, canEditContent } = useAdmin();
   const { language } = useLocalization();
   const [isEditing, setIsEditing] = useState(false);
 
@@ -57,7 +57,7 @@ const Editable: React.FC<EditableProps> = ({ as: Component = 'span', contentKey,
     return renderRichText(text);
   };
 
-  if (isAdminMode) {
+  if (isAdminMode && canEditContent(contentKey)) {
     if (isEditing) {
       return (
         <div className="space-y-3">

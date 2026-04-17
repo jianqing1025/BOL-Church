@@ -17,5 +17,7 @@ binding = "MEDIA_BUCKET"
 bucket_name = "your-r2-bucket-name"
 
 [vars]
+ADMIN_BOOTSTRAP_EMAIL = "lijianqing@outlook.com"
+ADMIN_BOOTSTRAP_NAME = "Owner"
 CLOUDFLARE_ZONE_ID = "your-zone-id"
 CLOUDFLARE_ANALYTICS_API_TOKEN = "your-analytics-read-token"

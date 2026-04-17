@@ -11,7 +11,7 @@ export const translations = {
     newHere: { en: 'New Here?', zh: '新朋友？' },
   },
   hero: {
-    title: { en: 'Welcome to Bread of Life Christian Church', zh: '歡迎來到信望愛靈糧堂' },
+    title: { en: 'Welcome to Seattle Bread of Life Christian Church', zh: '歡迎來到西雅圖信望愛靈糧堂' },
     subtitle: { en: 'A place to believe, belong, and become.', zh: '一個信靠、歸屬與成長的地方。' },
     button: { en: 'Plan Your Visit', zh: '歡迎來訪' },
     whoWeAre: { en: 'Who We Are', zh: '關於我們' },
@@ -85,6 +85,7 @@ export const translations = {
   sermons: {
     title: { en: 'Sunday Messages', zh: '主日信息' },
     button: { en: 'View All Messages', zh: '查看所有信息' },
+    mannaButton: { en: 'View All Manna', zh: '查看全部每日天言' },
   },
   sermonsPage: {
     pageTitle: { en: 'MESSAGES', zh: '主 日 信 息' },

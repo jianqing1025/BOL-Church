@@ -8,6 +8,14 @@ interface HeaderProps {
   isTransparent: boolean;
 }
 
+type NavSubLink =
+  | { href: string; key: string; label?: never }
+  | { href: string; label: { en: string; zh: string }; key?: never };
+
+type NavLink =
+  | { href: string; key: string; subLinks?: never }
+  | { key: string; subLinks: NavSubLink[]; href?: never };
+
 const useHeaderStyle = () => {
     const { isTransparent } = React.useContext(HeaderContext);
     const [isScrolled, setIsScrolled] = useState(!isTransparent);
@@ -43,8 +51,11 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
   
-  const navLinks = [
-    { href: '#/', key: 'header.navHome' },
+  const navLinks: NavLink[] = [
+    { key: 'header.navHome', subLinks: [
+        { href: 'https://new.bolccop.org', label: { en: 'New Homepage', zh: '新版首頁' } },
+        { href: 'https://classic.bolccop.org', label: { en: 'Classic Homepage', zh: '舊版首頁' } },
+    ]},
     { key: 'header.navAbout', subLinks: [
         { href: '#/about/our-church', key: 'aboutPage.navOurChurch' },
         { href: '#/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
@@ -61,8 +72,8 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         { href: '#/events/prayer', key: 'eventsPage.navPrayer' },
     ]},
     { key: 'header.navSermons', subLinks: [
-        { href: '#/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
         { href: '#/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
+        { href: '#/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
         { href: '#/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
         { href: '#/sermons/live-stream', key: 'sermonsPage.navLiveStream' },
     ]},
@@ -85,6 +96,11 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   };
 
   const navigateTo = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (href.startsWith('http')) {
+      handleLinkClick();
+      return;
+    }
+
     event.preventDefault();
     handleLinkClick();
 
@@ -113,14 +129,14 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   return (
     <HeaderContext.Provider value={{ isTransparent }}>
       <header className={headerClasses} ref={headerRef}>
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <a href="#/" onClick={handleLinkClick} className={`flex items-center gap-3 transition-colors ${logoClasses}`}>
-            <LogoIcon className="h-9 w-9" />
-            <span className="text-3xl font-bold">{t('header.logo')}</span>
+        <div className="container mx-auto px-4 py-3 md:px-6 md:py-4 flex justify-between items-center">
+          <a href="#/" onClick={handleLinkClick} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
+            <LogoIcon className="h-7 w-7 flex-shrink-0 sm:h-8 sm:w-8 md:h-9 md:w-9" />
+            <span className="max-w-[13rem] truncate text-xl font-bold leading-none sm:max-w-none sm:text-2xl md:text-3xl">{t('header.logo')}</span>
           </a>
           <nav className="hidden md:flex items-center space-x-5 lg:space-x-6">
             {navLinks.map(link => (
-              link.subLinks ? (
+              'subLinks' in link ? (
                 <div
                   key={link.key}
                   className="relative"
@@ -129,7 +145,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
                 >
                    <a
                     href={link.subLinks[0].href}
-                    onClick={event => navigateTo(event, link.subLinks![0].href)}
+                    onClick={event => navigateTo(event, link.subLinks[0].href)}
                     onFocus={() => setActiveDropdown(link.key)}
                     className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2`}
                     aria-haspopup="true"
@@ -138,10 +154,14 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
                     {t(link.key)}
                   </a>
                   {activeDropdown === link.key && (
-                    <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white/80 backdrop-blur-lg border border-white/30 rounded-xl shadow-lg p-2 z-10`}>
-                      {link.subLinks.map(subLink => (
-                         <a key={subLink.key} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">{t(subLink.key)}</a>
-                      ))}
+                    <div className="absolute left-0 top-full z-10 w-56 pt-2">
+                      <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
+                        {link.subLinks.map(subLink => (
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                            {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
+                           </a>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -168,25 +188,27 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         </div>
         
         {isMenuOpen && (
-          <div className="md:hidden bg-white shadow-lg absolute top-full left-0 w-full">
-            <nav className="flex flex-col items-center space-y-4 p-6">
+          <div className="md:hidden absolute right-3 top-full mt-2 w-[min(50vw,20rem)] max-h-[calc(100vh-84px)] overflow-y-auto rounded-3xl border border-white/35 bg-white/55 shadow-2xl shadow-black/15 backdrop-blur-2xl">
+            <nav className="flex flex-col items-center space-y-2 p-4">
               {navLinks.map(link => (
-                link.href ? (
-                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
+                'href' in link ? (
+                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                         {t(link.key)}
                     </a>
                 ) : (
-                    <a key={link.key} href={link.subLinks![0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-xl font-bold">
-                        {t(link.key)}
-                    </a>
+                    <div key={link.key} className="flex flex-col items-center gap-2">
+                      <a href={link.subLinks[0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                          {t(link.key)}
+                      </a>
+                    </div>
                 )
               ))}
-              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-6 py-3 rounded-full hover:bg-blue-700 transition-all text-lg font-semibold mt-4">
-                {t('header.newHere')}
-              </a>
-              <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-lg font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-2">
+              <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
+              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+                {t('header.newHere')}
+              </a>
             </nav>
           </div>
         )}

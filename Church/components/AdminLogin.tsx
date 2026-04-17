@@ -10,18 +10,26 @@ interface AdminLoginProps {
 }
 
 const AdminLogin: React.FC<AdminLoginProps> = ({ onClose, onSuccess }) => {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login } = useAdmin();
   const { t } = useLocalization();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (login(password)) {
-      onSuccess?.();
-    } else {
-      setError(t('admin.errorPassword'));
-      setPassword('');
+    setIsSubmitting(true);
+    setError('');
+    try {
+      if (await login(email, password)) {
+        onSuccess?.();
+      } else {
+        setError(t('admin.errorPassword'));
+        setPassword('');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -37,6 +45,20 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onClose, onSuccess }) => {
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <p className="text-sm text-gray-600">{t('admin.loginTitle')}</p>
           <div>
+            <label htmlFor="email-input" className="sr-only">Email</label>
+            <input
+              id="email-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow"
+              placeholder="Email"
+              autoComplete="username"
+              autoFocus
+              required
+            />
+          </div>
+          <div>
             <label htmlFor="password-input" className="sr-only">{t('admin.passwordPlaceholder')}</label>
             <input
               id="password-input"
@@ -45,15 +67,17 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onClose, onSuccess }) => {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow"
               placeholder={t('admin.passwordPlaceholder')}
-              autoFocus
+              autoComplete="current-password"
+              required
             />
           </div>
           {error && <p className="text-red-500 text-sm">{error}</p>}
           <button
             type="submit"
+            disabled={isSubmitting}
             className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors"
           >
-            {t('admin.loginButton')}
+            {isSubmitting ? 'Logging in...' : t('admin.loginButton')}
           </button>
         </form>
       </div>
