@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import RichTextEditor from './RichTextEditor';
 
@@ -33,6 +33,17 @@ const sections: Section[] = [
   { id: 'contact', label: 'Contact & Prayer', prefixes: ['contactPage.', 'prayerRequestPage.'] },
   { id: 'shared', label: 'Header & Footer', prefixes: ['header.', 'footer.'] },
 ];
+
+const ownerOnlyTextSectionIds = new Set(['home', 'shared']);
+const hiddenTextEntryPrefixes = ['sermonArchive.', 'sermonDetail.'];
+const hiddenTextEntryPaths = new Set([
+  'giving.oneTime',
+  'giving.recurring',
+  'giving.amount',
+  'giving.giveNow',
+  'giving.securityNote',
+]);
+const hiddenContactPrimarySections = new Set<PrimarySection['id']>(['buttons', 'content']);
 
 const primarySections: PrimarySection[] = [
   { id: 'all', label: 'All' },
@@ -190,24 +201,51 @@ function groupEntries(entries: LocalizedEntry[], activePrimarySection: PrimarySe
 }
 
 const TextContentManager: React.FC = () => {
-  const { content, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
+  const { content, currentUser, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
   const [activePrimarySection, setActivePrimarySection] = useState<PrimarySection['id']>('all');
   const [activeSection, setActiveSection] = useState(sections[0].id);
   const [query, setQuery] = useState('');
 
+  const visibleSections = useMemo(
+    () => sections.filter(section => currentUser?.role === 'owner' || !ownerOnlyTextSectionIds.has(section.id)),
+    [currentUser]
+  );
+
+  useEffect(() => {
+    if (!visibleSections.some(section => section.id === activeSection)) {
+      setActiveSection(visibleSections[0]?.id ?? sections[0].id);
+    }
+  }, [activeSection, visibleSections]);
+
   const allEntries = useMemo(() => flattenContent(content as Record<string, unknown>), [content]);
 
   const visibleEntries = useMemo(() => {
-    const section = sections.find(item => item.id === activeSection) ?? sections[0];
+    const section = visibleSections.find(item => item.id === activeSection) ?? visibleSections[0] ?? sections[0];
     const loweredQuery = query.trim().toLowerCase();
 
     return allEntries.filter(entry => {
+      if (hiddenTextEntryPaths.has(entry.path)) {
+        return false;
+      }
+
+      if (hiddenTextEntryPrefixes.some(prefix => entry.path.startsWith(prefix))) {
+        return false;
+      }
+
+      const entryPrimarySection = classifyEntry(entry.path);
+      if (
+        (entry.path.startsWith('contactPage.') || entry.path.startsWith('prayerRequestPage.')) &&
+        hiddenContactPrimarySections.has(entryPrimarySection)
+      ) {
+        return false;
+      }
+
       const inSection = section.prefixes.some(prefix => entry.path.startsWith(prefix));
       if (!inSection) {
         return false;
       }
 
-      if (activePrimarySection !== 'all' && classifyEntry(entry.path) !== activePrimarySection) {
+      if (activePrimarySection !== 'all' && entryPrimarySection !== activePrimarySection) {
         return false;
       }
 
@@ -259,12 +297,12 @@ const TextContentManager: React.FC = () => {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {primarySections.map(section => (
+        {visibleSections.map(section => (
           <button
             key={section.id}
-            onClick={() => setActivePrimarySection(section.id)}
+            onClick={() => setActiveSection(section.id)}
             className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              activePrimarySection === section.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+              activeSection === section.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
             {section.label}
@@ -273,12 +311,12 @@ const TextContentManager: React.FC = () => {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {sections.map(section => (
+        {primarySections.map(section => (
           <button
             key={section.id}
-            onClick={() => setActiveSection(section.id)}
+            onClick={() => setActivePrimarySection(section.id)}
             className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              activeSection === section.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+              activePrimarySection === section.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
             {section.label}

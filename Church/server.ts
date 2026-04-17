@@ -341,8 +341,10 @@ function flattenSiteContent(obj: Record<string, unknown>, prefix = ''): SiteCont
 
 function restrictedContentChanges(nextContent: typeof translations, currentContent: typeof translations): string[] {
   const currentRows = new Map(flattenSiteContent(currentContent as Record<string, unknown>).map(row => [row.path, row]));
+  const ownerOnlyPrefixes = ['hero.', 'header.', 'footer.', 'about.', 'events.', 'sermons.', 'support.', 'contact.'];
+
   return flattenSiteContent(nextContent as Record<string, unknown>)
-    .filter(row => row.path.startsWith('hero.'))
+    .filter(row => ownerOnlyPrefixes.some(prefix => row.path.startsWith(prefix)))
     .filter(row => {
       const current = currentRows.get(row.path);
       return !current || current.en !== row.en || current.zh !== row.zh;
@@ -1036,7 +1038,7 @@ const worker: ExportedHandler<Env> = {
         const currentContent = await getSiteContent(env);
         const restricted = restrictedContentChanges(content as typeof translations, currentContent);
         if (restricted.length > 0) {
-          return forbidden('Admins cannot edit homepage content.');
+          return forbidden('Admins cannot edit owner-only content.');
         }
       }
       await putSiteContent(env, content as typeof translations);
