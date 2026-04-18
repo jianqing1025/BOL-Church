@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { produce } from 'immer';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import type { Sermon } from '../data';
 
 const buildEmptyEntry = (entryType: Sermon['type']): Omit<Sermon, 'id'> => ({
@@ -86,6 +87,7 @@ interface SermonManagerProps {
 }
 
 const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) => {
+  const { t } = useLocalization();
   const normalizedEntryType = entryType as Sermon['type'];
   const {
     sermons,
@@ -141,7 +143,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
       resetForm();
     } catch (error) {
       console.error(error);
-      alert('保存失敗');
+      alert(t('admin.saveFailed'));
     }
   };
 
@@ -153,7 +155,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('確定刪除此信息嗎？')) {
+    if (!window.confirm(t('admin.deleteSermonConfirm'))) {
       return;
     }
     if (isManna) {
@@ -173,21 +175,21 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
     <div>
       {isAdding || editingSermonId !== null ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg mb-4 bg-gray-50">
-          <input type="text" placeholder="Title (EN)" value={sermonData.title.en} onChange={(e) => handleInputChange(e, 'en', 'title')} className="p-2 border rounded" />
-          <input type="text" placeholder="標題 (ZH)" value={sermonData.title.zh} onChange={(e) => handleInputChange(e, 'zh', 'title')} className="p-2 border rounded" />
+          <input type="text" placeholder={t('admin.titleEn')} value={sermonData.title.en} onChange={(e) => handleInputChange(e, 'en', 'title')} className="p-2 border rounded" />
+          <input type="text" placeholder={t('admin.titleZh')} value={sermonData.title.zh} onChange={(e) => handleInputChange(e, 'zh', 'title')} className="p-2 border rounded" />
           <input type="date" name="date" value={sermonData.date} onChange={handleInputChange} className="p-2 border rounded" />
-          <input type="text" name="youtubeId" placeholder="YouTube ID (e.g. kYm9S2v7Y7U)" value={sermonData.youtubeId} onChange={handleInputChange} className="p-2 border rounded" />
+          <input type="text" name="youtubeId" placeholder={`${t('admin.youtubeId')} (e.g. kYm9S2v7Y7U)`} value={sermonData.youtubeId} onChange={handleInputChange} className="p-2 border rounded" />
 
           {!isManna && (
             <>
               <SpeakerCombobox
-                placeholder="Speaker (EN)"
+                placeholder={t('admin.speakerEn')}
                 value={sermonData.speaker.en}
                 options={SPEAKER_OPTIONS.en}
                 onChange={(value) => handleLocalizedChange(value, 'en', 'speaker')}
               />
               <SpeakerCombobox
-                placeholder="講員 (ZH)"
+                placeholder={t('admin.speakerZh')}
                 value={sermonData.speaker.zh}
                 options={SPEAKER_OPTIONS.zh}
                 onChange={(value) => handleLocalizedChange(value, 'zh', 'speaker')}
@@ -196,13 +198,13 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
           )}
 
           <div className="md:col-span-2 flex justify-end gap-2">
-            <button onClick={handleSave} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-blue-700 transition-colors">保存</button>
-            <button onClick={resetForm} className="bg-gray-300 px-6 py-2 rounded-lg font-bold hover:bg-gray-400 transition-colors">取消</button>
+            <button onClick={handleSave} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-blue-700 transition-colors">{t('admin.save')}</button>
+            <button onClick={resetForm} className="bg-gray-300 px-6 py-2 rounded-lg font-bold hover:bg-gray-400 transition-colors">{t('admin.cancel')}</button>
           </div>
         </div>
       ) : (
         <button onClick={() => setIsAdding(true)} className="bg-green-600 text-white px-6 py-2 rounded-lg mb-4 font-bold shadow hover:bg-green-700 transition-colors">
-          {isManna ? 'Add Daily Manna' : 'Add Sunday Message'}
+          {isManna ? t('admin.addDailyManna') : t('admin.addSundayMessage')}
         </button>
       )}
 
@@ -212,15 +214,15 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon' }) =
             <div>
               <div className="flex items-center gap-2">
                 <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${isManna ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                  {isManna ? '每日天言' : '主日信息'}
+                  {isManna ? t('admin.dailyManna') : t('admin.sundayMessage')}
                 </span>
                 <p className="font-bold">{sermon.title.zh || sermon.title.en}</p>
               </div>
               <p className="text-xs text-gray-500">{sermon.date}</p>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => handleEdit(sermon)} className="bg-yellow-400 text-white px-3 py-1 rounded text-sm hover:bg-yellow-500 transition-colors">編輯</button>
-              <button onClick={() => handleDelete(sermon.id)} className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition-colors">刪除</button>
+              <button onClick={() => handleEdit(sermon)} className="bg-yellow-400 text-white px-3 py-1 rounded text-sm hover:bg-yellow-500 transition-colors">{t('admin.edit')}</button>
+              <button onClick={() => handleDelete(sermon.id)} className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition-colors">{t('admin.delete')}</button>
             </div>
           </li>
         ))}

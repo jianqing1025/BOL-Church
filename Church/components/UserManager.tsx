@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import type { AdminRole, AdminUser } from '../data';
 
 const emptyForm = {
@@ -11,6 +12,7 @@ const emptyForm = {
 
 const UserManager: React.FC = () => {
   const { users, currentUser, createUser, updateUserRecord } = useAdmin();
+  const { t } = useLocalization();
   const [form, setForm] = useState(emptyForm);
   const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -26,7 +28,7 @@ const UserManager: React.FC = () => {
       await createUser(form);
       setForm(emptyForm);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create user.');
+      setError(err instanceof Error ? err.message : t('admin.createUserFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -37,14 +39,14 @@ const UserManager: React.FC = () => {
     try {
       await updateUserRecord(user.id, patch);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update user.');
+      setError(err instanceof Error ? err.message : t('admin.updateUserFailed'));
     }
   };
 
   const resetPassword = async (user: AdminUser) => {
     const password = passwords[user.id] || '';
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+      setError(t('admin.passwordTooShort'));
       return;
     }
     await updateUser(user, { password });
@@ -54,8 +56,8 @@ const UserManager: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="rounded-lg bg-white p-6 shadow-sm">
-        <h2 className="text-2xl font-bold text-gray-900">Users</h2>
-        <p className="mt-1 text-sm text-gray-600">Create Owner and Admin accounts for the Admin dashboard.</p>
+        <h2 className="text-2xl font-bold text-gray-900">{t('admin.users')}</h2>
+        <p className="mt-1 text-sm text-gray-600">{t('admin.usersSubtitle')}</p>
         {error && (
           <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -64,13 +66,13 @@ const UserManager: React.FC = () => {
       </div>
 
       <form onSubmit={submitCreate} className="rounded-lg bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-gray-900">Create User</h3>
+        <h3 className="text-lg font-bold text-gray-900">{t('admin.createUser')}</h3>
         <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_180px]">
           <input
             value={form.name}
             onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="Name"
+            placeholder={t('admin.name')}
             required
           />
           <input
@@ -78,7 +80,7 @@ const UserManager: React.FC = () => {
             value={form.email}
             onChange={event => setForm(current => ({ ...current, email: event.target.value }))}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="Email"
+            placeholder={t('admin.email')}
             required
           />
           <input
@@ -86,7 +88,7 @@ const UserManager: React.FC = () => {
             value={form.password}
             onChange={event => setForm(current => ({ ...current, password: event.target.value }))}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder="Password, 8+ characters"
+            placeholder={t('admin.password8Plus')}
             required
           />
           <select
@@ -94,8 +96,8 @@ const UserManager: React.FC = () => {
             onChange={event => setForm(current => ({ ...current, role: event.target.value as AdminRole }))}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
           >
-            <option value="contributor">Admin</option>
-            <option value="owner">Owner</option>
+            <option value="contributor">{t('admin.adminRole')}</option>
+            <option value="owner">{t('admin.owner')}</option>
           </select>
         </div>
         <button
@@ -103,13 +105,13 @@ const UserManager: React.FC = () => {
           disabled={isSaving}
           className="mt-4 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:bg-gray-400"
         >
-          {isSaving ? 'Creating...' : 'Create User'}
+          {isSaving ? t('admin.creating') : t('admin.createUser')}
         </button>
       </form>
 
       <div className="overflow-hidden rounded-lg bg-white shadow-sm">
         <div className="border-b border-gray-200 px-6 py-4">
-          <h3 className="text-lg font-bold text-gray-900">Admin Users</h3>
+          <h3 className="text-lg font-bold text-gray-900">{t('admin.adminUsers')}</h3>
         </div>
         <div className="divide-y divide-gray-200">
           {users.map(user => {
@@ -118,10 +120,10 @@ const UserManager: React.FC = () => {
               <div key={user.id} className="grid gap-4 p-6 xl:grid-cols-[1fr_220px_280px_180px] xl:items-center">
                 <div>
                   <div className="font-semibold text-gray-900">
-                    {user.name} {currentUser?.id === user.id && <span className="text-xs text-blue-600">(you)</span>}
+                    {user.name} {currentUser?.id === user.id && <span className="text-xs text-blue-600">({t('admin.you')})</span>}
                   </div>
                   <div className="text-sm text-gray-500">{user.email}</div>
-                  <div className="mt-1 text-xs text-gray-400">Created {new Date(user.createdAt).toLocaleDateString()}</div>
+                  <div className="mt-1 text-xs text-gray-400">{t('admin.created')} {new Date(user.createdAt).toLocaleDateString()}</div>
                 </div>
                 <select
                   value={user.role}
@@ -129,8 +131,8 @@ const UserManager: React.FC = () => {
                   onChange={event => void updateUser(user, { role: event.target.value as AdminRole })}
                   className="rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
                 >
-                  <option value="owner">Owner</option>
-                  <option value="contributor">Admin</option>
+                  <option value="owner">{t('admin.owner')}</option>
+                  <option value="contributor">{t('admin.adminRole')}</option>
                 </select>
                 <div className="flex gap-2">
                   <input
@@ -138,14 +140,14 @@ const UserManager: React.FC = () => {
                     value={passwords[user.id] || ''}
                     onChange={event => setPasswords(current => ({ ...current, [user.id]: event.target.value }))}
                     className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
-                    placeholder="New password"
+                    placeholder={t('admin.newPassword')}
                   />
                   <button
                     type="button"
                     onClick={() => void resetPassword(user)}
                     className="rounded-md bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200"
                   >
-                    Reset
+                    {t('admin.reset')}
                   </button>
                 </div>
                 <button
@@ -156,7 +158,7 @@ const UserManager: React.FC = () => {
                     user.active ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-green-50 text-green-700 hover:bg-green-100'
                   }`}
                 >
-                  {user.active ? 'Deactivate' : 'Activate'}
+                  {user.active ? t('admin.deactivate') : t('admin.activate')}
                 </button>
               </div>
             );

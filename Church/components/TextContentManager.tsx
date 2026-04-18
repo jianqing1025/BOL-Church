@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import RichTextEditor from './RichTextEditor';
 
 type LocalizedEntry = {
@@ -202,9 +203,26 @@ function groupEntries(entries: LocalizedEntry[], activePrimarySection: PrimarySe
 
 const TextContentManager: React.FC = () => {
   const { content, currentUser, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
+  const { t } = useLocalization();
   const [activePrimarySection, setActivePrimarySection] = useState<PrimarySection['id']>('all');
   const [activeSection, setActiveSection] = useState(sections[0].id);
   const [query, setQuery] = useState('');
+  const sectionLabel = (id: string) => ({
+    home: t('admin.homeSections'),
+    about: t('admin.aboutPage'),
+    events: t('admin.eventsPage'),
+    sermons: t('admin.sermonsPage'),
+    giving: t('admin.givingPage'),
+    contact: t('admin.contactPrayer'),
+    shared: t('admin.headerFooter'),
+  }[id] ?? id);
+  const primarySectionLabel = (id: PrimarySection['id']) => ({
+    all: t('admin.all'),
+    navigation: t('admin.navigation'),
+    buttons: t('admin.buttons'),
+    'page-titles': t('admin.pageTitles'),
+    content: t('admin.content'),
+  }[id]);
 
   const visibleSections = useMemo(
     () => sections.filter(section => currentUser?.role === 'owner' || !ownerOnlyTextSectionIds.has(section.id)),
@@ -280,18 +298,18 @@ const TextContentManager: React.FC = () => {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Text Changes</h2>
-          <p className="text-sm text-gray-600">Edit English and Chinese content without hunting through the public pages.</p>
+          <h2 className="text-2xl font-bold text-gray-900">{t('admin.textChanges')}</h2>
+          <p className="text-sm text-gray-600">{t('admin.textChangesSubtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <span className={`text-sm font-medium ${hasUnsavedContent ? 'text-amber-700' : 'text-emerald-700'}`}>
-            {hasUnsavedContent ? 'Unsaved text changes' : 'All text changes saved'}
+            {hasUnsavedContent ? t('admin.unsavedTextChanges') : t('admin.allTextChangesSaved')}
           </span>
           <button
             onClick={() => void saveChanges()}
             className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
           >
-            Save Text Changes
+            {t('admin.saveTextChanges')}
           </button>
         </div>
       </div>
@@ -305,7 +323,7 @@ const TextContentManager: React.FC = () => {
               activeSection === section.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            {section.label}
+            {sectionLabel(section.id)}
           </button>
         ))}
       </div>
@@ -319,7 +337,7 @@ const TextContentManager: React.FC = () => {
               activePrimarySection === section.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            {section.label}
+            {primarySectionLabel(section.id)}
           </button>
         ))}
       </div>
@@ -329,7 +347,7 @@ const TextContentManager: React.FC = () => {
           type="search"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Search by content key or text"
+          placeholder={t('admin.searchText')}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
       </div>
@@ -337,7 +355,7 @@ const TextContentManager: React.FC = () => {
       <div className="space-y-4">
         {visibleEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-            No matching text fields in this section.
+            {t('admin.noMatchingText')}
           </div>
         ) : (
           groupedEntries.map(group => (
@@ -361,12 +379,12 @@ const TextContentManager: React.FC = () => {
                           href={pageHrefForEntry(entry.path)}
                           className="text-xs font-semibold text-blue-600 hover:text-blue-700"
                         >
-                          Open Page
+                          {t('admin.openPage')}
                         </a>
                       </div>
                       <div className="grid gap-4 lg:grid-cols-2">
                         <label className="space-y-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">English</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">{t('admin.english')}</span>
                           {usesRichEditor ? (
                             <RichTextEditor
                               value={entry.en}
@@ -376,7 +394,7 @@ const TextContentManager: React.FC = () => {
                           ) : renderTextField(`${entry.path}.en`, entry.en)}
                         </label>
                         <label className="space-y-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">Chinese</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">{t('admin.chinese')}</span>
                           {usesRichEditor ? (
                             <RichTextEditor
                               value={entry.zh}

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import { resizeImageToBlob } from '../imageUpload';
 import { buildMediaSlots, nextMediaKey, type MediaKind, type MediaSlot } from '../media';
 
@@ -17,46 +18,51 @@ const MediaCard: React.FC<{
   onUpload: (event: React.ChangeEvent<HTMLInputElement>, slot: MediaSlot) => void;
   onDelete?: (slot: MediaSlot) => void;
   canDelete?: boolean;
-}> = ({ slot, imageUrl, isUploading, onUpload, onDelete, canDelete = false }) => (
-  <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-    <img
-      src={imageUrl}
-      alt={slot.label}
-      className="h-44 w-full object-cover"
-    />
-    <div className="space-y-3 p-4">
-      <div>
-        <div className="font-semibold text-gray-900">{slot.label}</div>
-        <div className="text-sm text-gray-500">{slot.hint}</div>
-        <div className="mt-1 break-all text-xs text-gray-400">{slot.key}</div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <label className="inline-flex cursor-pointer items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-          {isUploading ? 'Uploading...' : 'Switch Image'}
-          <input
-            type="file"
-            className="hidden"
-            accept="image/*"
-            disabled={isUploading}
-            onChange={event => onUpload(event, slot)}
-          />
-        </label>
-        {canDelete && (
-          <button
-            type="button"
-            onClick={() => onDelete?.(slot)}
-            className="rounded-md bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-          >
-            Delete
-          </button>
-        )}
+}> = ({ slot, imageUrl, isUploading, onUpload, onDelete, canDelete = false }) => {
+  const { t } = useLocalization();
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <img
+        src={imageUrl}
+        alt={slot.label}
+        className="h-44 w-full object-cover"
+      />
+      <div className="space-y-3 p-4">
+        <div>
+          <div className="font-semibold text-gray-900">{slot.label}</div>
+          <div className="text-sm text-gray-500">{slot.hint}</div>
+          <div className="mt-1 break-all text-xs text-gray-400">{slot.key}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex cursor-pointer items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {isUploading ? t('admin.uploading') : t('admin.switchImage')}
+            <input
+              type="file"
+              className="hidden"
+              accept="image/*"
+              disabled={isUploading}
+              onChange={event => onUpload(event, slot)}
+            />
+          </label>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete?.(slot)}
+              className="rounded-md bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+            >
+              {t('admin.delete')}
+            </button>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, addLabel }) => {
   const { images, uploadImage, deleteImage, canEditContent } = useAdmin();
+  const { t } = useLocalization();
   const addInputRef = useRef<HTMLInputElement>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const slots = buildMediaSlots(kind, images);
@@ -79,7 +85,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
       await uploadImage(slot.key, resizedImage, file.name);
     } catch (error) {
       console.error('Image processing failed', error);
-      const message = error instanceof Error ? error.message : 'Image upload failed.';
+      const message = error instanceof Error ? error.message : t('admin.imageUploadFailed');
       alert(message);
     } finally {
       setUploadingKey(null);
@@ -95,14 +101,14 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
   };
 
   const handleDelete = async (slot: MediaSlot) => {
-    if (!window.confirm(`Delete ${slot.label}?`)) {
+    if (!window.confirm(t('admin.deleteImageConfirm'))) {
       return;
     }
     try {
       await deleteImage(slot.key);
     } catch (error) {
       console.error('Image delete failed', error);
-      const message = error instanceof Error ? error.message : 'Image delete failed.';
+      const message = error instanceof Error ? error.message : t('admin.imageDeleteFailed');
       alert(message);
     }
   };
@@ -119,7 +125,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
           onClick={() => addInputRef.current?.click()}
           className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
         >
-          {uploadingKey === '__add__' ? 'Uploading...' : addLabel}
+          {uploadingKey === '__add__' ? t('admin.uploading') : addLabel}
         </button>
         <input
           ref={addInputRef}
@@ -150,27 +156,31 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
   );
 };
 
-const HeroImageManager: React.FC = () => (
-  <div className="space-y-6">
-    <div>
-      <h2 className="text-2xl font-bold text-gray-900">Manage Media</h2>
-      <p className="text-sm text-gray-600">Upload images to R2 and save their active slots in D1. Changes are reflected live across the website.</p>
+const HeroImageManager: React.FC = () => {
+  const { t } = useLocalization();
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">{t('admin.manageMedia')}</h2>
+        <p className="text-sm text-gray-600">{t('admin.manageMediaSubtitle')}</p>
+      </div>
+
+      <MediaSection
+        kind="hero"
+        title={t('admin.heroSlides')}
+        description={t('admin.heroSlidesSubtitle')}
+        addLabel={t('admin.addHeroSlide')}
+      />
+
+      <MediaSection
+        kind="event"
+        title={t('admin.eventCards')}
+        description={t('admin.eventCardsSubtitle')}
+        addLabel={t('admin.addEventCard')}
+      />
     </div>
-
-    <MediaSection
-      kind="hero"
-      title="Hero Slides"
-      description="Homepage slideshow backgrounds. Add a new slide or switch any existing image."
-      addLabel="Add Hero Slide"
-    />
-
-    <MediaSection
-      kind="event"
-      title="Event Cards"
-      description="Homepage event card images. Add more cards or switch existing card images."
-      addLabel="Add Event Card"
-    />
-  </div>
-);
+  );
+};
 
 export default HeroImageManager;

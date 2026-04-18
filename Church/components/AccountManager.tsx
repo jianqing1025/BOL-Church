@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
-import { adminRoleLabel } from '../utils/adminRoles';
+import { useLocalization } from '../hooks/useLocalization';
 
 type AccountManagerProps = {
   initialMode?: 'profile' | 'password';
@@ -8,6 +8,7 @@ type AccountManagerProps = {
 
 const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile' }) => {
   const { currentUser, updateCurrentUserProfile } = useAdmin();
+  const { t } = useLocalization();
   const [name, setName] = useState(currentUser?.name ?? '');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -39,7 +40,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
 
     const emailChanged = email.trim().toLowerCase() !== currentUser.email;
     if (emailChanged && !currentPassword) {
-      setError('Current password is required to change your email.');
+      setError(t('admin.currentPasswordEmailRequired'));
       return;
     }
 
@@ -51,9 +52,9 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
         currentPassword: emailChanged ? currentPassword : undefined,
       });
       setCurrentPassword('');
-      setMessage('Profile updated.');
+      setMessage(t('admin.profileUpdated'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile.');
+      setError(err instanceof Error ? err.message : t('admin.profileUpdateFailed'));
     } finally {
       setIsSavingProfile(false);
     }
@@ -65,12 +66,12 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
     setMessage('');
 
     if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters.');
+      setError(t('admin.newPasswordTooShort'));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.');
+      setError(t('admin.passwordMismatch'));
       return;
     }
 
@@ -80,9 +81,9 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setMessage('Password updated.');
+      setMessage(t('admin.passwordUpdated'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update password.');
+      setError(err instanceof Error ? err.message : t('admin.passwordUpdateFailed'));
     } finally {
       setIsSavingPassword(false);
     }
@@ -91,25 +92,25 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
   return (
     <div className="space-y-6">
       <div className="rounded-lg bg-white p-6 shadow-sm">
-        <h2 className="text-2xl font-bold text-gray-900">My Account</h2>
-        <p className="mt-1 text-sm text-gray-600">Keep your Admin sign-in details current.</p>
+        <h2 className="text-2xl font-bold text-gray-900">{t('admin.myAccount')}</h2>
+        <p className="mt-1 text-sm text-gray-600">{t('admin.accountSubtitle')}</p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <div className="inline-flex rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
-            {adminRoleLabel(currentUser.role)}
+            {currentUser.role === 'owner' ? t('admin.owner') : t('admin.adminRole')}
           </div>
           <button
             type="button"
             onClick={() => setMode('profile')}
             className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === 'profile' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'}`}
           >
-            Profile Setting
+            {t('admin.profileSetting')}
           </button>
           <button
             type="button"
             onClick={() => setMode('password')}
             className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === 'password' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'}`}
           >
-            Change Password
+            {t('admin.changePassword')}
           </button>
         </div>
         {message && (
@@ -126,10 +127,10 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
 
       {mode === 'profile' ? (
         <form onSubmit={saveProfile} className="rounded-lg bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-bold text-gray-900">Profile</h3>
+          <h3 className="text-lg font-bold text-gray-900">{t('admin.profile')}</h3>
           <div className="mt-4 space-y-4">
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">Name</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.name')}</span>
               <input
                 value={name}
                 onChange={event => setName(event.target.value)}
@@ -138,7 +139,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
               />
             </label>
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">Email</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.email')}</span>
               <input
                 type="email"
                 value={email}
@@ -148,13 +149,13 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
               />
             </label>
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">Current password</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.currentPassword')}</span>
               <input
                 type="password"
                 value={currentPassword}
                 onChange={event => setCurrentPassword(event.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                placeholder="Required when changing email"
+                placeholder={t('admin.requiredWhenChangingEmail')}
                 autoComplete="current-password"
               />
             </label>
@@ -164,15 +165,15 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
             disabled={isSavingProfile}
             className="mt-5 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:bg-gray-400"
           >
-            {isSavingProfile ? 'Saving...' : 'Save Profile'}
+            {isSavingProfile ? t('admin.saving') : t('admin.saveProfile')}
           </button>
         </form>
       ) : (
         <form onSubmit={savePassword} className="rounded-lg bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-bold text-gray-900">Password</h3>
+          <h3 className="text-lg font-bold text-gray-900">{t('admin.password')}</h3>
           <div className="mt-4 space-y-4">
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">Current password</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.currentPassword')}</span>
               <input
                 type="password"
                 value={currentPassword}
@@ -183,7 +184,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
               />
             </label>
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">New password</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.newPassword')}</span>
               <input
                 type="password"
                 value={newPassword}
@@ -194,7 +195,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
               />
             </label>
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-gray-700">Confirm new password</span>
+              <span className="text-sm font-semibold text-gray-700">{t('admin.confirmNewPassword')}</span>
               <input
                 type="password"
                 value={confirmPassword}
@@ -210,7 +211,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
             disabled={isSavingPassword}
             className="mt-5 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:bg-gray-400"
           >
-            {isSavingPassword ? 'Updating...' : 'Update Password'}
+            {isSavingPassword ? t('admin.updating') : t('admin.updatePassword')}
           </button>
         </form>
       )}
