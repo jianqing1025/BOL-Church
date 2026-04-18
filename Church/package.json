@@ -9,9 +9,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "cf:dev": "vite build && wrangler dev",
-    "cf:deploy": "vite build && wrangler deploy",
-    "deploy:dev": "vite build && wrangler deploy --config .tmp/wrangler.church-dev.toml",
-    "deploy:master": "vite build && wrangler deploy",
+    "version:bump": "node ./scripts/bump-version.mjs",
+    "cf:deploy": "npm run version:bump && vite build && wrangler deploy",
+    "deploy:dev": "npm run version:bump && vite build && wrangler deploy --config .tmp/wrangler.church-dev.toml",
+    "deploy:master": "npm run version:bump && vite build && wrangler deploy",
     "d1:migrate:local": "wrangler d1 migrations apply bol-church --local",
     "d1:migrate:remote": "wrangler d1 migrations apply bol-church --remote",
     "d1:seed:current": "node ./scripts/generate-current-site-seed.mjs",
@@ -19,14 +20,19 @@
     "firebase:sql": "node ./scripts/firebase-export-to-sql.mjs"
   },
   "dependencies": {
+    "d3-geo": "^3.1.1",
     "immer": "^10.2.0",
     "quill": "^2.0.3",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260414.1",
+    "@types/d3-geo": "^3.1.0",
     "@types/node": "^22.14.0",
+    "@types/topojson-client": "^3.1.5",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.12.0",
     "typescript": "~5.8.2",

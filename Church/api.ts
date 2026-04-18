@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -88,4 +88,6 @@ export const api = {
     request<Donation>('/api/donations', { method: 'POST', body: JSON.stringify(payload) }),
   analyticsSummary: () =>
     request<AnalyticsSummary>('/api/analytics/summary'),
+  webAnalytics: (range: WebAnalyticsRange, excludeBots = true) =>
+    request<WebAnalyticsSummary>(`/api/analytics/web?range=${encodeURIComponent(range)}&excludeBots=${excludeBots ? '1' : '0'}`),
 };

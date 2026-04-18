@@ -8,12 +8,16 @@ import SermonManager from './SermonManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
 import { api } from '../api';
-import type { AnalyticsSummary } from '../data';
+import type { AnalyticsSummary, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import { navigateTo } from '../utils/routes';
+import { APP_VERSION } from '../constants/appVersion';
+import { geoEqualEarth, geoPath } from 'd3-geo';
+import { feature } from 'topojson-client';
+import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
@@ -25,6 +29,7 @@ const sectionLabelKeys: Record<Section, string> = {
   prayer: 'admin.prayerRequest',
   giving: 'admin.givingTab',
   users: 'admin.users',
+  analytics: 'admin.webAnalytics',
   account: 'admin.myAccount',
 };
 
@@ -88,6 +93,110 @@ function formatPreviewText(value: unknown, fallback: string) {
   return cleaned || fallback;
 }
 
+function formatMetric(value: number | null) {
+  return value === null ? 'N/A' : value.toLocaleString();
+}
+
+function formatMs(value: number | null) {
+  return value === null ? 'N/A' : `${value.toLocaleString()} ms`;
+}
+
+type CountryInfo = {
+  name: string;
+  code?: string;
+  numericId?: string;
+};
+
+const countryByCode: Record<string, CountryInfo> = {
+  AU: { name: 'Australia', code: 'AU', numericId: '036' },
+  BR: { name: 'Brazil', code: 'BR', numericId: '076' },
+  CA: { name: 'Canada', code: 'CA', numericId: '124' },
+  CN: { name: 'China', code: 'CN', numericId: '156' },
+  DE: { name: 'Germany', code: 'DE', numericId: '276' },
+  DZ: { name: 'Algeria', code: 'DZ', numericId: '012' },
+  FR: { name: 'France', code: 'FR', numericId: '250' },
+  GB: { name: 'United Kingdom', code: 'GB', numericId: '826' },
+  HK: { name: 'Hong Kong', code: 'HK', numericId: '344' },
+  ID: { name: 'Indonesia', code: 'ID', numericId: '360' },
+  IN: { name: 'India', code: 'IN', numericId: '356' },
+  JP: { name: 'Japan', code: 'JP', numericId: '392' },
+  KE: { name: 'Kenya', code: 'KE', numericId: '404' },
+  MX: { name: 'Mexico', code: 'MX', numericId: '484' },
+  MY: { name: 'Malaysia', code: 'MY', numericId: '458' },
+  PH: { name: 'Philippines', code: 'PH', numericId: '608' },
+  PK: { name: 'Pakistan', code: 'PK', numericId: '586' },
+  SG: { name: 'Singapore', code: 'SG', numericId: '702' },
+  TN: { name: 'Tunisia', code: 'TN', numericId: '788' },
+  TW: { name: 'Taiwan', code: 'TW', numericId: '158' },
+  US: { name: 'United States', code: 'US', numericId: '840' },
+  UZ: { name: 'Uzbekistan', code: 'UZ', numericId: '860' },
+  VN: { name: 'Vietnam', code: 'VN', numericId: '704' },
+};
+
+const countryCodeByName = Object.fromEntries(
+  Object.values(countryByCode).map(info => [info.name.toLowerCase(), info.code])
+) as Record<string, string>;
+
+countryCodeByName['united states of america'] = 'US';
+
+const countryMapPoints: Record<string, { x: number; y: number }> = {
+  Algeria: { x: 364, y: 124 },
+  Australia: { x: 594, y: 254 },
+  Brazil: { x: 256, y: 200 },
+  Canada: { x: 148, y: 68 },
+  China: { x: 568, y: 110 },
+  France: { x: 358, y: 104 },
+  Germany: { x: 374, y: 96 },
+  'Hong Kong': { x: 588, y: 136 },
+  India: { x: 516, y: 138 },
+  Indonesia: { x: 574, y: 188 },
+  Japan: { x: 636, y: 106 },
+  Kenya: { x: 436, y: 182 },
+  Malaysia: { x: 564, y: 172 },
+  Mexico: { x: 142, y: 130 },
+  Pakistan: { x: 500, y: 126 },
+  Philippines: { x: 604, y: 156 },
+  Singapore: { x: 568, y: 176 },
+  Taiwan: { x: 602, y: 132 },
+  Tunisia: { x: 374, y: 114 },
+  'United Kingdom': { x: 350, y: 88 },
+  'United States': { x: 164, y: 102 },
+  Uzbekistan: { x: 486, y: 110 },
+  Vietnam: { x: 576, y: 152 },
+};
+
+const worldCountryFeatures = (
+  feature((worldCountries as any), (worldCountries as any).objects.countries) as any
+).features.filter((item: any) => item.id !== '010');
+const worldCountryById = new Map<string, any>(
+  worldCountryFeatures.map((item: any) => [String(item.id).padStart(3, '0'), item])
+);
+const worldProjection = geoEqualEarth().fitExtent(
+  [[18, 18], [702, 318]],
+  { type: 'Sphere' } as any
+);
+const worldPath = geoPath(worldProjection);
+
+function countryInfoForLabel(label: string): CountryInfo {
+  const normalized = label.trim();
+  const upper = normalized.toUpperCase();
+  if (countryByCode[upper]) {
+    return countryByCode[upper];
+  }
+
+  const code = countryCodeByName[normalized.toLowerCase()];
+  if (code && countryByCode[code]) {
+    return countryByCode[code];
+  }
+
+  return { name: normalized || 'Unknown', code: normalized.length <= 3 ? upper : undefined };
+}
+
+function countryDisplayLabel(label: string) {
+  const info = countryInfoForLabel(label);
+  return info.code ? `${info.name} (${info.code})` : info.name;
+}
+
 const AdminDashboard: React.FC = () => {
   const {
     isAdminMode,
@@ -116,6 +225,13 @@ const AdminDashboard: React.FC = () => {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [webAnalytics, setWebAnalytics] = useState<WebAnalyticsSummary | null>(null);
+  const [webAnalyticsRange, setWebAnalyticsRange] = useState<WebAnalyticsRange>('72h');
+  const [webAnalyticsExcludeBots, setWebAnalyticsExcludeBots] = useState(true);
+  const [webAnalyticsLoading, setWebAnalyticsLoading] = useState(false);
+  const [webAnalyticsError, setWebAnalyticsError] = useState<string | null>(null);
+  const [countryPage, setCountryPage] = useState(0);
+  const [sourceItemCount, setSourceItemCount] = useState<5 | 10 | 15>(5);
 
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
@@ -127,8 +243,9 @@ const AdminDashboard: React.FC = () => {
   const roleLabel = currentUser?.role === 'owner' ? t('admin.owner') : t('admin.adminRole');
   const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
+  const insightSections: Section[] = ['analytics'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
-  const visibleMobileSections = [...primarySections, ...activitySections].filter(canAccessSection);
+  const visibleMobileSections = [...primarySections, ...activitySections, ...insightSections].filter(canAccessSection);
 
   useEffect(() => {
     if (isAdminMode && !canAccessSection(activeSection)) {
@@ -203,6 +320,40 @@ const AdminDashboard: React.FC = () => {
       cancelled = true;
     };
   }, [isAdminMode, language]);
+
+  useEffect(() => {
+    if (!isAdminMode || activeSection !== 'analytics') {
+      return;
+    }
+
+    let cancelled = false;
+    setWebAnalyticsLoading(true);
+    setWebAnalyticsError(null);
+
+    api.webAnalytics(webAnalyticsRange, webAnalyticsExcludeBots)
+      .then(result => {
+        if (cancelled) return;
+        setWebAnalytics(result);
+        setWebAnalyticsError(result.error ?? null);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setWebAnalyticsError(error instanceof Error ? error.message : 'Failed to load Web Analytics.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWebAnalyticsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, isAdminMode, webAnalyticsExcludeBots, webAnalyticsRange]);
+
+  useEffect(() => {
+    setCountryPage(0);
+  }, [webAnalyticsRange, webAnalyticsExcludeBots]);
 
   if (!isAdminMode) {
     return (
@@ -664,6 +815,395 @@ const AdminDashboard: React.FC = () => {
     </div>
   );
 
+  const renderRankedList = (title: string, items: WebAnalyticsRankedItem[]) => {
+    const maxValue = Math.max(...items.map(item => item.pageviews), 1);
+
+    return (
+      <div className="rounded-lg bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+        <div className="mt-4 space-y-3">
+          {items.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+              {t('admin.noAnalyticsData')}
+            </div>
+          ) : items.map(item => {
+            const width = `${Math.max((item.pageviews / maxValue) * 100, 5)}%`;
+            return (
+              <div key={item.label} className="space-y-1">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate font-medium text-gray-800">{item.label}</span>
+                  <span className="flex-shrink-0 font-semibold text-gray-900">{item.pageviews.toLocaleString()}</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100">
+                  <div className="h-2 rounded-full bg-blue-600" style={{ width }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderVisitsLineChart = (data: WebAnalyticsSummary['timeseries']) => {
+    const width = 880;
+    const height = 310;
+    const padding = { top: 18, right: 18, bottom: 38, left: 46 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const maxValue = Math.max(...data.map(point => point.visits || point.pageviews), 1);
+    const points = data.map((point, index) => {
+      const x = padding.left + (data.length <= 1 ? 0 : (index / (data.length - 1)) * chartWidth);
+      const value = point.visits || point.pageviews;
+      const y = padding.top + chartHeight - (value / maxValue) * chartHeight;
+      return { ...point, x, y, value };
+    });
+    const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
+    const yTicks = Array.from({ length: 6 }, (_, index) => Math.round((maxValue / 5) * index));
+    const xTicks = points.filter((_, index) => index === 0 || index === points.length - 1 || index % Math.max(1, Math.ceil(points.length / 6)) === 0);
+
+    return (
+      <div className="rounded-lg bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">{t('admin.visitsSummary')}</h3>
+            <p className="mt-1 text-sm text-gray-500">{t('admin.visitsSummaryHelp')}</p>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center justify-end gap-2 text-xs text-gray-600">
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              {t('admin.totalVisits')}
+            </div>
+            <div className="mt-1 text-3xl font-bold text-gray-900">{webAnalytics?.visits.toLocaleString()}</div>
+          </div>
+        </div>
+        <div className="mt-6 overflow-x-auto">
+          {data.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+              {t('admin.noAnalyticsData')}
+            </div>
+          ) : (
+            <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[760px]">
+              <rect x={padding.left} y={padding.top} width={chartWidth} height={chartHeight} fill="#fff" />
+              {yTicks.map(value => {
+                const y = padding.top + chartHeight - (value / maxValue) * chartHeight;
+                return (
+                  <g key={value}>
+                    <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="#e5e7eb" strokeWidth="1" />
+                    <text x={padding.left - 12} y={y + 4} textAnchor="end" className="fill-gray-500 text-[11px]">{value}</text>
+                  </g>
+                );
+              })}
+              {xTicks.map(point => (
+                <g key={point.datetime}>
+                  <line x1={point.x} x2={point.x} y1={padding.top} y2={padding.top + chartHeight} stroke="#f1f5f9" strokeWidth="1" />
+                  <text x={point.x} y={height - 12} textAnchor="middle" className="fill-gray-500 text-[11px]">
+                    {new Date(point.datetime).toLocaleDateString(dateLocale, { month: 'short', day: 'numeric' })}
+                  </text>
+                </g>
+              ))}
+              <text x="14" y={padding.top + chartHeight / 2} transform={`rotate(-90 14 ${padding.top + chartHeight / 2})`} textAnchor="middle" className="fill-gray-700 text-[12px]">
+                {t('admin.visits')}
+              </text>
+              <path d={path} fill="none" stroke="#3b82f6" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+              {points.map(point => (
+                <circle key={point.datetime} cx={point.x} cy={point.y} r="2.6" fill="#3b82f6" />
+              ))}
+            </svg>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMiniRankList = (title: string, items: WebAnalyticsRankedItem[]) => {
+    const visibleItems = items.slice(0, sourceItemCount);
+    const maxValue = Math.max(...visibleItems.map(item => item.visits || item.pageviews), 1);
+
+    return (
+      <div className="border-t border-gray-200 p-5 first:border-t-0 xl:[&:nth-child(2)]:border-t-0 xl:[&:nth-child(even)]:border-l">
+        <h4 className="mb-3 flex items-center gap-1 text-sm font-bold text-gray-900">
+          {title}
+          <span className="text-xs font-normal text-gray-400">ⓘ</span>
+        </h4>
+        <div className="space-y-2">
+          {visibleItems.length === 0 ? (
+            <div className="text-sm text-gray-500">{t('admin.noAnalyticsData')}</div>
+          ) : visibleItems.map(item => {
+            const value = item.visits || item.pageviews;
+            return (
+              <div key={item.label} className="grid grid-cols-[minmax(0,1fr)_52px_86px] items-center gap-2 text-sm">
+                <div className="truncate text-gray-700">{item.label}</div>
+                <div className="text-right text-gray-700">{value.toLocaleString()}</div>
+                <div className="h-2 bg-gray-200">
+                  <div className="h-2 bg-blue-600" style={{ width: `${Math.max((value / maxValue) * 100, 4)}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRegionChart = (items: WebAnalyticsRankedItem[]) => {
+    const pageSize = 10;
+    const totalPages = Math.max(Math.ceil(items.length / pageSize), 1);
+    const normalizedPage = Math.min(countryPage, totalPages - 1);
+    const visibleItems = items.slice(normalizedPage * pageSize, normalizedPage * pageSize + pageSize);
+    const maxValue = Math.max(...items.map(item => item.visits || item.pageviews), 1);
+    const startItem = items.length === 0 ? 0 : normalizedPage * pageSize + 1;
+    const endItem = Math.min((normalizedPage + 1) * pageSize, items.length);
+    const countryValues = new Map<string, { label: string; value: number }>();
+    items.forEach(item => {
+      const info = countryInfoForLabel(item.label);
+      const value = item.visits || item.pageviews;
+      if (info.numericId) {
+        countryValues.set(info.numericId, { label: countryDisplayLabel(item.label), value });
+      }
+    });
+
+    return (
+      <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+        <h3 className="border-b border-gray-200 px-6 py-4 text-xl font-bold text-gray-900">{t('admin.visitsByCountry')}</h3>
+        <div className="grid gap-0 xl:grid-cols-[1.08fr_0.92fr]">
+          <div className="border-b border-gray-200 p-5 xl:border-b-0 xl:border-r">
+            <svg viewBox="0 0 720 360" className="h-auto w-full" role="img" aria-label={t('admin.visitsByCountry')}>
+              <rect width="720" height="336" fill="#f8fafc" />
+              <g stroke="#ffffff" strokeLinejoin="round" strokeWidth="0.7">
+                {worldCountryFeatures.map((country: any) => {
+                  const id = String(country.id).padStart(3, '0');
+                  const countryValue = countryValues.get(id);
+                  const value = countryValue?.value ?? 0;
+                  const activeOpacity = 0.32 + (value / maxValue) * 0.58;
+
+                  return (
+                    <path
+                      key={id}
+                      d={worldPath(country) || ''}
+                      fill={countryValue ? '#2563eb' : '#d1d5db'}
+                      fillOpacity={countryValue ? activeOpacity : 1}
+                    >
+                      {countryValue && <title>{`${countryValue.label}: ${value.toLocaleString()}`}</title>}
+                    </path>
+                  );
+                })}
+              </g>
+              {items.map(item => {
+                const info = countryInfoForLabel(item.label);
+                const countryShape = info.numericId ? worldCountryById.get(info.numericId) : null;
+                const centroid = countryShape ? worldPath.centroid(countryShape) : null;
+                const point = centroid && Number.isFinite(centroid[0]) && Number.isFinite(centroid[1])
+                  ? { x: centroid[0], y: centroid[1] }
+                  : countryMapPoints[info.name];
+                if (!point) return null;
+                const value = item.visits || item.pageviews;
+                const radius = 5 + (value / maxValue) * 22;
+                return (
+                  <g key={item.label}>
+                    <circle
+                      cx={point.x}
+                      cy={point.y}
+                      r={radius}
+                      fill="#2563eb"
+                      fillOpacity={0.2 + (value / maxValue) * 0.36}
+                    />
+                    <circle
+                      cx={point.x}
+                      cy={point.y}
+                      r="3.8"
+                      fill="#1d4ed8"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                    />
+                    <title>{`${countryDisplayLabel(item.label)}: ${value.toLocaleString()}`}</title>
+                  </g>
+                );
+              })}
+              <defs>
+                <linearGradient id="mapLegend" x1="0" x2="1">
+                  <stop offset="0%" stopColor="#dbeafe" />
+                  <stop offset="100%" stopColor="#1d4ed8" />
+                </linearGradient>
+              </defs>
+              <rect x="24" y="310" width="170" height="12" fill="url(#mapLegend)" />
+              <text x="24" y="342" className="fill-gray-500 text-[14px]">0</text>
+              <text x="194" y="342" textAnchor="end" className="fill-gray-500 text-[14px]">{maxValue.toLocaleString()}</text>
+            </svg>
+          </div>
+          <div className="flex min-h-[300px] flex-col p-5">
+            <div className="min-h-[236px] space-y-1">
+              {visibleItems.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+                  {t('admin.noAnalyticsData')}
+                </div>
+              ) : visibleItems.map(item => {
+                const value = item.visits || item.pageviews;
+                return (
+                  <div key={item.label} className="grid grid-cols-[minmax(0,1fr)_58px_86px] items-center gap-2 px-1 py-1 text-sm hover:bg-gray-50">
+                    <div className="truncate text-gray-800">{countryDisplayLabel(item.label)}</div>
+                    <div className="text-right text-gray-800">{value.toLocaleString()}</div>
+                    <div className="h-2 bg-gray-200">
+                      <div className="h-2 bg-blue-600" style={{ width: `${Math.max((value / maxValue) * 100, 4)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-5 flex items-center gap-2 text-sm text-gray-700">
+              <button
+                type="button"
+                onClick={() => setCountryPage(page => Math.max(page - 1, 0))}
+                disabled={normalizedPage === 0}
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-300 text-blue-600 disabled:text-gray-300"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => setCountryPage(page => Math.min(page + 1, totalPages - 1))}
+                disabled={normalizedPage >= totalPages - 1}
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-300 text-blue-600 disabled:text-gray-300"
+              >
+                ›
+              </button>
+              <span className="ml-2 font-semibold">
+                {startItem} to {endItem} of {items.length} {t('admin.itemsRange')}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWebAnalytics = () => {
+    const ranges: WebAnalyticsRange[] = ['24h', '72h', '7d', '30d'];
+
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">{t('admin.webAnalytics')}</h2>
+              <p className="mt-1 text-sm text-gray-600">{t('admin.webAnalyticsSubtitle')}</p>
+              {webAnalytics?.lastUpdated && (
+                <div className="mt-2 text-xs text-gray-400">
+                  {t('admin.updated')} {formatDate(webAnalytics.lastUpdated, dateLocale)}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {ranges.map(range => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setWebAnalyticsRange(range)}
+                  className={`rounded-md px-3 py-2 text-sm font-semibold ${
+                    webAnalyticsRange === range ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {t(`admin.range${range === '24h' ? '24h' : range === '72h' ? '72h' : range === '7d' ? '7d' : '30d'}`)}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setWebAnalyticsExcludeBots(value => !value)}
+                className={`rounded-md px-3 py-2 text-sm font-semibold ${
+                  webAnalyticsExcludeBots ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {t('admin.excludeBots')}
+              </button>
+            </div>
+          </div>
+
+          {webAnalyticsLoading ? (
+            <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+              {t('admin.loadingAnalytics')}
+            </div>
+          ) : webAnalyticsError ? (
+            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {webAnalyticsError}
+            </div>
+          ) : null}
+        </div>
+
+        {webAnalytics && !webAnalyticsError && (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg bg-white p-5 shadow-sm">
+                <div className="text-sm font-medium text-gray-500">{t('admin.pageviews')}</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{webAnalytics.pageviews.toLocaleString()}</div>
+              </div>
+              <div className="rounded-lg bg-white p-5 shadow-sm">
+                <div className="text-sm font-medium text-gray-500">{t('admin.visits')}</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{webAnalytics.visits.toLocaleString()}</div>
+              </div>
+              <div className="rounded-lg bg-white p-5 shadow-sm">
+                <div className="text-sm font-medium text-gray-500">P75 {t('admin.pageLoad')}</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{formatMs(webAnalytics.performance.pageLoadP75Ms)}</div>
+              </div>
+              <div className="rounded-lg bg-white p-5 shadow-sm">
+                <div className="text-sm font-medium text-gray-500">P75 LCP</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{formatMs(webAnalytics.performance.lcpP75Ms)}</div>
+              </div>
+            </div>
+
+            {renderVisitsLineChart(webAnalytics.timeseries)}
+
+            {renderRegionChart(webAnalytics.countries)}
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              <div className="overflow-hidden rounded-lg bg-white shadow-sm xl:col-span-2">
+                <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                  <h3 className="text-xl font-bold text-gray-900">{t('admin.visitsBySource')}</h3>
+                  <select
+                    value={sourceItemCount}
+                    onChange={event => setSourceItemCount(Number(event.target.value) as 5 | 10 | 15)}
+                    className="rounded border border-gray-400 bg-white px-3 py-1.5 text-sm text-gray-800"
+                    aria-label={t('admin.items')}
+                  >
+                    <option value={5}>5 {t('admin.items')}</option>
+                    <option value={10}>10 {t('admin.items')}</option>
+                    <option value={15}>15 {t('admin.items')}</option>
+                  </select>
+                </div>
+                <div className="grid xl:grid-cols-2">
+                  {renderMiniRankList(t('admin.referrers'), webAnalytics.referrers)}
+                  {renderMiniRankList(t('admin.paths'), webAnalytics.paths)}
+                  {renderMiniRankList(t('admin.hosts'), webAnalytics.hosts)}
+                  {renderMiniRankList(t('admin.browsers'), webAnalytics.browsers)}
+                  {renderMiniRankList(t('admin.operatingSystems'), webAnalytics.operatingSystems)}
+                  {renderMiniRankList(t('admin.deviceTypes'), webAnalytics.deviceTypes)}
+                </div>
+              </div>
+              <div className="rounded-lg bg-white p-5 shadow-sm">
+                <h3 className="text-lg font-bold text-gray-900">{t('admin.performance')}</h3>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {[
+                    ['P50 page load', formatMs(webAnalytics.performance.pageLoadP50Ms)],
+                    ['P75 page load', formatMs(webAnalytics.performance.pageLoadP75Ms)],
+                    ['P90 page load', formatMs(webAnalytics.performance.pageLoadP90Ms)],
+                    ['P75 FCP', formatMs(webAnalytics.performance.fcpP75Ms)],
+                    ['P75 LCP', formatMs(webAnalytics.performance.lcpP75Ms)],
+                    ['P75 INP', formatMs(webAnalytics.performance.inpP75Ms)],
+                    ['P75 CLS', formatMetric(webAnalytics.performance.clsP75)],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</div>
+                      <div className="mt-1 text-xl font-bold text-gray-900">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   const renderSection = () => {
     if (loading) {
       return <div className="rounded-lg bg-white p-8 text-sm text-gray-500 shadow-sm">{t('admin.loadingAdminData')}</div>;
@@ -710,6 +1250,8 @@ const AdminDashboard: React.FC = () => {
         return renderGiving();
       case 'users':
         return <UserManager />;
+      case 'analytics':
+        return renderWebAnalytics();
       case 'account':
         return <AccountManager initialMode={accountMode} />;
       default:
@@ -766,6 +1308,17 @@ const AdminDashboard: React.FC = () => {
             );
           })}
           <div className="my-4 border-t border-white/25" />
+          {insightSections.filter(canAccessSection).map(section => (
+            <button
+              key={section}
+              onClick={() => setActiveSection(section)}
+              className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
+                activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span>{sectionLabel(section)}</span>
+            </button>
+          ))}
           <a href="/" className="block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
             {t('admin.backToWebsite')}
           </a>
@@ -821,6 +1374,9 @@ const AdminDashboard: React.FC = () => {
                     </button>
                   </div>
                 </details>
+              </div>
+              <div className="mt-2 px-3 text-center text-xs font-semibold text-white/45">
+                Version: V{APP_VERSION}
               </div>
             </div>
           )}

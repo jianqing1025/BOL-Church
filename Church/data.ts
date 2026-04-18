@@ -77,6 +77,51 @@ export interface AnalyticsSummary {
   error?: string;
 }
 
+export type WebAnalyticsRange = '24h' | '72h' | '7d' | '30d';
+
+export interface WebAnalyticsRankedItem {
+  label: string;
+  pageviews: number;
+  visits: number;
+}
+
+export interface WebAnalyticsTimeseriesPoint {
+  datetime: string;
+  pageviews: number;
+  visits: number;
+}
+
+export interface WebAnalyticsPerformance {
+  pageLoadP50Ms: number | null;
+  pageLoadP75Ms: number | null;
+  pageLoadP90Ms: number | null;
+  lcpP75Ms: number | null;
+  inpP75Ms: number | null;
+  clsP75: number | null;
+  fcpP75Ms: number | null;
+}
+
+export interface WebAnalyticsSummary {
+  configured: boolean;
+  source: 'cloudflare-web-analytics';
+  range: WebAnalyticsRange;
+  excludeBots: boolean;
+  siteTag?: string;
+  pageviews: number;
+  visits: number;
+  timeseries: WebAnalyticsTimeseriesPoint[];
+  paths: WebAnalyticsRankedItem[];
+  countries: WebAnalyticsRankedItem[];
+  referrers: WebAnalyticsRankedItem[];
+  browsers: WebAnalyticsRankedItem[];
+  operatingSystems: WebAnalyticsRankedItem[];
+  deviceTypes: WebAnalyticsRankedItem[];
+  hosts: WebAnalyticsRankedItem[];
+  performance: WebAnalyticsPerformance;
+  lastUpdated: string;
+  error?: string;
+}
+
 export interface SiteBootstrap {
   content: typeof translations;
   images: Record<string, string>;

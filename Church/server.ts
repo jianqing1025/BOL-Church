@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { DEFAULT_SERMONS, type AdminRole } from './data';
+import { DEFAULT_SERMONS, type AdminRole, type WebAnalyticsRange } from './data';
 import { translations } from './constants/translations';
 
 type Env = {
@@ -8,6 +8,8 @@ type Env = {
   MEDIA_BUCKET: R2Bucket;
   ASSETS: Fetcher;
   CLOUDFLARE_ZONE_ID?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_WEB_ANALYTICS_SITE_TAG?: string;
   CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
   ADMIN_BOOTSTRAP_EMAIL?: string;
   ADMIN_BOOTSTRAP_PASSWORD?: string;
@@ -119,6 +121,44 @@ type CloudflareAnalyticsGraphQLData = {
           datetimeHour?: string;
         };
       }>;
+    }>;
+  };
+};
+
+type CloudflareWebAnalyticsGroup = {
+  count?: number;
+  sum?: {
+    visits?: number;
+  };
+  dimensions?: Record<string, string | null | undefined>;
+};
+
+type CloudflareWebAnalyticsPerformanceGroup = {
+  quantiles?: {
+    pageLoadTimeP50?: number;
+    pageLoadTimeP75?: number;
+    pageLoadTimeP90?: number;
+    largestContentfulPaintP75?: number;
+    interactionToNextPaintP75?: number;
+    cumulativeLayoutShiftP75?: number;
+    firstContentfulPaintP75?: number;
+  };
+};
+
+type CloudflareWebAnalyticsGraphQLData = {
+  viewer?: {
+    accounts?: Array<{
+      totals?: CloudflareWebAnalyticsGroup[];
+      timeseries?: CloudflareWebAnalyticsGroup[];
+      paths?: CloudflareWebAnalyticsGroup[];
+      countries?: CloudflareWebAnalyticsGroup[];
+      referrers?: CloudflareWebAnalyticsGroup[];
+      browsers?: CloudflareWebAnalyticsGroup[];
+      operatingSystems?: CloudflareWebAnalyticsGroup[];
+      deviceTypes?: CloudflareWebAnalyticsGroup[];
+      hosts?: CloudflareWebAnalyticsGroup[];
+      performance?: CloudflareWebAnalyticsPerformanceGroup[];
+      webVitals?: CloudflareWebAnalyticsPerformanceGroup[];
     }>;
   };
 };
@@ -967,6 +1007,258 @@ async function handleAnalyticsSummary(env: Env): Promise<Response> {
   });
 }
 
+function normalizeWebAnalyticsRange(value: string | null): WebAnalyticsRange {
+  return value === '24h' || value === '7d' || value === '30d' ? value : '72h';
+}
+
+function webAnalyticsStartDate(range: WebAnalyticsRange, now: Date): Date {
+  const start = new Date(now);
+  if (range === '24h') {
+    start.setUTCHours(start.getUTCHours() - 24);
+    return start;
+  }
+  if (range === '72h') {
+    start.setUTCHours(start.getUTCHours() - 72);
+    return start;
+  }
+  if (range === '7d') {
+    start.setUTCDate(start.getUTCDate() - 7);
+    return start;
+  }
+  start.setUTCDate(start.getUTCDate() - 30);
+  return start;
+}
+
+function graphQLString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function webAnalyticsEmptyResponse(range: WebAnalyticsRange, excludeBots: boolean, error?: string, configured = false) {
+  return {
+    configured,
+    source: 'cloudflare-web-analytics' as const,
+    range,
+    excludeBots,
+    pageviews: 0,
+    visits: 0,
+    timeseries: [],
+    paths: [],
+    countries: [],
+    referrers: [],
+    browsers: [],
+    operatingSystems: [],
+    deviceTypes: [],
+    hosts: [],
+    performance: {
+      pageLoadP50Ms: null,
+      pageLoadP75Ms: null,
+      pageLoadP90Ms: null,
+      lcpP75Ms: null,
+      inpP75Ms: null,
+      clsP75: null,
+      fcpP75Ms: null,
+    },
+    lastUpdated: new Date().toISOString(),
+    error,
+  };
+}
+
+function decodeAnalyticsPath(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isPageAnalyticsPath(value: string) {
+  const path = value.split('?')[0].toLowerCase();
+  if (!path || path === '/') {
+    return true;
+  }
+
+  if (path.startsWith('/assets/') || path.startsWith('/images/') || path.startsWith('/audio/') || path.startsWith('/video/')) {
+    return false;
+  }
+
+  return !/\.(?:aac|avi|css|gif|ico|jpeg|jpg|js|m4a|m4v|map|mov|mp3|mp4|ogg|opus|pdf|png|svg|wav|webm|webp|wma|wmv)$/i.test(path);
+}
+
+function groupList(items: CloudflareWebAnalyticsGroup[] | undefined, dimension: string, fallback = 'Unknown') {
+  return (items ?? []).map(item => ({
+    label: item.dimensions?.[dimension] || fallback,
+    pageviews: Number(item.count ?? 0),
+    visits: Number(item.sum?.visits ?? 0),
+  }));
+}
+
+function pathGroupList(items: CloudflareWebAnalyticsGroup[] | undefined) {
+  return groupList(items, 'requestPath', '/')
+    .filter(item => isPageAnalyticsPath(item.label))
+    .map(item => ({ ...item, label: decodeAnalyticsPath(item.label) }))
+    .sort((a, b) => b.visits - a.visits || b.pageviews - a.pageviews)
+    .slice(0, 15);
+}
+
+function microsToMs(value: number | undefined): number | null {
+  return typeof value === 'number' && value >= 0 ? Math.round(value / 1000) : null;
+}
+
+async function handleWebAnalytics(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const range = normalizeWebAnalyticsRange(url.searchParams.get('range'));
+  const excludeBots = url.searchParams.get('excludeBots') !== '0';
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID || '953bb353d5d63c4249b8fec0b83d805d';
+  const siteTag = env.CLOUDFLARE_WEB_ANALYTICS_SITE_TAG || 'f701ee03f7074b45b7d00f0fcc031369';
+  const apiToken = env.CLOUDFLARE_ANALYTICS_API_TOKEN;
+
+  const missingConfig = [
+    !accountId ? 'CLOUDFLARE_ACCOUNT_ID' : '',
+    !siteTag ? 'CLOUDFLARE_WEB_ANALYTICS_SITE_TAG' : '',
+    !apiToken ? 'CLOUDFLARE_ANALYTICS_API_TOKEN' : '',
+  ].filter(Boolean);
+
+  if (missingConfig.length > 0) {
+    return json(webAnalyticsEmptyResponse(
+      range,
+      excludeBots,
+      `Cloudflare Web Analytics is not configured. Missing: ${missingConfig.join(', ')}.`,
+      false
+    ));
+  }
+
+  const now = new Date();
+  const start = webAnalyticsStartDate(range, now).toISOString();
+  const end = now.toISOString();
+  const filter = `{
+    datetime_geq: ${graphQLString(start)}
+    datetime_leq: ${graphQLString(end)}
+    siteTag: ${graphQLString(siteTag)}
+    ${excludeBots ? 'bot: 0' : ''}
+  }`;
+  const query = `
+    query WebAnalyticsDashboard {
+      viewer {
+        accounts(filter: { accountTag: ${graphQLString(accountId)} }) {
+          totals: rumPageloadEventsAdaptiveGroups(limit: 1, filter: ${filter}) {
+            count
+            sum { visits }
+          }
+          timeseries: rumPageloadEventsAdaptiveGroups(limit: 10000, orderBy: [datetimeHour_ASC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { datetimeHour }
+          }
+          paths: rumPageloadEventsAdaptiveGroups(limit: 100, orderBy: [sum_visits_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { requestPath }
+          }
+          countries: rumPageloadEventsAdaptiveGroups(limit: 50, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { countryName }
+          }
+          referrers: rumPageloadEventsAdaptiveGroups(limit: 15, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { refererHost }
+          }
+          browsers: rumPageloadEventsAdaptiveGroups(limit: 15, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { userAgentBrowser }
+          }
+          operatingSystems: rumPageloadEventsAdaptiveGroups(limit: 15, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { userAgentOS }
+          }
+          deviceTypes: rumPageloadEventsAdaptiveGroups(limit: 15, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { deviceType }
+          }
+          hosts: rumPageloadEventsAdaptiveGroups(limit: 15, orderBy: [count_DESC], filter: ${filter}) {
+            count
+            sum { visits }
+            dimensions { requestHost }
+          }
+          performance: rumPerformanceEventsAdaptiveGroups(limit: 1, filter: ${filter}) {
+            quantiles {
+              pageLoadTimeP50
+              pageLoadTimeP75
+              pageLoadTimeP90
+            }
+          }
+          webVitals: rumWebVitalsEventsAdaptiveGroups(limit: 1, filter: ${filter}) {
+            quantiles {
+              largestContentfulPaintP75
+              interactionToNextPaintP75
+              cumulativeLayoutShiftP75
+              firstContentfulPaintP75
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query }),
+  });
+  const payload = await response.json<CloudflareGraphQLResponse<CloudflareWebAnalyticsGraphQLData>>();
+  const account = payload.data?.viewer?.accounts?.[0];
+
+  if (!response.ok || !account || payload.errors?.length) {
+    const message = payload.errors?.map(error => error.message).filter(Boolean).join('; ') || 'Failed to load Cloudflare Web Analytics.';
+    return json(webAnalyticsEmptyResponse(range, excludeBots, message, true), response.ok ? 200 : response.status);
+  }
+
+  const totals = account.totals?.[0];
+  const performance = account.performance?.[0]?.quantiles;
+  const webVitals = account.webVitals?.[0]?.quantiles;
+
+  return json({
+    configured: true,
+    source: 'cloudflare-web-analytics',
+    range,
+    excludeBots,
+    siteTag,
+    pageviews: Number(totals?.count ?? 0),
+    visits: Number(totals?.sum?.visits ?? 0),
+    timeseries: (account.timeseries ?? []).map(point => ({
+      datetime: point.dimensions?.datetimeHour || '',
+      pageviews: Number(point.count ?? 0),
+      visits: Number(point.sum?.visits ?? 0),
+    })).filter(point => point.datetime),
+    paths: pathGroupList(account.paths),
+    countries: groupList(account.countries, 'countryName'),
+    referrers: groupList(account.referrers, 'refererHost', 'Direct'),
+    browsers: groupList(account.browsers, 'userAgentBrowser'),
+    operatingSystems: groupList(account.operatingSystems, 'userAgentOS'),
+    deviceTypes: groupList(account.deviceTypes, 'deviceType'),
+    hosts: groupList(account.hosts, 'requestHost'),
+    performance: {
+      pageLoadP50Ms: microsToMs(performance?.pageLoadTimeP50),
+      pageLoadP75Ms: microsToMs(performance?.pageLoadTimeP75),
+      pageLoadP90Ms: microsToMs(performance?.pageLoadTimeP90),
+      lcpP75Ms: microsToMs(webVitals?.largestContentfulPaintP75),
+      inpP75Ms: microsToMs(webVitals?.interactionToNextPaintP75),
+      clsP75: typeof webVitals?.cumulativeLayoutShiftP75 === 'number' && webVitals.cumulativeLayoutShiftP75 >= 0
+        ? Number(webVitals.cumulativeLayoutShiftP75.toFixed(3))
+        : null,
+      fcpP75Ms: microsToMs(webVitals?.firstContentfulPaintP75),
+    },
+    lastUpdated: new Date().toISOString(),
+  });
+}
+
 async function readJson<T>(request: Request): Promise<T> {
   return request.json<T>();
 }
@@ -1033,6 +1325,14 @@ const worker: ExportedHandler<Env> = {
         return auth;
       }
       return handleAnalyticsSummary(env);
+    }
+
+    if (url.pathname === '/api/analytics/web' && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) {
+        return auth;
+      }
+      return handleWebAnalytics(request, env);
     }
 
     if (url.pathname === '/api/content' && request.method === 'PUT') {

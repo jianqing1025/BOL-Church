@@ -108,6 +108,111 @@ interface GivingPageProps {
   activeSubPage: GivingSubPage;
 }
 
+const PAYPAL_DONATE_URL = 'https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=53TWJ24XHFQXW';
+
+const OtherWaysToGiveSection: React.FC = () => (
+  <div className="mx-auto max-w-4xl">
+    <Editable
+      as="p"
+      contentKey="givingPage.otherWaysToGiveContent"
+      className="mx-auto mb-8 max-w-2xl text-center text-lg text-gray-600"
+    />
+
+    <div className="grid gap-5 md:grid-cols-2">
+      <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm md:col-span-2">
+        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div className="text-left">
+            <Editable
+              as="h3"
+              contentKey="givingPage.otherWaysOnlineTitle"
+              className="text-xl font-bold text-gray-900"
+            />
+            <Editable
+              as="p"
+              contentKey="givingPage.otherWaysOnlineText"
+              className="mt-2 text-gray-600"
+            />
+          </div>
+          <div className="flex items-center justify-center gap-6">
+            <div className="text-center">
+              <img src="/images/zelle-icon.png" alt="Zelle" className="mx-auto h-16 w-16 object-contain" />
+              <div className="mt-2 text-sm font-semibold text-gray-700">Zelle</div>
+            </div>
+            <a
+              href={PAYPAL_DONATE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-center transition-transform hover:-translate-y-0.5"
+            >
+              <img src="/images/paypal_PNG22.png" alt="PayPal" className="mx-auto h-16 w-16 object-contain" />
+              <div className="mt-2 text-sm font-semibold text-gray-700">PayPal</div>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <Editable
+          as="h3"
+          contentKey="givingPage.otherWaysMailTitle"
+          className="text-xl font-bold text-gray-900"
+        />
+        <Editable
+          as="p"
+          contentKey="givingPage.otherWaysMailText"
+          className="mt-3 text-gray-600"
+        />
+        <div className="mt-5 rounded-lg bg-gray-50 p-4 text-gray-800">
+          <Editable
+            as="p"
+            contentKey="givingPage.otherWaysChurchName"
+            className="font-semibold"
+          />
+          <Editable
+            as="p"
+            contentKey="givingPage.otherWaysAddress"
+            className="mt-1"
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <Editable
+          as="h3"
+          contentKey="givingPage.otherWaysTransferTitle"
+          className="text-xl font-bold text-gray-900"
+        />
+        <Editable
+          as="p"
+          contentKey="givingPage.otherWaysTransferText"
+          className="mt-3 text-gray-600"
+        />
+        <div className="mt-5 space-y-2 rounded-lg bg-gray-50 p-4 text-gray-800">
+          <Editable
+            as="h4"
+            contentKey="givingPage.otherWaysContactTitle"
+            className="font-semibold"
+          />
+          <p>
+            <a href="tel:4258987650" className="font-semibold text-blue-700 hover:text-blue-800">
+              <Editable as="span" contentKey="givingPage.otherWaysPhone" />
+            </a>
+          </p>
+          <p>
+            <a href="mailto:bolccop@gmail.com" className="font-semibold text-blue-700 hover:text-blue-800">
+              <Editable as="span" contentKey="givingPage.otherWaysEmail" />
+            </a>
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <div className="mt-6 rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-center text-blue-900">
+      <Editable as="p" contentKey="givingPage.otherWaysReceiptNote" className="font-semibold" />
+    </div>
+  </div>
+);
+
 const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }) => {
   const { t } = useLocalization();
   const [activeTab, setActiveTab] = useState<GivingSubPage>(initialSubPage);
@@ -174,13 +279,17 @@ const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }
                     contentKey={currentContent.titleKey}
                     className="text-3xl font-extrabold text-gray-900 mb-6"
                 />
-                <div className="prose prose-lg max-w-none mx-auto">
-                    <Editable
-                        as="div"
-                        contentKey={currentContent.contentKey}
-                        isTextarea={true}
-                    />
-                </div>
+                {activeTab === 'other-ways-to-give' ? (
+                    <OtherWaysToGiveSection />
+                ) : (
+                    <div className="prose prose-lg max-w-none mx-auto">
+                        <Editable
+                            as="div"
+                            contentKey={currentContent.contentKey}
+                            isTextarea={true}
+                        />
+                    </div>
+                )}
             </div>
         )}
         {activeTab === 'ways-to-give' && <GivingForm />}

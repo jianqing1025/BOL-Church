@@ -172,7 +172,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
             <button onClick={toggleLanguage} className={`text-base font-semibold transition-colors w-20 text-center ${navLinkClasses}`}>
               {language === Language.EN ? '中文' : 'English'}
             </button>
-            <a href="/contact/join-us" onClick={event => navigateTo(event, '/contact/join-us')} className="bg-blue-600 text-white px-5 py-2 rounded-full hover:bg-blue-700 transition-all text-base font-semibold">
+            <a href="/contact/contact-us" onClick={event => navigateTo(event, '/contact/contact-us')} className="bg-blue-600 text-white px-5 py-2 rounded-full hover:bg-blue-700 transition-all text-base font-semibold">
               {t('header.newHere')}
             </a>
           </div>
@@ -202,7 +202,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
               <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
-              <a href="/contact/join-us" onClick={event => navigateTo(event, '/contact/join-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+              <a href="/contact/contact-us" onClick={event => navigateTo(event, '/contact/contact-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
                 {t('header.newHere')}
               </a>
             </nav>
