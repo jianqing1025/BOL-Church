@@ -17,7 +17,7 @@ const Support: React.FC = () => {
           isTextarea={true}
           className="prose prose-lg mb-10 max-w-3xl text-left text-gray-600" 
         />
-        <a href="#/giving/ways-to-give"
+        <a href="/giving/ways-to-give"
           className="bg-orange-500 text-white px-10 py-3 rounded-full hover:bg-orange-600 transition-all font-semibold text-lg transform hover:scale-105 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
         >
           <Editable as="span" contentKey="support.button" />

@@ -165,6 +165,13 @@ function clearSessionCookie(request: Request): string {
   return `admin_session=; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=0`;
 }
 
+function shouldServeAppShell(request: Request, url: URL, response: Response): boolean {
+  const lastSegment = url.pathname.split('/').pop() ?? '';
+  const acceptsHtml = request.headers.get('Accept')?.includes('text/html') ?? false;
+
+  return request.method === 'GET' && response.status === 404 && acceptsHtml && !lastSegment.includes('.');
+}
+
 function mapUser(row: UserRow) {
   return {
     id: row.id,
@@ -1352,7 +1359,13 @@ const worker: ExportedHandler<Env> = {
       return notFound();
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    if (shouldServeAppShell(request, url, assetResponse)) {
+      const indexUrl = new URL('/index.html', url.origin);
+      return env.ASSETS.fetch(new Request(indexUrl.toString(), request));
+    }
+
+    return assetResponse;
   },
 };
 

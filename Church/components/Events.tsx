@@ -99,10 +99,10 @@ const EventCard: React.FC<EventCardProps> = ({ slot, title, date, href, isAdminM
 };
 
 const ministryCardLinks: Record<number, string> = {
-  1: '#/events/joint',
-  2: '#/events/women',
-  3: '#/events/',
-  4: '#/events/prayer',
+  1: '/events/joint',
+  2: '/events/women',
+  3: '/events/',
+  4: '/events/prayer',
 };
 
 const Events: React.FC = () => {
@@ -121,13 +121,13 @@ const Events: React.FC = () => {
               slot={slot}
               title={t(`events.event${slot.index}Title`) === `events.event${slot.index}Title` ? slot.label : t(`events.event${slot.index}Title`)}
               date={t(`events.event${slot.index}Date`) === `events.event${slot.index}Date` ? slot.hint : t(`events.event${slot.index}Date`)}
-              href={ministryCardLinks[slot.index] ?? '#/events/'}
+              href={ministryCardLinks[slot.index] ?? '/events/'}
               isAdminMode={isAdminMode}
             />
           ))}
         </div>
         <div className="text-center mt-12">
-          <a href="#/events/" className="bg-gray-800 text-white px-8 py-3 rounded-full hover:bg-gray-900 transition-all font-semibold">
+          <a href="/events/" className="bg-gray-800 text-white px-8 py-3 rounded-full hover:bg-gray-900 transition-all font-semibold">
             {t('events.button')}
           </a>
         </div>

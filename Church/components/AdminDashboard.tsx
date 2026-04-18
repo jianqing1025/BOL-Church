@@ -10,6 +10,7 @@ import UserManager from './UserManager';
 import { api } from '../api';
 import type { AnalyticsSummary } from '../data';
 import { adminRoleLabel } from '../utils/adminRoles';
+import { navigateTo } from '../utils/routes';
 
 type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'account';
 
@@ -202,7 +203,7 @@ const AdminDashboard: React.FC = () => {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
         <AdminLogin
-          onClose={() => { window.location.hash = '#/'; }}
+          onClose={() => navigateTo('/')}
           onSuccess={() => undefined}
         />
       </div>
@@ -760,7 +761,7 @@ const AdminDashboard: React.FC = () => {
             );
           })}
           <div className="my-4 border-t border-white/25" />
-          <a href="#/" className="block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
+          <a href="/" className="block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
             Back to Website
           </a>
         </nav>
@@ -834,7 +835,7 @@ const AdminDashboard: React.FC = () => {
                   {sectionLabels[section]}
                 </button>
               ))}
-              <a href="#/" className="rounded-md bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">Website</a>
+              <a href="/" className="rounded-md bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">Website</a>
               <button
                 onClick={() => void logout()}
                 className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white"

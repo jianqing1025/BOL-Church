@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { PrayerRequestSubPage } from '../types';
+import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 
@@ -103,15 +104,13 @@ const PrayerRequestPage: React.FC<PrayerRequestPageProps> = ({ activeSubPage: in
   const [activeTab, setActiveTab] = useState<PrayerRequestSubPage>(initialSubPage);
 
   useEffect(() => {
-     const handleHashChange = () => {
-        const hash = window.location.hash;
-        const subPage = (hash.split('/')[2] || 'submit-request') as PrayerRequestSubPage;
-        setActiveTab(subPage);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    setActiveTab(initialSubPage);
+  }, [initialSubPage]);
+
+  const handleTabClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    event.preventDefault();
+    navigateToRoute(path);
+  };
   
   const navItems: { key: PrayerRequestSubPage; textKey: string }[] = [
     { key: 'submit-request', textKey: 'prayerRequestPage.navSubmitRequest' },
@@ -130,7 +129,8 @@ const PrayerRequestPage: React.FC<PrayerRequestPageProps> = ({ activeSubPage: in
             {navItems.map((item) => (
               <li key={item.key}>
                 <a
-                  href={`#/prayer-request/${item.key}`}
+                  href={`/prayer-request/${item.key}`}
+                  onClick={event => handleTabClick(event, `/prayer-request/${item.key}`)}
                   className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
                     activeTab === item.key
                       ? 'border-white text-white'

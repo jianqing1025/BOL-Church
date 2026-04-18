@@ -12,7 +12,7 @@ const AdminPanel: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   // If we are already on the full admin dashboard, hide this floating panel to avoid redundancy
-  if (window.location.hash.startsWith('#/admin')) {
+  if (window.location.pathname.startsWith('/admin')) {
       return null;
   }
 
@@ -74,7 +74,7 @@ const AdminPanel: React.FC = () => {
             </button>
             
              <a
-                href="#/admin"
+                href="/admin"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm shadow-lg"
             >
                 Inbox & Dashboard

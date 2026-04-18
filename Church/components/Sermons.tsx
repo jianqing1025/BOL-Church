@@ -109,9 +109,9 @@ const Sermons: React.FC = () => {
             entries={recentSermons}
             language={language}
             emptyText={t('sermonArchive.noResults')}
-            ctaHref="#/sermons/sunday-worship"
+            ctaHref="/sermons/sunday-worship"
             ctaText={t('sermons.button')}
-            entryHref={(sermon) => `#/sermons/sunday-worship?video=${encodeURIComponent(sermon.id)}`}
+            entryHref={(sermon) => `/sermons/sunday-worship?video=${encodeURIComponent(sermon.id)}`}
             headerExtra={
               <div className="mb-10 max-w-lg mx-auto">
                 <input
@@ -130,9 +130,9 @@ const Sermons: React.FC = () => {
             entries={recentDailyManna}
             language={language}
             emptyText={t('sermonArchive.noResults')}
-            ctaHref="#/sermons/daily-manna"
+            ctaHref="/sermons/daily-manna"
             ctaText={t('sermons.mannaButton')}
-            entryHref={(sermon) => `#/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
+            entryHref={(sermon) => `/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
           />
         </div>
       </div>

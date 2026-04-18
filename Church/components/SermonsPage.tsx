@@ -6,6 +6,7 @@ import { SermonSubPage, Language } from '../types';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 import type { Sermon } from '../data';
+import { navigateTo as navigateToRoute } from '../utils/routes';
 
 const formatEntryDate = (date: string, language: Language) => {
   const [year, month = 1, day = 1] = date.split('-').map(Number);
@@ -64,7 +65,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type'] }> = ({ entryT
   }, [sourceEntries]);
 
   useEffect(() => {
-    const videoId = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('video');
+    const videoId = new URLSearchParams(window.location.search).get('video');
     if (videoId) {
       setSelectedId(videoId);
     }
@@ -171,7 +172,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type'] }> = ({ entryT
                   onClick={() => {
                     setSelectedId(entry.id);
                     const page = entryType === 'daily-manna' ? 'daily-manna' : 'sunday-worship';
-                    window.history.replaceState(null, '', `#/sermons/${page}?video=${encodeURIComponent(entry.id)}`);
+                    window.history.replaceState(null, '', `/sermons/${page}?video=${encodeURIComponent(entry.id)}`);
                   }}
                   className={`shrink-0 rounded-full border px-7 py-3 text-sm font-extrabold transition-all md:ml-auto ${
                     isSelected
@@ -266,7 +267,7 @@ const RecentSermonsContent: React.FC = () => {
                     <p className="text-gray-600 mt-1">{language === Language.EN ? (sermon.speaker?.en || '') : (sermon.speaker?.zh || '')} &bull; {sermon.date}</p>
                   </div>
                   <div className="mt-4 sm:mt-0">
-                    <a href={`#/sermons/${sermon.id}`} className="text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-100 px-4 py-2 rounded-full transition-colors">
+                    <a href={`/sermons/${sermon.id}`} className="text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-100 px-4 py-2 rounded-full transition-colors">
                       {t('sermonArchive.watch')}
                     </a>
                   </div>
@@ -291,15 +292,13 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
   const [activeTab, setActiveTab] = useState<SermonSubPage>(initialSubPage);
 
   useEffect(() => {
-     const handleHashChange = () => {
-        const hash = window.location.hash;
-        const subPage = ((hash.split('/')[2] || 'sunday-worship').split('?')[0]) as SermonSubPage;
-        setActiveTab(subPage);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    setActiveTab(initialSubPage);
+  }, [initialSubPage]);
+
+  const handleTabClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    event.preventDefault();
+    navigateToRoute(path);
+  };
   
   const navItems: { key: SermonSubPage; textKey: string }[] = [
     { key: 'sunday-worship', textKey: 'sermonsPage.navSundayWorship' },
@@ -330,7 +329,8 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
             {navItems.map((item) => (
               <li key={item.key}>
                 <a
-                  href={`#/sermons/${item.key}`}
+                  href={`/sermons/${item.key}`}
+                  onClick={event => handleTabClick(event, `/sermons/${item.key}`)}
                   className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
                     activeTab === item.key
                       ? 'border-white text-white'

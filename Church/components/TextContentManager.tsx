@@ -147,32 +147,32 @@ function shouldUseRichEditor(path: string): boolean {
 
 function pageHrefForEntry(path: string): string {
   const pageRoutes: Array<[string, string]> = [
-    ['aboutPage.ourChurch', '#/about/our-church'],
-    ['aboutPage.ourBeliefs', '#/about/our-beliefs'],
-    ['aboutPage.jobOpportunities', '#/about/job-opportunities'],
-    ['aboutPage.ministryLeaders', '#/about/ministry-leaders'],
-    ['aboutPage.becomingAMember', '#/about/becoming-a-member'],
-    ['eventsPage.kids', '#/events/kids'],
-    ['eventsPage.men', '#/events/men'],
-    ['eventsPage.women', '#/events/women'],
-    ['eventsPage.joint', '#/events/joint'],
-    ['eventsPage.alpha', '#/events/alpha'],
-    ['eventsPage.prayer', '#/events/prayer'],
-    ['sermonsPage.dailyManna', '#/sermons/daily-manna'],
-    ['sermonsPage.sundayWorship', '#/sermons/sunday-worship'],
-    ['sermonsPage.recentSermons', '#/sermons/recent-sermons'],
-    ['sermonsPage.liveStream', '#/sermons/live-stream'],
-    ['givingPage.whyWeGive', '#/giving/why-we-give'],
-    ['givingPage.whatIsTithing', '#/giving/what-is-tithing'],
-    ['givingPage.waysToGive', '#/giving/ways-to-give'],
-    ['givingPage.otherWaysToGive', '#/giving/other-ways-to-give'],
-    ['contactPage', '#/contact/contact-us'],
-    ['prayerRequestPage', '#/prayer-request/submit-request'],
-    ['header', '#/'],
-    ['footer', '#/'],
+    ['aboutPage.ourChurch', '/about/our-church'],
+    ['aboutPage.ourBeliefs', '/about/our-beliefs'],
+    ['aboutPage.jobOpportunities', '/about/job-opportunities'],
+    ['aboutPage.ministryLeaders', '/about/ministry-leaders'],
+    ['aboutPage.becomingAMember', '/about/becoming-a-member'],
+    ['eventsPage.kids', '/events/kids'],
+    ['eventsPage.men', '/events/men'],
+    ['eventsPage.women', '/events/women'],
+    ['eventsPage.joint', '/events/joint'],
+    ['eventsPage.alpha', '/events/alpha'],
+    ['eventsPage.prayer', '/events/prayer'],
+    ['sermonsPage.dailyManna', '/sermons/daily-manna'],
+    ['sermonsPage.sundayWorship', '/sermons/sunday-worship'],
+    ['sermonsPage.recentSermons', '/sermons/recent-sermons'],
+    ['sermonsPage.liveStream', '/sermons/live-stream'],
+    ['givingPage.whyWeGive', '/giving/why-we-give'],
+    ['givingPage.whatIsTithing', '/giving/what-is-tithing'],
+    ['givingPage.waysToGive', '/giving/ways-to-give'],
+    ['givingPage.otherWaysToGive', '/giving/other-ways-to-give'],
+    ['contactPage', '/contact/contact-us'],
+    ['prayerRequestPage', '/prayer-request/submit-request'],
+    ['header', '/'],
+    ['footer', '/'],
   ];
 
-  return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '#/';
+  return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '/';
 }
 
 function sectionLabelForPath(path: string): string {

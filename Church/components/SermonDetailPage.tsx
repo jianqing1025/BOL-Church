@@ -30,7 +30,7 @@ const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
       <div className="container mx-auto px-6 py-40 text-center">
         <h1 className="text-3xl font-bold text-gray-800">Sermon not found</h1>
         <p className="mt-4 text-gray-600">The sermon you are looking for might have been moved or deleted.</p>
-        <a href="#/sermons/recent-sermons" className="mt-8 inline-block bg-blue-600 text-white px-8 py-3 rounded-full hover:bg-blue-700 transition-colors">
+        <a href="/sermons/recent-sermons" className="mt-8 inline-block bg-blue-600 text-white px-8 py-3 rounded-full hover:bg-blue-700 transition-colors">
           Back to Sermon Archive
         </a>
       </div>
@@ -109,7 +109,7 @@ const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
               {otherSermonsInSeries.map(otherSermon => {
                 const otherDate = new Date(otherSermon.date);
                 return (
-                   <a href={`#/sermons/${otherSermon.id}`} key={otherSermon.id} className="block border-b border-gray-200 py-6 last:border-b-0 group">
+                   <a href={`/sermons/${otherSermon.id}`} key={otherSermon.id} className="block border-b border-gray-200 py-6 last:border-b-0 group">
                       <div className="flex items-center gap-4 sm:gap-6">
                           <div className="text-center w-20 flex-shrink-0">
                               <p className="text-lg font-bold text-gray-800">{otherDate.toLocaleDateString(language === 'en' ? 'en-US' : 'zh-CN', { month: 'short', day: 'numeric' })}</p>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { SubPage } from '../types';
+import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 
 interface AboutPageProps {
@@ -13,16 +14,13 @@ const AboutPage: React.FC<AboutPageProps> = ({ activeSubPage: initialSubPage }) 
   const [activeTab, setActiveTab] = useState<SubPage>(initialSubPage);
 
   useEffect(() => {
-     const handleHashChange = () => {
-        const hash = window.location.hash;
-        const subPage = (hash.split('/')[2] || 'our-church') as SubPage;
-        setActiveTab(subPage);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    // Set initial state from hash
-    handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    setActiveTab(initialSubPage);
+  }, [initialSubPage]);
+
+  const handleTabClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    event.preventDefault();
+    navigateToRoute(path);
+  };
   
   const navItems: { key: SubPage; textKey: string }[] = [
     { key: 'our-church', textKey: 'aboutPage.navOurChurch' },
@@ -55,7 +53,8 @@ const AboutPage: React.FC<AboutPageProps> = ({ activeSubPage: initialSubPage }) 
             {navItems.map((item) => (
               <li key={item.key}>
                 <a
-                  href={`#/about/${item.key}`}
+                  href={`/about/${item.key}`}
+                  onClick={event => handleTabClick(event, `/about/${item.key}`)}
                   className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
                     activeTab === item.key
                       ? 'border-white text-white'

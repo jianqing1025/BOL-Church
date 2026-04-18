@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { GivingSubPage } from '../types';
+import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { LockIcon } from './icons/Icons';
 import { useAdmin } from '../hooks/useAdmin';
@@ -112,15 +113,13 @@ const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }
   const [activeTab, setActiveTab] = useState<GivingSubPage>(initialSubPage);
 
   useEffect(() => {
-     const handleHashChange = () => {
-        const hash = window.location.hash;
-        const subPage = (hash.split('/')[2] || 'why-we-give') as GivingSubPage;
-        setActiveTab(subPage);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    setActiveTab(initialSubPage);
+  }, [initialSubPage]);
+
+  const handleTabClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    event.preventDefault();
+    navigateToRoute(path);
+  };
   
   const navItems: { key: GivingSubPage; textKey: string }[] = [
     { key: 'why-we-give', textKey: 'givingPage.navWhyWeGive' },
@@ -151,7 +150,8 @@ const GivingPage: React.FC<GivingPageProps> = ({ activeSubPage: initialSubPage }
             {navItems.map((item) => (
               <li key={item.key}>
                 <a
-                  href={`#/giving/${item.key}`}
+                  href={`/giving/${item.key}`}
+                  onClick={event => handleTabClick(event, `/giving/${item.key}`)}
                   className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
                     activeTab === item.key
                       ? 'border-white text-white'
