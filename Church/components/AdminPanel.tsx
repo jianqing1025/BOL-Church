@@ -1,18 +1,20 @@
 
 import React, { useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import SermonManager from './SermonManager';
 import HeroImageManager from './HeroImageManager';
 import { CloseIcon } from './icons/Icons';
 
 const AdminPanel: React.FC = () => {
   const { isAdminMode, logout, saveChanges } = useAdmin();
+  const { t } = useLocalization();
   const [isSermonManagerOpen, setIsSermonManagerOpen] = useState(false);
   const [isHeroManagerOpen, setIsHeroManagerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // If we are already on the full admin dashboard, hide this floating panel to avoid redundancy
-  if (window.location.hash.startsWith('#/admin')) {
+  if (window.location.pathname.startsWith('/admin')) {
       return null;
   }
 
@@ -35,7 +37,7 @@ const AdminPanel: React.FC = () => {
         <div className="flex items-center gap-3 flex-wrap justify-center max-w-7xl w-full">
             <div className="flex items-center gap-2 mr-4">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="font-bold text-sm uppercase tracking-wider hidden sm:inline">Admin Live</span>
+                <span className="font-bold text-sm uppercase tracking-wider hidden sm:inline">{t('admin.adminLive')}</span>
             </div>
             
             <button
@@ -49,12 +51,12 @@ const AdminPanel: React.FC = () => {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Saving...
+                        {t('admin.saving')}
                     </>
                 ) : (
                     <>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-                        Save Text Changes
+                        {t('admin.saveTextChanges')}
                     </>
                 )}
             </button>
@@ -63,28 +65,28 @@ const AdminPanel: React.FC = () => {
                 onClick={() => setIsHeroManagerOpen(true)}
                 className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm shadow-lg"
             >
-                Manage Media
+                {t('admin.manageMedia')}
             </button>
             
             <button
                 onClick={() => setIsSermonManagerOpen(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm shadow-lg"
             >
-                Sermon List
+                {t('admin.sermonList')}
             </button>
             
              <a
-                href="#/admin"
+                href="/admin"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm shadow-lg"
             >
-                Inbox & Dashboard
+                {t('admin.inboxDashboard')}
             </a>
             
             <button
                 onClick={() => void logout()}
                 className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
             >
-                Exit
+                {t('admin.exit')}
             </button>
         </div>
       </div>
@@ -93,8 +95,8 @@ const AdminPanel: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
                 <div className="flex justify-between items-center p-4 border-b">
-                    <h2 className="text-xl font-bold">Sermon Manager</h2>
-                    <button onClick={() => setIsSermonManagerOpen(false)} aria-label="Close sermon manager" className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                    <h2 className="text-xl font-bold">{t('admin.sermonManager')}</h2>
+                    <button onClick={() => setIsSermonManagerOpen(false)} aria-label={t('admin.exit')} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
                         <CloseIcon />
                     </button>
                 </div>
@@ -109,8 +111,8 @@ const AdminPanel: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
                 <div className="flex justify-between items-center p-4 border-b">
-                    <h2 className="text-xl font-bold">Media Manager</h2>
-                    <button onClick={() => setIsHeroManagerOpen(false)} aria-label="Close media manager" className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                    <h2 className="text-xl font-bold">{t('admin.mediaManager')}</h2>
+                    <button onClick={() => setIsHeroManagerOpen(false)} aria-label={t('admin.exit')} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
                         <CloseIcon />
                     </button>
                 </div>

@@ -95,11 +95,11 @@ const Hero: React.FC = () => {
             <a href="#about" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.whoWeAre" />
             </a>
-            <a href="#/sermons/sunday-worship" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
+            <a href="/sermons/sunday-worship" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.sundayService" />
             </a>
           </div>
-          <a href="#/contact/join-us" className="w-full bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all font-bold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
+          <a href="/contact/join-us" className="w-full bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all font-bold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
             <Editable as="span" contentKey="hero.button" />
           </a>
         </div>

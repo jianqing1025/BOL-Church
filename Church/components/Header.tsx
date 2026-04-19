@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
+import { navigateTo as navigateToRoute } from '../utils/routes';
 import { MenuIcon, CloseIcon, LogoIcon } from './icons/Icons';
 
 interface HeaderProps {
@@ -57,36 +58,36 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         { href: 'https://classic.bolccop.org', label: { en: 'Classic Homepage', zh: '舊版首頁' } },
     ]},
     { key: 'header.navAbout', subLinks: [
-        { href: '#/about/our-church', key: 'aboutPage.navOurChurch' },
-        { href: '#/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
-        { href: '#/about/job-opportunities', key: 'aboutPage.navJobOpportunities' },
-        { href: '#/about/ministry-leaders', key: 'aboutPage.navMinistryLeaders' },
-        { href: '#/about/becoming-a-member', key: 'aboutPage.navBecomingAMember' },
+        { href: '/about/our-church', key: 'aboutPage.navOurChurch' },
+        { href: '/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
+        { href: '/about/job-opportunities', key: 'aboutPage.navJobOpportunities' },
+        { href: '/about/ministry-leaders', key: 'aboutPage.navMinistryLeaders' },
+        { href: '/about/becoming-a-member', key: 'aboutPage.navBecomingAMember' },
     ]},
     { key: 'header.navEvents', subLinks: [
-        { href: '#/events/kids', key: 'eventsPage.navKids' },
-        { href: '#/events/men', key: 'eventsPage.navMen' },
-        { href: '#/events/women', key: 'eventsPage.navWomen' },
-        { href: '#/events/joint', key: 'eventsPage.navJoint' },
-        { href: '#/events/alpha', key: 'eventsPage.navAlpha' },
-        { href: '#/events/prayer', key: 'eventsPage.navPrayer' },
+        { href: '/events/kids', key: 'eventsPage.navKids' },
+        { href: '/events/men', key: 'eventsPage.navMen' },
+        { href: '/events/women', key: 'eventsPage.navWomen' },
+        { href: '/events/joint', key: 'eventsPage.navJoint' },
+        { href: '/events/alpha', key: 'eventsPage.navAlpha' },
+        { href: '/events/prayer', key: 'eventsPage.navPrayer' },
     ]},
     { key: 'header.navSermons', subLinks: [
-        { href: '#/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
-        { href: '#/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
-        { href: '#/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
-        { href: '#/sermons/live-stream', key: 'sermonsPage.navLiveStream' },
+        { href: '/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
+        { href: '/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
+        { href: '/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
+        { href: '/sermons/live-stream', key: 'sermonsPage.navLiveStream' },
     ]},
     { key: 'header.navGiving', subLinks: [
-        { href: '#/giving/why-we-give', key: 'givingPage.navWhyWeGive' },
-        { href: '#/giving/what-is-tithing', key: 'givingPage.navWhatIsTithing' },
-        { href: '#/giving/ways-to-give', key: 'givingPage.navWaysToGive' },
-        { href: '#/giving/other-ways-to-give', key: 'givingPage.navOtherWaysToGive' },
+        { href: '/giving/why-we-give', key: 'givingPage.navWhyWeGive' },
+        { href: '/giving/what-is-tithing', key: 'givingPage.navWhatIsTithing' },
+        { href: '/giving/ways-to-give', key: 'givingPage.navWaysToGive' },
+        { href: '/giving/other-ways-to-give', key: 'givingPage.navOtherWaysToGive' },
     ]},
     { key: 'header.navContact', subLinks: [
-        { href: '#/contact/contact-us', key: 'header.navContact' },
-        { href: '#/contact/join-us', key: 'contactPage.navJoinUs' },
-        { href: '#/contact/prayer-request', key: 'contactPage.navPrayerRequest' },
+        { href: '/contact/contact-us', key: 'header.navContact' },
+        { href: '/contact/join-us', key: 'contactPage.navJoinUs' },
+        { href: '/contact/prayer-request', key: 'contactPage.navPrayerRequest' },
     ]},
   ];
 
@@ -104,12 +105,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     event.preventDefault();
     handleLinkClick();
 
-    if (window.location.hash === href) {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      return;
-    }
-
-    window.location.hash = href;
+    navigateToRoute(href);
   };
 
   useEffect(() => {
@@ -130,7 +126,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     <HeaderContext.Provider value={{ isTransparent }}>
       <header className={headerClasses} ref={headerRef}>
         <div className="container mx-auto px-4 py-3 md:px-6 md:py-4 flex justify-between items-center">
-          <a href="#/" onClick={handleLinkClick} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
+          <a href="/" onClick={event => navigateTo(event, '/')} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
             <LogoIcon className="h-7 w-7 flex-shrink-0 sm:h-8 sm:w-8 md:h-9 md:w-9" />
             <span className="max-w-[13rem] truncate text-xl font-bold leading-none sm:max-w-none sm:text-2xl md:text-3xl">{t('header.logo')}</span>
           </a>
@@ -157,7 +153,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
                     <div className="absolute left-0 top-full z-10 w-56 pt-2">
                       <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
                         {link.subLinks.map(subLink => (
-                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={handleLinkClick} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
                             {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
                            </a>
                         ))}
@@ -176,7 +172,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
             <button onClick={toggleLanguage} className={`text-base font-semibold transition-colors w-20 text-center ${navLinkClasses}`}>
               {language === Language.EN ? '中文' : 'English'}
             </button>
-            <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-5 py-2 rounded-full hover:bg-blue-700 transition-all text-base font-semibold">
+            <a href="/contact/join-us" onClick={event => navigateTo(event, '/contact/join-us')} className="bg-blue-600 text-white px-5 py-2 rounded-full hover:bg-blue-700 transition-all text-base font-semibold">
               {t('header.newHere')}
             </a>
           </div>
@@ -192,12 +188,12 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
             <nav className="flex flex-col items-center space-y-2 p-4">
               {navLinks.map(link => (
                 'href' in link ? (
-                    <a key={link.key} href={link.href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                    <a key={link.key} href={link.href} onClick={event => navigateTo(event, link.href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                         {t(link.key)}
                     </a>
                 ) : (
                     <div key={link.key} className="flex flex-col items-center gap-2">
-                      <a href={link.subLinks[0].href} onClick={handleLinkClick} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                      <a href={link.subLinks[0].href} onClick={event => navigateTo(event, link.subLinks[0].href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                           {t(link.key)}
                       </a>
                     </div>
@@ -206,7 +202,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
               <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
-              <a href="#/contact/join-us" onClick={handleLinkClick} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+              <a href="/contact/join-us" onClick={event => navigateTo(event, '/contact/join-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
                 {t('header.newHere')}
               </a>
             </nav>

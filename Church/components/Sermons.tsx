@@ -58,7 +58,7 @@ const VideoSection: React.FC<{
   headerExtra?: React.ReactNode;
 }> = ({ title, entries, language, emptyText, ctaHref, ctaText, entryHref, headerExtra }) => (
   <div className="rounded-[2rem] bg-white px-4 py-10 shadow-sm ring-1 ring-gray-200 sm:px-8">
-    <h3 className="mb-8 text-center text-2xl font-extrabold text-gray-900 md:text-3xl">{title}</h3>
+    <h3 className="mb-12 text-center text-3xl font-bold text-gray-800 md:text-4xl">{title}</h3>
     {headerExtra}
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
       {entries.length > 0 ? (
@@ -109,9 +109,9 @@ const Sermons: React.FC = () => {
             entries={recentSermons}
             language={language}
             emptyText={t('sermonArchive.noResults')}
-            ctaHref="#/sermons/sunday-worship"
+            ctaHref="/sermons/sunday-worship"
             ctaText={t('sermons.button')}
-            entryHref={(sermon) => `#/sermons/sunday-worship?video=${encodeURIComponent(sermon.id)}`}
+            entryHref={(sermon) => `/sermons/sunday-worship?video=${encodeURIComponent(sermon.id)}`}
             headerExtra={
               <div className="mb-10 max-w-lg mx-auto">
                 <input
@@ -130,9 +130,9 @@ const Sermons: React.FC = () => {
             entries={recentDailyManna}
             language={language}
             emptyText={t('sermonArchive.noResults')}
-            ctaHref="#/sermons/daily-manna"
+            ctaHref="/sermons/daily-manna"
             ctaText={t('sermons.mannaButton')}
-            entryHref={(sermon) => `#/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
+            entryHref={(sermon) => `/sermons/daily-manna?video=${encodeURIComponent(sermon.id)}`}
           />
         </div>
       </div>

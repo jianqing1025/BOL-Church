@@ -83,7 +83,7 @@ const SermonArchive: React.FC = () => {
                     <p className="text-gray-600 mt-1">{language === Language.EN ? sermon.speaker.en : sermon.speaker.zh} &bull; {sermon.date}</p>
                   </div>
                   <div className="mt-4 sm:mt-0">
-                    <a href={`#/sermons/${sermon.id}`} className="text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-100 px-4 py-2 rounded-full transition-colors">
+                    <a href={`/sermons/${sermon.id}`} className="text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-100 px-4 py-2 rounded-full transition-colors">
                       {t('sermonArchive.watch')}
                     </a>
                   </div>

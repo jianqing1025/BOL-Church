@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
+import { useLocalization } from '../hooks/useLocalization';
 import RichTextEditor from './RichTextEditor';
 
 type LocalizedEntry = {
@@ -33,6 +34,17 @@ const sections: Section[] = [
   { id: 'contact', label: 'Contact & Prayer', prefixes: ['contactPage.', 'prayerRequestPage.'] },
   { id: 'shared', label: 'Header & Footer', prefixes: ['header.', 'footer.'] },
 ];
+
+const ownerOnlyTextSectionIds = new Set(['home', 'shared']);
+const hiddenTextEntryPrefixes = ['sermonArchive.', 'sermonDetail.'];
+const hiddenTextEntryPaths = new Set([
+  'giving.oneTime',
+  'giving.recurring',
+  'giving.amount',
+  'giving.giveNow',
+  'giving.securityNote',
+]);
+const hiddenContactPrimarySections = new Set<PrimarySection['id']>(['buttons', 'content']);
 
 const primarySections: PrimarySection[] = [
   { id: 'all', label: 'All' },
@@ -136,32 +148,32 @@ function shouldUseRichEditor(path: string): boolean {
 
 function pageHrefForEntry(path: string): string {
   const pageRoutes: Array<[string, string]> = [
-    ['aboutPage.ourChurch', '#/about/our-church'],
-    ['aboutPage.ourBeliefs', '#/about/our-beliefs'],
-    ['aboutPage.jobOpportunities', '#/about/job-opportunities'],
-    ['aboutPage.ministryLeaders', '#/about/ministry-leaders'],
-    ['aboutPage.becomingAMember', '#/about/becoming-a-member'],
-    ['eventsPage.kids', '#/events/kids'],
-    ['eventsPage.men', '#/events/men'],
-    ['eventsPage.women', '#/events/women'],
-    ['eventsPage.joint', '#/events/joint'],
-    ['eventsPage.alpha', '#/events/alpha'],
-    ['eventsPage.prayer', '#/events/prayer'],
-    ['sermonsPage.dailyManna', '#/sermons/daily-manna'],
-    ['sermonsPage.sundayWorship', '#/sermons/sunday-worship'],
-    ['sermonsPage.recentSermons', '#/sermons/recent-sermons'],
-    ['sermonsPage.liveStream', '#/sermons/live-stream'],
-    ['givingPage.whyWeGive', '#/giving/why-we-give'],
-    ['givingPage.whatIsTithing', '#/giving/what-is-tithing'],
-    ['givingPage.waysToGive', '#/giving/ways-to-give'],
-    ['givingPage.otherWaysToGive', '#/giving/other-ways-to-give'],
-    ['contactPage', '#/contact/contact-us'],
-    ['prayerRequestPage', '#/prayer-request/submit-request'],
-    ['header', '#/'],
-    ['footer', '#/'],
+    ['aboutPage.ourChurch', '/about/our-church'],
+    ['aboutPage.ourBeliefs', '/about/our-beliefs'],
+    ['aboutPage.jobOpportunities', '/about/job-opportunities'],
+    ['aboutPage.ministryLeaders', '/about/ministry-leaders'],
+    ['aboutPage.becomingAMember', '/about/becoming-a-member'],
+    ['eventsPage.kids', '/events/kids'],
+    ['eventsPage.men', '/events/men'],
+    ['eventsPage.women', '/events/women'],
+    ['eventsPage.joint', '/events/joint'],
+    ['eventsPage.alpha', '/events/alpha'],
+    ['eventsPage.prayer', '/events/prayer'],
+    ['sermonsPage.dailyManna', '/sermons/daily-manna'],
+    ['sermonsPage.sundayWorship', '/sermons/sunday-worship'],
+    ['sermonsPage.recentSermons', '/sermons/recent-sermons'],
+    ['sermonsPage.liveStream', '/sermons/live-stream'],
+    ['givingPage.whyWeGive', '/giving/why-we-give'],
+    ['givingPage.whatIsTithing', '/giving/what-is-tithing'],
+    ['givingPage.waysToGive', '/giving/ways-to-give'],
+    ['givingPage.otherWaysToGive', '/giving/other-ways-to-give'],
+    ['contactPage', '/contact/contact-us'],
+    ['prayerRequestPage', '/prayer-request/submit-request'],
+    ['header', '/'],
+    ['footer', '/'],
   ];
 
-  return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '#/';
+  return pageRoutes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? '/';
 }
 
 function sectionLabelForPath(path: string): string {
@@ -190,24 +202,68 @@ function groupEntries(entries: LocalizedEntry[], activePrimarySection: PrimarySe
 }
 
 const TextContentManager: React.FC = () => {
-  const { content, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
+  const { content, currentUser, updateContent, saveChanges, hasUnsavedContent, uploadImage } = useAdmin();
+  const { t } = useLocalization();
   const [activePrimarySection, setActivePrimarySection] = useState<PrimarySection['id']>('all');
   const [activeSection, setActiveSection] = useState(sections[0].id);
   const [query, setQuery] = useState('');
+  const sectionLabel = (id: string) => ({
+    home: t('admin.homeSections'),
+    about: t('admin.aboutPage'),
+    events: t('admin.eventsPage'),
+    sermons: t('admin.sermonsPage'),
+    giving: t('admin.givingPage'),
+    contact: t('admin.contactPrayer'),
+    shared: t('admin.headerFooter'),
+  }[id] ?? id);
+  const primarySectionLabel = (id: PrimarySection['id']) => ({
+    all: t('admin.all'),
+    navigation: t('admin.navigation'),
+    buttons: t('admin.buttons'),
+    'page-titles': t('admin.pageTitles'),
+    content: t('admin.content'),
+  }[id]);
+
+  const visibleSections = useMemo(
+    () => sections.filter(section => currentUser?.role === 'owner' || !ownerOnlyTextSectionIds.has(section.id)),
+    [currentUser]
+  );
+
+  useEffect(() => {
+    if (!visibleSections.some(section => section.id === activeSection)) {
+      setActiveSection(visibleSections[0]?.id ?? sections[0].id);
+    }
+  }, [activeSection, visibleSections]);
 
   const allEntries = useMemo(() => flattenContent(content as Record<string, unknown>), [content]);
 
   const visibleEntries = useMemo(() => {
-    const section = sections.find(item => item.id === activeSection) ?? sections[0];
+    const section = visibleSections.find(item => item.id === activeSection) ?? visibleSections[0] ?? sections[0];
     const loweredQuery = query.trim().toLowerCase();
 
     return allEntries.filter(entry => {
+      if (hiddenTextEntryPaths.has(entry.path)) {
+        return false;
+      }
+
+      if (hiddenTextEntryPrefixes.some(prefix => entry.path.startsWith(prefix))) {
+        return false;
+      }
+
+      const entryPrimarySection = classifyEntry(entry.path);
+      if (
+        (entry.path.startsWith('contactPage.') || entry.path.startsWith('prayerRequestPage.')) &&
+        hiddenContactPrimarySections.has(entryPrimarySection)
+      ) {
+        return false;
+      }
+
       const inSection = section.prefixes.some(prefix => entry.path.startsWith(prefix));
       if (!inSection) {
         return false;
       }
 
-      if (activePrimarySection !== 'all' && classifyEntry(entry.path) !== activePrimarySection) {
+      if (activePrimarySection !== 'all' && entryPrimarySection !== activePrimarySection) {
         return false;
       }
 
@@ -242,20 +298,34 @@ const TextContentManager: React.FC = () => {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Text Changes</h2>
-          <p className="text-sm text-gray-600">Edit English and Chinese content without hunting through the public pages.</p>
+          <h2 className="text-2xl font-bold text-gray-900">{t('admin.textChanges')}</h2>
+          <p className="text-sm text-gray-600">{t('admin.textChangesSubtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <span className={`text-sm font-medium ${hasUnsavedContent ? 'text-amber-700' : 'text-emerald-700'}`}>
-            {hasUnsavedContent ? 'Unsaved text changes' : 'All text changes saved'}
+            {hasUnsavedContent ? t('admin.unsavedTextChanges') : t('admin.allTextChangesSaved')}
           </span>
           <button
             onClick={() => void saveChanges()}
             className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
           >
-            Save Text Changes
+            {t('admin.saveTextChanges')}
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {visibleSections.map(section => (
+          <button
+            key={section.id}
+            onClick={() => setActiveSection(section.id)}
+            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              activeSection === section.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            {sectionLabel(section.id)}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -267,21 +337,7 @@ const TextContentManager: React.FC = () => {
               activePrimarySection === section.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            {section.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {sections.map(section => (
-          <button
-            key={section.id}
-            onClick={() => setActiveSection(section.id)}
-            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              activeSection === section.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            {section.label}
+            {primarySectionLabel(section.id)}
           </button>
         ))}
       </div>
@@ -291,7 +347,7 @@ const TextContentManager: React.FC = () => {
           type="search"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Search by content key or text"
+          placeholder={t('admin.searchText')}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
       </div>
@@ -299,7 +355,7 @@ const TextContentManager: React.FC = () => {
       <div className="space-y-4">
         {visibleEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-            No matching text fields in this section.
+            {t('admin.noMatchingText')}
           </div>
         ) : (
           groupedEntries.map(group => (
@@ -323,12 +379,12 @@ const TextContentManager: React.FC = () => {
                           href={pageHrefForEntry(entry.path)}
                           className="text-xs font-semibold text-blue-600 hover:text-blue-700"
                         >
-                          Open Page
+                          {t('admin.openPage')}
                         </a>
                       </div>
                       <div className="grid gap-4 lg:grid-cols-2">
                         <label className="space-y-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">English</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">{t('admin.english')}</span>
                           {usesRichEditor ? (
                             <RichTextEditor
                               value={entry.en}
@@ -338,7 +394,7 @@ const TextContentManager: React.FC = () => {
                           ) : renderTextField(`${entry.path}.en`, entry.en)}
                         </label>
                         <label className="space-y-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">Chinese</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">{t('admin.chinese')}</span>
                           {usesRichEditor ? (
                             <RichTextEditor
                               value={entry.zh}
