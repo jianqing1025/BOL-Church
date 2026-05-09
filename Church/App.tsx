@@ -114,7 +114,7 @@ function App() {
     }
     if (route.startsWith('/about/')) {
       const subPageSegment = route.split('/')[2] || 'our-church';
-      const validSubPages: ReadonlyArray<SubPage> = ['our-church', 'our-beliefs', 'job-opportunities', 'ministry-leaders', 'becoming-a-member'];
+      const validSubPages: ReadonlyArray<SubPage> = ['our-church', 'our-beliefs', 'about-pastor', 'job-opportunities', 'ministry-leaders', 'becoming-a-member'];
       const subPage = validSubPages.find(p => p === subPageSegment) ?? 'our-church';
       return <AboutPage activeSubPage={subPage} />;
     }

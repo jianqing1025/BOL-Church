@@ -54,12 +54,13 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
   
   const navLinks: NavLink[] = [
     { key: 'header.navHome', subLinks: [
-        { href: 'https://new.bolccop.org', label: { en: 'New Homepage', zh: '新版首頁' } },
+        { href: 'https://www.bolccop.org', label: { en: 'New Homepage', zh: '新版首頁' } },
         { href: 'https://classic.bolccop.org', label: { en: 'Classic Homepage', zh: '舊版首頁' } },
     ]},
     { key: 'header.navAbout', subLinks: [
         { href: '/about/our-church', key: 'aboutPage.navOurChurch' },
         { href: '/about/our-beliefs', key: 'aboutPage.navOurBeliefs' },
+        { href: '/about/about-pastor', key: 'aboutPage.navAboutPastor' },
         { href: '/about/job-opportunities', key: 'aboutPage.navJobOpportunities' },
         { href: '/about/ministry-leaders', key: 'aboutPage.navMinistryLeaders' },
         { href: '/about/becoming-a-member', key: 'aboutPage.navBecomingAMember' },

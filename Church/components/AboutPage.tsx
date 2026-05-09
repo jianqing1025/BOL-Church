@@ -25,6 +25,7 @@ const AboutPage: React.FC<AboutPageProps> = ({ activeSubPage: initialSubPage }) 
   const navItems: { key: SubPage; textKey: string }[] = [
     { key: 'our-church', textKey: 'aboutPage.navOurChurch' },
     { key: 'our-beliefs', textKey: 'aboutPage.navOurBeliefs' },
+    { key: 'about-pastor', textKey: 'aboutPage.navAboutPastor' },
     { key: 'job-opportunities', textKey: 'aboutPage.navJobOpportunities' },
     { key: 'ministry-leaders', textKey: 'aboutPage.navMinistryLeaders' },
     { key: 'becoming-a-member', textKey: 'aboutPage.navBecomingAMember' },
@@ -33,6 +34,7 @@ const AboutPage: React.FC<AboutPageProps> = ({ activeSubPage: initialSubPage }) 
   const contentMap: Record<SubPage, { titleKey: string; contentKey: string }> = {
     'our-church': { titleKey: 'aboutPage.ourChurchTitle', contentKey: 'aboutPage.ourChurchContent' },
     'our-beliefs': { titleKey: 'aboutPage.ourBeliefsTitle', contentKey: 'aboutPage.ourBeliefsContent' },
+    'about-pastor': { titleKey: 'aboutPage.aboutPastorTitle', contentKey: 'aboutPage.aboutPastorContent' },
     'job-opportunities': { titleKey: 'aboutPage.jobOpportunitiesTitle', contentKey: 'aboutPage.jobOpportunitiesContent' },
     'ministry-leaders': { titleKey: 'aboutPage.ministryLeadersTitle', contentKey: 'aboutPage.ministryLeadersContent' },
     'becoming-a-member': { titleKey: 'aboutPage.becomingAMemberTitle', contentKey: 'aboutPage.becomingAMemberContent' },
