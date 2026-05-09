@@ -1,8 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Quill from 'quill';
-import 'quill/dist/quill.snow.css';
 import { resizeImageToBlob } from '../imageUpload';
-import { containsHtml, looksLikeMarkdown, toDisplayHtml } from '../utils/richText';
 
 interface RichTextEditorProps {
   value: string;
@@ -12,15 +9,9 @@ interface RichTextEditorProps {
   onImageUpload?: (file: Blob, fileName: string) => Promise<string>;
 }
 
-type EditorMode = 'rich' | 'markdown';
-
 function minHeightFromClassName(className: string): number {
   const match = className.match(/min-h-\[(\d+)px\]/);
   return match ? Number(match[1]) : 160;
-}
-
-function initialModeForValue(value: string): EditorMode {
-  return looksLikeMarkdown(value) && !containsHtml(value) ? 'markdown' : 'rich';
 }
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
@@ -30,17 +21,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   minHeightClassName = 'min-h-[160px]',
   onImageUpload,
 }) => {
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const quillRef = useRef<Quill | null>(null);
   const onChangeRef = useRef(onChange);
   const onImageUploadRef = useRef(onImageUpload);
-  const lastEmittedValueRef = useRef(value);
+  const valueRef = useRef(value);
   const defaultHeight = useMemo(() => minHeightFromClassName(minHeightClassName), [minHeightClassName]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [mode, setMode] = useState<EditorMode>(() => initialModeForValue(value));
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -51,104 +39,151 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   }, [onImageUpload]);
 
   useEffect(() => {
-    lastEmittedValueRef.current = value;
+    valueRef.current = value;
   }, [value]);
 
-  useEffect(() => {
-    if (!value) {
-      return;
-    }
-
-    if (mode === 'rich' && looksLikeMarkdown(value) && !containsHtml(value)) {
-      setMode('markdown');
-    }
-  }, [mode, value]);
-
-  useEffect(() => {
-    if (mode !== 'rich') {
-      if (quillRef.current) {
-        quillRef.current = null;
-      }
-      return;
-    }
-
-    if (!editorRef.current || !toolbarRef.current || quillRef.current) {
-      return;
-    }
-
-    const quill = new Quill(editorRef.current, {
-      theme: 'snow',
-      modules: {
-        toolbar: {
-          container: toolbarRef.current,
-          handlers: {
-            image: () => fileInputRef.current?.click(),
-          },
-        },
-      },
+  const commit = (nextValue: string, selectionStart: number, selectionEnd: number) => {
+    valueRef.current = nextValue;
+    onChangeRef.current(nextValue);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(selectionStart, selectionEnd);
     });
+  };
 
-    quill.root.innerHTML = containsHtml(value) ? value : toDisplayHtml(value || '');
-    quill.on('text-change', () => {
-      const nextValue = quill.root.innerHTML;
-      lastEmittedValueRef.current = nextValue;
-      onChangeRef.current(nextValue);
+  const getSelection = (): { start: number; end: number } => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      const length = valueRef.current.length;
+      return { start: length, end: length };
+    }
+    return { start: ta.selectionStart, end: ta.selectionEnd };
+  };
+
+  const wrapSelection = (before: string, after: string = before) => {
+    const { start, end } = getSelection();
+    const current = valueRef.current;
+    const selected = current.slice(start, end);
+    const next = current.slice(0, start) + before + selected + after + current.slice(end);
+    const newStart = start + before.length;
+    const newEnd = newStart + selected.length;
+    commit(next, newStart, newEnd);
+  };
+
+  const transformBlockLines = (apply: (line: string, index: number) => string) => {
+    const { start, end } = getSelection();
+    const current = valueRef.current;
+    const blockStart = current.lastIndexOf('\n', start - 1) + 1;
+    const trailingNewline = current.indexOf('\n', end);
+    const blockEnd = trailingNewline === -1 ? current.length : trailingNewline;
+    const block = current.slice(blockStart, blockEnd);
+    const transformed = block.split('\n').map(apply).join('\n');
+    const next = current.slice(0, blockStart) + transformed + current.slice(blockEnd);
+    commit(next, blockStart, blockStart + transformed.length);
+  };
+
+  const stripHeadingPrefix = (line: string) => line.replace(/^(\s*)#{1,6}\s+/, '$1');
+  const stripListPrefix = (line: string) => line.replace(/^(\s*)(?:\d+\.\s+|[-*+]\s+)/, '$1');
+
+  const setHeading = (level: number | null) => {
+    transformBlockLines(line => {
+      const stripped = stripHeadingPrefix(line);
+      if (level === null) return stripped;
+      const leading = stripped.match(/^\s*/)?.[0] ?? '';
+      return `${leading}${'#'.repeat(level)} ${stripped.slice(leading.length)}`;
     });
+  };
 
-    quillRef.current = quill;
+  const handleHeadingChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const choice = event.target.value;
+    event.target.value = '';
+    if (choice === '2') setHeading(2);
+    else if (choice === '3') setHeading(3);
+    else if (choice === 'normal') setHeading(null);
+  };
 
-    return () => {
-      quillRef.current = null;
-    };
-  }, [mode]);
+  const handleBold = () => wrapSelection('**');
+  const handleItalic = () => wrapSelection('*');
+  const handleUnderline = () => wrapSelection('<u>', '</u>');
 
-  useEffect(() => {
-    if (mode !== 'rich') {
-      return;
-    }
+  const handleOrderedList = () => {
+    let counter = 0;
+    transformBlockLines(line => {
+      const stripped = stripListPrefix(line);
+      const leading = stripped.match(/^\s*/)?.[0] ?? '';
+      const body = stripped.slice(leading.length);
+      if (!body) return line;
+      counter += 1;
+      return `${leading}${counter}. ${body}`;
+    });
+  };
 
-    const quill = quillRef.current;
-    if (!quill) {
-      return;
-    }
+  const handleBulletList = () => {
+    transformBlockLines(line => {
+      const stripped = stripListPrefix(line);
+      const leading = stripped.match(/^\s*/)?.[0] ?? '';
+      const body = stripped.slice(leading.length);
+      if (!body) return line;
+      return `${leading}- ${body}`;
+    });
+  };
 
-    if (value === lastEmittedValueRef.current || quill.root.innerHTML === value) {
-      return;
-    }
+  const handleLink = () => {
+    const url = window.prompt('Enter link URL:');
+    if (!url) return;
+    const { start, end } = getSelection();
+    const current = valueRef.current;
+    const selected = current.slice(start, end) || 'link';
+    const replacement = `[${selected}](${url})`;
+    const next = current.slice(0, start) + replacement + current.slice(end);
+    const newStart = start + 1;
+    const newEnd = newStart + selected.length;
+    commit(next, newStart, newEnd);
+  };
 
-    const nextValue = containsHtml(value) ? value : toDisplayHtml(value || '');
-    if (quill.root.innerHTML === nextValue) {
-      return;
-    }
+  const handleClean = () => {
+    const { start, end } = getSelection();
+    if (start === end) return;
+    const current = valueRef.current;
+    const selected = current.slice(start, end);
+    const cleaned = selected
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
+      .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1')
+      .replace(/`([^`\n]+)`/g, '$1')
+      .replace(/^\s*#{1,6}\s+/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/<\/?u>/gi, '');
+    const next = current.slice(0, start) + cleaned + current.slice(end);
+    commit(next, start, start + cleaned.length);
+  };
 
-    const selection = quill.getSelection();
-    quill.root.innerHTML = nextValue;
-    if (selection) {
-      quill.setSelection(selection);
-    }
-  }, [mode, value]);
+  const handleImageButton = () => fileInputRef.current?.click();
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    const quill = quillRef.current;
     const uploadImage = onImageUploadRef.current;
-    if (!file || !quill || !uploadImage) {
-      return;
-    }
+    if (!file || !uploadImage) return;
 
     setIsUploadingImage(true);
     try {
       const resizedImage = await resizeImageToBlob(file, 1600, 1600, 0.85);
       const imageUrl = await uploadImage(resizedImage, file.name);
-      const range = quill.getSelection(true);
-      quill.insertEmbed(range?.index ?? quill.getLength(), 'image', imageUrl, 'user');
-      quill.setSelection((range?.index ?? quill.getLength()) + 1);
-      const nextValue = quill.root.innerHTML;
-      lastEmittedValueRef.current = nextValue;
-      onChangeRef.current(nextValue);
+      const { start, end } = getSelection();
+      const current = valueRef.current;
+      const altText = file.name.replace(/\.[^.]+$/, '');
+      const insertion = `![${altText}](${imageUrl})`;
+      const next = current.slice(0, start) + insertion + current.slice(end);
+      const cursor = start + insertion.length;
+      commit(next, cursor, cursor);
     } catch (error) {
-      console.error('Rich text image upload failed', error);
+      console.error('Markdown image upload failed', error);
       const message = error instanceof Error ? error.message : 'Image upload failed.';
       alert(message);
     } finally {
@@ -156,64 +191,62 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
   };
 
-  const handleModeChange = (nextMode: EditorMode) => {
-    setMode(nextMode);
-  };
-
   const editorHeight = isExpanded ? Math.max(defaultHeight, 520) : defaultHeight;
   const expandButtonLabel = isExpanded ? 'Collapse editor' : 'Expand editor';
+
+  const buttonClass =
+    'flex h-7 min-w-[28px] items-center justify-center rounded border border-gray-300 bg-white px-2 text-xs font-semibold text-gray-700 hover:bg-gray-100';
 
   return (
     <div
       className={`rich-text-editor rounded-lg border border-gray-300 bg-white ${className} ${
         isUploadingImage ? 'opacity-75' : ''
-      } [&_.ql-container]:resize-y [&_.ql-container]:overflow-auto [&_.ql-container]:border-0 [&_.ql-editor]:min-h-full [&_.ql-editor]:px-3 [&_.ql-editor]:py-3 [&_.ql-editor]:text-sm [&_.ql-editor]:outline-none [&_.ql-editor_a]:text-blue-600 [&_.ql-editor_blockquote]:border-l-4 [&_.ql-editor_blockquote]:border-gray-300 [&_.ql-editor_blockquote]:pl-4 [&_.ql-editor_img]:h-auto [&_.ql-editor_img]:max-w-full [&_.ql-editor_img]:rounded-lg [&_.ql-toolbar]:rounded-t-lg [&_.ql-toolbar]:border-0 [&_.ql-toolbar]:border-b [&_.ql-toolbar]:border-gray-200 [&_.ql-toolbar]:bg-gray-50`}
+      }`}
     >
       <div className="flex flex-wrap items-center gap-2 rounded-t-lg border-b border-gray-200 bg-gray-50 px-2 py-2">
-        <div className="flex rounded-md border border-gray-300 bg-white p-0.5">
-          <button
-            type="button"
-            onClick={() => handleModeChange('rich')}
-            className={`rounded px-2 py-1 text-xs font-semibold ${mode === 'rich' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+        <span className="rounded bg-gray-900 px-2 py-1 text-xs font-semibold text-white">MD</span>
+
+        <div className="flex flex-wrap items-center gap-1">
+          <select
+            onChange={handleHeadingChange}
+            defaultValue=""
+            className="h-7 rounded border border-gray-300 bg-white px-1 text-xs text-gray-700"
+            aria-label="Heading"
           >
-            Rich
+            <option value="" disabled>
+              Heading
+            </option>
+            <option value="2">Heading 2</option>
+            <option value="3">Heading 3</option>
+            <option value="normal">Normal</option>
+          </select>
+          <button type="button" onClick={handleBold} className={buttonClass} aria-label="Bold" title="Bold (**text**)">
+            <strong>B</strong>
           </button>
-          <button
-            type="button"
-            onClick={() => handleModeChange('markdown')}
-            className={`rounded px-2 py-1 text-xs font-semibold ${mode === 'markdown' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-          >
-            MD
+          <button type="button" onClick={handleItalic} className={buttonClass} aria-label="Italic" title="Italic (*text*)">
+            <em>I</em>
+          </button>
+          <button type="button" onClick={handleUnderline} className={buttonClass} aria-label="Underline" title="Underline (<u>text</u>)">
+            <u>U</u>
+          </button>
+          <button type="button" onClick={handleOrderedList} className={buttonClass} aria-label="Ordered list" title="Ordered list (1.)">
+            1.
+          </button>
+          <button type="button" onClick={handleBulletList} className={buttonClass} aria-label="Bullet list" title="Bullet list (-)">
+            &bull;
+          </button>
+          <button type="button" onClick={handleLink} className={buttonClass} aria-label="Link" title="Link [text](url)">
+            Link
+          </button>
+          {onImageUpload && (
+            <button type="button" onClick={handleImageButton} className={buttonClass} aria-label="Image" title="Image ![alt](url)">
+              Img
+            </button>
+          )}
+          <button type="button" onClick={handleClean} className={buttonClass} aria-label="Clear formatting" title="Clear markdown formatting">
+            Clear
           </button>
         </div>
-
-        {mode === 'rich' && (
-          <div ref={toolbarRef} className="flex flex-wrap items-center gap-y-1">
-            <span className="ql-formats">
-              <select className="ql-header" defaultValue="">
-                <option value="2">Heading 2</option>
-                <option value="3">Heading 3</option>
-                <option value="">Normal</option>
-              </select>
-            </span>
-            <span className="ql-formats">
-              <button type="button" className="ql-bold" aria-label="Bold" />
-              <button type="button" className="ql-italic" aria-label="Italic" />
-              <button type="button" className="ql-underline" aria-label="Underline" />
-            </span>
-            <span className="ql-formats">
-              <button type="button" className="ql-list" value="ordered" aria-label="Ordered list" />
-              <button type="button" className="ql-list" value="bullet" aria-label="Bullet list" />
-            </span>
-            <span className="ql-formats">
-              <button type="button" className="ql-link" aria-label="Link" />
-              <button type="button" className="ql-image" aria-label="Image" />
-            </span>
-            <span className="ql-formats">
-              <button type="button" className="ql-clean" aria-label="Clear formatting" />
-            </span>
-          </div>
-        )}
 
         <span className="ml-auto flex items-center gap-2">
           <button
@@ -225,28 +258,34 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           >
             {isExpanded ? (
               <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                <path fill="currentColor" d="M8 3h2v7H3V8h3.59L3.29 4.71l1.42-1.42L8 6.59V3Zm6 0h2v3.59l3.29-3.3 1.42 1.42L17.41 8H21v2h-7V3ZM3 14h7v7H8v-3.59l-3.29 3.3-1.42-1.42L6.59 16H3v-2Zm11 0h7v2h-3.59l3.3 3.29-1.42 1.42-3.29-3.3V21h-2v-7Z" />
+                <path
+                  fill="currentColor"
+                  d="M8 3h2v7H3V8h3.59L3.29 4.71l1.42-1.42L8 6.59V3Zm6 0h2v3.59l3.29-3.3 1.42 1.42L17.41 8H21v2h-7V3ZM3 14h7v7H8v-3.59l-3.29 3.3-1.42-1.42L6.59 16H3v-2Zm11 0h7v2h-3.59l3.3 3.29-1.42 1.42-3.29-3.3V21h-2v-7Z"
+                />
               </svg>
             ) : (
               <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                <path fill="currentColor" d="M3 3h7v2H6.41l3.3 3.29-1.42 1.42L5 6.41V10H3V3Zm11 0h7v7h-2V6.41l-3.29 3.3-1.42-1.42 3.3-3.29H14V3ZM5 14v3.59l3.29-3.3 1.42 1.42L6.41 19H10v2H3v-7h2Zm14 0h2v7h-7v-2h3.59l-3.3-3.29 1.42-1.42 3.29 3.3V14Z" />
+                <path
+                  fill="currentColor"
+                  d="M3 3h7v2H6.41l3.3 3.29-1.42 1.42L5 6.41V10H3V3Zm11 0h7v7h-2V6.41l-3.29 3.3-1.42-1.42 3.3-3.29H14V3ZM5 14v3.59l3.29-3.3 1.42 1.42L6.41 19H10v2H3v-7h2Zm14 0h2v7h-7v-2h3.59l-3.3-3.29 1.42-1.42 3.29 3.3V14Z"
+                />
               </svg>
             )}
           </button>
         </span>
       </div>
 
-      {mode === 'markdown' ? (
-        <textarea
-          value={value}
-          onChange={event => onChangeRef.current(event.target.value)}
-          spellCheck={false}
-          className="w-full resize-y border-0 px-3 py-3 font-mono text-sm outline-none"
-          style={{ height: `${editorHeight}px`, minHeight: `${defaultHeight}px` }}
-        />
-      ) : (
-        <div ref={editorRef} style={{ height: `${editorHeight}px`, minHeight: `${defaultHeight}px` }} />
-      )}
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={event => {
+          valueRef.current = event.target.value;
+          onChangeRef.current(event.target.value);
+        }}
+        spellCheck={false}
+        className="w-full resize-y border-0 px-3 py-3 font-mono text-sm outline-none"
+        style={{ height: `${editorHeight}px`, minHeight: `${defaultHeight}px` }}
+      />
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
     </div>
