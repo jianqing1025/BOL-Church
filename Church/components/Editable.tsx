@@ -3,7 +3,7 @@ import { useAdmin } from '../hooks/useAdmin';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import RichTextEditor from './RichTextEditor';
-import { renderRichText } from '../utils/richText';
+import { toDisplayHtml } from '../utils/richText';
 
 interface EditableProps {
   as?: React.ElementType;
@@ -50,12 +50,7 @@ const Editable: React.FC<EditableProps> = ({ as: Component = 'span', contentKey,
     setEditText(text);
   };
 
-  const renderText = () => {
-    if (render) {
-        return render(text);
-    }
-    return renderRichText(text);
-  };
+  const displayHtml = toDisplayHtml(text);
 
   if (isAdminMode && canEditContent(contentKey)) {
     if (isEditing) {
@@ -88,14 +83,22 @@ const Editable: React.FC<EditableProps> = ({ as: Component = 'span', contentKey,
         <Component
           className={`${className} cursor-pointer hover:outline outline-2 outline-offset-2 outline-blue-500 transition-all rounded`}
           onClick={() => setIsEditing(true)}
+          dangerouslySetInnerHTML={render ? undefined : { __html: displayHtml }}
         >
-          {renderText()}
+          {render ? render(text) : undefined}
         </Component>
       );
     }
   }
 
-  return <Component className={className}>{renderText()}</Component>;
+  return (
+    <Component
+      className={className}
+      dangerouslySetInnerHTML={render ? undefined : { __html: displayHtml }}
+    >
+      {render ? render(text) : undefined}
+    </Component>
+  );
 };
 
 export default Editable;
