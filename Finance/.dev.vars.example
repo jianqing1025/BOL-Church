@@ -1,0 +1,6 @@
+JWT_SECRET=replace-this-before-production
+CLOUDFLARE_API_TOKEN=replace-with-api-token
+CLOUDFLARE_ACCOUNT_ID=953bb353d5d63c4249b8fec0b83d805d
+CLOUDFLARE_ZONE_ID=e1ef9097590cbe387d567ddb29f13dc7
+R2_ACCESS_KEY_ID=replace-with-r2-access-key-id
+R2_SECRET_ACCESS_KEY=replace-with-r2-secret-access-key

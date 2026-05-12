@@ -1,0 +1,22 @@
+name = "church-finance"
+main = "src/server/index.ts"
+compatibility_date = "2026-05-12"
+account_id = "953bb353d5d63c4249b8fec0b83d805d"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "church-finance"
+database_id = "9f0206fe-c495-4286-bf66-7dfb307a7a21"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "church-finance"
+
+[vars]
+JWT_SECRET = "replace-this-before-production"
+CLOUDFLARE_ZONE_ID = "e1ef9097590cbe387d567ddb29f13dc7"

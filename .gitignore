@@ -45,3 +45,7 @@ Church/wrangler.toml
 # Legacy build artifacts
 Legacy/_headers
 Legacy/wrangler.json
+
+# Excluded folders
+Data/
+Finance-Original/
