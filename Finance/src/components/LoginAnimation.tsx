@@ -1,6 +1,61 @@
 import { useEffect, useRef, useState } from 'react';
 
-type EyeProps = {
+interface PupilProps {
+  size?: number;
+  maxDistance?: number;
+  pupilColor?: string;
+  forceLookX?: number;
+  forceLookY?: number;
+}
+
+const Pupil = ({
+  size = 12,
+  maxDistance = 5,
+  pupilColor = 'black',
+  forceLookX,
+  forceLookY
+}: PupilProps) => {
+  const [mouseX, setMouseX] = useState(0);
+  const [mouseY, setMouseY] = useState(0);
+  const pupilRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handle = (event: MouseEvent) => {
+      setMouseX(event.clientX);
+      setMouseY(event.clientY);
+    };
+    window.addEventListener('mousemove', handle);
+    return () => window.removeEventListener('mousemove', handle);
+  }, []);
+
+  const getPos = () => {
+    if (!pupilRef.current) return { x: 0, y: 0 };
+    if (forceLookX !== undefined && forceLookY !== undefined) return { x: forceLookX, y: forceLookY };
+    const rect = pupilRef.current.getBoundingClientRect();
+    const dx = mouseX - (rect.left + rect.width / 2);
+    const dy = mouseY - (rect.top + rect.height / 2);
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), maxDistance);
+    const angle = Math.atan2(dy, dx);
+    return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist };
+  };
+
+  const pos = getPos();
+  return (
+    <div
+      ref={pupilRef}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        backgroundColor: pupilColor,
+        transform: `translate(${pos.x}px, ${pos.y}px)`,
+        transition: 'transform 0.1s ease-out'
+      }}
+    />
+  );
+};
+
+interface EyeBallProps {
   size?: number;
   pupilSize?: number;
   maxDistance?: number;
@@ -9,39 +64,43 @@ type EyeProps = {
   isBlinking?: boolean;
   forceLookX?: number;
   forceLookY?: number;
-};
+}
 
-function Eye({
+const EyeBall = ({
   size = 48,
   pupilSize = 16,
   maxDistance = 10,
   eyeColor = 'white',
-  pupilColor = '#172033',
+  pupilColor = 'black',
   isBlinking = false,
   forceLookX,
   forceLookY
-}: EyeProps) {
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
+}: EyeBallProps) => {
+  const [mouseX, setMouseX] = useState(0);
+  const [mouseY, setMouseY] = useState(0);
   const eyeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleMouse = (event: MouseEvent) => setMouse({ x: event.clientX, y: event.clientY });
-    window.addEventListener('mousemove', handleMouse);
-    return () => window.removeEventListener('mousemove', handleMouse);
+    const handle = (event: MouseEvent) => {
+      setMouseX(event.clientX);
+      setMouseY(event.clientY);
+    };
+    window.addEventListener('mousemove', handle);
+    return () => window.removeEventListener('mousemove', handle);
   }, []);
 
-  const position = () => {
+  const getPos = () => {
     if (!eyeRef.current) return { x: 0, y: 0 };
     if (forceLookX !== undefined && forceLookY !== undefined) return { x: forceLookX, y: forceLookY };
     const rect = eyeRef.current.getBoundingClientRect();
-    const dx = mouse.x - (rect.left + rect.width / 2);
-    const dy = mouse.y - (rect.top + rect.height / 2);
-    const distance = Math.min(Math.sqrt(dx * dx + dy * dy), maxDistance);
+    const dx = mouseX - (rect.left + rect.width / 2);
+    const dy = mouseY - (rect.top + rect.height / 2);
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), maxDistance);
     const angle = Math.atan2(dy, dx);
-    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+    return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist };
   };
 
-  const pos = position();
+  const pos = getPos();
   return (
     <div
       ref={eyeRef}
@@ -54,7 +113,7 @@ function Eye({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        transition: 'height 150ms ease'
+        transition: 'height 0.15s ease'
       }}
     >
       {!isBlinking && (
@@ -65,89 +124,53 @@ function Eye({
             borderRadius: '50%',
             backgroundColor: pupilColor,
             transform: `translate(${pos.x}px, ${pos.y}px)`,
-            transition: 'transform 100ms ease-out'
+            transition: 'transform 0.1s ease-out'
           }}
         />
       )}
     </div>
   );
-}
-
-type PupilProps = {
-  size?: number;
-  maxDistance?: number;
-  pupilColor?: string;
-  forceLookX?: number;
-  forceLookY?: number;
 };
 
-function Pupil({ size = 12, maxDistance = 5, pupilColor = '#172033', forceLookX, forceLookY }: PupilProps) {
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
-  const pupilRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleMouse = (event: MouseEvent) => setMouse({ x: event.clientX, y: event.clientY });
-    window.addEventListener('mousemove', handleMouse);
-    return () => window.removeEventListener('mousemove', handleMouse);
-  }, []);
-
-  const position = () => {
-    if (!pupilRef.current) return { x: 0, y: 0 };
-    if (forceLookX !== undefined && forceLookY !== undefined) return { x: forceLookX, y: forceLookY };
-    const rect = pupilRef.current.getBoundingClientRect();
-    const dx = mouse.x - (rect.left + rect.width / 2);
-    const dy = mouse.y - (rect.top + rect.height / 2);
-    const distance = Math.min(Math.sqrt(dx * dx + dy * dy), maxDistance);
-    const angle = Math.atan2(dy, dx);
-    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
-  };
-
-  const pos = position();
-  return (
-    <div
-      ref={pupilRef}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        backgroundColor: pupilColor,
-        transform: `translate(${pos.x}px, ${pos.y}px)`,
-        transition: 'transform 100ms ease-out'
-      }}
-    />
-  );
+interface LoginAnimationProps {
+  isTyping?: boolean;
+  passwordVisible?: boolean;
+  passwordLength?: number;
 }
 
 export function LoginAnimation({
   isTyping = false,
+  passwordVisible = false,
   passwordLength = 0
-}: {
-  isTyping?: boolean;
-  passwordLength?: number;
-}) {
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
-  const [redBlinking, setRedBlinking] = useState(false);
-  const [tealBlinking, setTealBlinking] = useState(false);
-  const [lookingAtEachOther, setLookingAtEachOther] = useState(false);
+}: LoginAnimationProps) {
+  const [mouseX, setMouseX] = useState(0);
+  const [mouseY, setMouseY] = useState(0);
+  const [isPurpleBlinking, setIsPurpleBlinking] = useState(false);
+  const [isBlackBlinking, setIsBlackBlinking] = useState(false);
+  const [isLookingAtEachOther, setIsLookingAtEachOther] = useState(false);
+  const [isPurplePeeking, setIsPurplePeeking] = useState(false);
 
-  const redRef = useRef<HTMLDivElement>(null);
-  const tealRef = useRef<HTMLDivElement>(null);
+  const purpleRef = useRef<HTMLDivElement>(null);
+  const blackRef = useRef<HTMLDivElement>(null);
   const yellowRef = useRef<HTMLDivElement>(null);
-  const pinkRef = useRef<HTMLDivElement>(null);
+  const orangeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleMouse = (event: MouseEvent) => setMouse({ x: event.clientX, y: event.clientY });
-    window.addEventListener('mousemove', handleMouse);
-    return () => window.removeEventListener('mousemove', handleMouse);
+    const handle = (event: MouseEvent) => {
+      setMouseX(event.clientX);
+      setMouseY(event.clientY);
+    };
+    window.addEventListener('mousemove', handle);
+    return () => window.removeEventListener('mousemove', handle);
   }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       timer = setTimeout(() => {
-        setRedBlinking(true);
+        setIsPurpleBlinking(true);
         setTimeout(() => {
-          setRedBlinking(false);
+          setIsPurpleBlinking(false);
           schedule();
         }, 150);
       }, Math.random() * 4000 + 3000);
@@ -160,9 +183,9 @@ export function LoginAnimation({
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       timer = setTimeout(() => {
-        setTealBlinking(true);
+        setIsBlackBlinking(true);
         setTimeout(() => {
-          setTealBlinking(false);
+          setIsBlackBlinking(false);
           schedule();
         }, 150);
       }, Math.random() * 4000 + 3000);
@@ -172,22 +195,38 @@ export function LoginAnimation({
   }, []);
 
   useEffect(() => {
-    if (!isTyping) {
-      setLookingAtEachOther(false);
-      return;
+    if (isTyping) {
+      setIsLookingAtEachOther(true);
+      const timer = setTimeout(() => setIsLookingAtEachOther(false), 800);
+      return () => clearTimeout(timer);
     }
-    setLookingAtEachOther(true);
-    const timer = setTimeout(() => setLookingAtEachOther(false), 800);
-    return () => clearTimeout(timer);
+    setIsLookingAtEachOther(false);
   }, [isTyping]);
 
-  const calcPosition = (ref: React.RefObject<HTMLDivElement | null>) => {
+  useEffect(() => {
+    if (passwordLength > 0 && passwordVisible) {
+      let timer: ReturnType<typeof setTimeout>;
+      const schedule = () => {
+        timer = setTimeout(() => {
+          setIsPurplePeeking(true);
+          setTimeout(() => {
+            setIsPurplePeeking(false);
+          }, 800);
+        }, Math.random() * 3000 + 2000);
+      };
+      schedule();
+      return () => clearTimeout(timer);
+    }
+    setIsPurplePeeking(false);
+  }, [passwordLength, passwordVisible, isPurplePeeking]);
+
+  const calcPos = (ref: React.RefObject<HTMLDivElement | null>) => {
     if (!ref.current) return { faceX: 0, faceY: 0, bodySkew: 0 };
     const rect = ref.current.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 3;
-    const dx = mouse.x - cx;
-    const dy = mouse.y - cy;
+    const dx = mouseX - cx;
+    const dy = mouseY - cy;
     return {
       faceX: Math.max(-15, Math.min(15, dx / 20)),
       faceY: Math.max(-10, Math.min(10, dy / 30)),
@@ -195,97 +234,198 @@ export function LoginAnimation({
     };
   };
 
-  const red = calcPosition(redRef);
-  const teal = calcPosition(tealRef);
-  const yellow = calcPosition(yellowRef);
-  const pink = calcPosition(pinkRef);
-  const hiding = passwordLength > 0;
+  const pp = calcPos(purpleRef);
+  const bp = calcPos(blackRef);
+  const yp = calcPos(yellowRef);
+  const op = calcPos(orangeRef);
+
+  const hiding = passwordLength > 0 && !passwordVisible;
+  const peeking = passwordLength > 0 && passwordVisible;
 
   return (
     <div className="login-animation-scene" aria-hidden="true">
       <div
-        ref={redRef}
-        className="login-shape login-shape-red"
+        ref={purpleRef}
         style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 70,
+          width: 180,
           height: isTyping || hiding ? 440 : 400,
-          transform: isTyping || hiding ? `skewX(${red.bodySkew - 12}deg) translateX(40px)` : `skewX(${red.bodySkew}deg)`
+          backgroundColor: '#FF6B6B',
+          borderRadius: '10px 10px 0 0',
+          zIndex: 1,
+          transition: 'all 0.7s ease-in-out',
+          transform: peeking
+            ? 'skewX(0deg)'
+            : isTyping || hiding
+              ? `skewX(${pp.bodySkew - 12}deg) translateX(40px)`
+              : `skewX(${pp.bodySkew}deg)`,
+          transformOrigin: 'bottom center'
         }}
       >
         <div
-          className="shape-eyes"
           style={{
-            left: lookingAtEachOther ? 55 : 45 + red.faceX,
-            top: lookingAtEachOther ? 65 : 40 + red.faceY
+            position: 'absolute',
+            display: 'flex',
+            gap: 32,
+            left: peeking ? 20 : isLookingAtEachOther ? 55 : 45 + pp.faceX,
+            top: peeking ? 35 : isLookingAtEachOther ? 65 : 40 + pp.faceY,
+            transition: 'all 0.7s ease-in-out'
           }}
         >
           {[0, 1].map(item => (
-            <Eye
+            <EyeBall
               key={item}
               size={18}
               pupilSize={7}
               maxDistance={5}
-              isBlinking={redBlinking}
-              forceLookX={lookingAtEachOther ? 3 : undefined}
-              forceLookY={lookingAtEachOther ? 4 : undefined}
+              eyeColor="white"
+              pupilColor="#2D2D2D"
+              isBlinking={isPurpleBlinking}
+              forceLookX={peeking ? (isPurplePeeking ? 4 : -4) : isLookingAtEachOther ? 3 : undefined}
+              forceLookY={peeking ? (isPurplePeeking ? 5 : -4) : isLookingAtEachOther ? 4 : undefined}
             />
           ))}
         </div>
       </div>
 
       <div
-        ref={tealRef}
-        className="login-shape login-shape-teal"
+        ref={blackRef}
         style={{
-          transform: lookingAtEachOther
-            ? `skewX(${teal.bodySkew * 1.5 + 10}deg) translateX(20px)`
-            : isTyping || hiding
-              ? `skewX(${teal.bodySkew * 1.5}deg)`
-              : `skewX(${teal.bodySkew}deg)`
+          position: 'absolute',
+          bottom: 0,
+          left: 240,
+          width: 120,
+          height: 310,
+          backgroundColor: '#00CEC9',
+          borderRadius: '8px 8px 0 0',
+          zIndex: 2,
+          transition: 'all 0.7s ease-in-out',
+          transform: peeking
+            ? 'skewX(0deg)'
+            : isLookingAtEachOther
+              ? `skewX(${bp.bodySkew * 1.5 + 10}deg) translateX(20px)`
+              : isTyping || hiding
+                ? `skewX(${bp.bodySkew * 1.5}deg)`
+                : `skewX(${bp.bodySkew}deg)`,
+          transformOrigin: 'bottom center'
         }}
       >
         <div
-          className="shape-eyes"
           style={{
-            left: lookingAtEachOther ? 32 : 26 + teal.faceX,
-            top: lookingAtEachOther ? 12 : 32 + teal.faceY
+            position: 'absolute',
+            display: 'flex',
+            gap: 24,
+            left: peeking ? 10 : isLookingAtEachOther ? 32 : 26 + bp.faceX,
+            top: peeking ? 28 : isLookingAtEachOther ? 12 : 32 + bp.faceY,
+            transition: 'all 0.7s ease-in-out'
           }}
         >
           {[0, 1].map(item => (
-            <Eye
+            <EyeBall
               key={item}
               size={16}
               pupilSize={6}
               maxDistance={4}
-              isBlinking={tealBlinking || hiding}
-              forceLookY={lookingAtEachOther ? -4 : undefined}
+              eyeColor="white"
+              pupilColor="#2D2D2D"
+              isBlinking={isBlackBlinking}
+              forceLookX={peeking ? -4 : isLookingAtEachOther ? 0 : undefined}
+              forceLookY={peeking ? -4 : isLookingAtEachOther ? -4 : undefined}
             />
           ))}
         </div>
       </div>
 
       <div
-        ref={pinkRef}
-        className="login-shape login-shape-pink"
-        style={{ transform: `skewX(${pink.bodySkew}deg)` }}
+        ref={orangeRef}
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          width: 240,
+          height: 200,
+          backgroundColor: '#FFEAA7',
+          borderRadius: '120px 120px 0 0',
+          zIndex: 3,
+          transition: 'all 0.7s ease-in-out',
+          transform: peeking ? 'skewX(0deg)' : `skewX(${op.bodySkew}deg)`,
+          transformOrigin: 'bottom center'
+        }}
       >
-        <div className="shape-eyes" style={{ left: 82 + pink.faceX, top: 90 + pink.faceY }}>
+        <div
+          style={{
+            position: 'absolute',
+            display: 'flex',
+            gap: 32,
+            left: peeking ? 50 : 82 + op.faceX,
+            top: peeking ? 85 : 90 + op.faceY,
+            transition: 'all 0.2s ease-out'
+          }}
+        >
           {[0, 1].map(item => (
-            <Pupil key={item} />
+            <Pupil
+              key={item}
+              size={12}
+              maxDistance={5}
+              pupilColor="#2D2D2D"
+              forceLookX={peeking ? -5 : undefined}
+              forceLookY={peeking ? -4 : undefined}
+            />
           ))}
         </div>
       </div>
 
       <div
         ref={yellowRef}
-        className="login-shape login-shape-yellow"
-        style={{ transform: `skewX(${yellow.bodySkew}deg)` }}
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 310,
+          width: 140,
+          height: 230,
+          backgroundColor: '#FD79A8',
+          borderRadius: '70px 70px 0 0',
+          zIndex: 4,
+          transition: 'all 0.7s ease-in-out',
+          transform: peeking ? 'skewX(0deg)' : `skewX(${yp.bodySkew}deg)`,
+          transformOrigin: 'bottom center'
+        }}
       >
-        <div className="shape-eyes" style={{ left: 52 + yellow.faceX, top: 40 + yellow.faceY }}>
+        <div
+          style={{
+            position: 'absolute',
+            display: 'flex',
+            gap: 24,
+            left: peeking ? 20 : 52 + yp.faceX,
+            top: peeking ? 35 : 40 + yp.faceY,
+            transition: 'all 0.2s ease-out'
+          }}
+        >
           {[0, 1].map(item => (
-            <Pupil key={item} />
+            <Pupil
+              key={item}
+              size={12}
+              maxDistance={5}
+              pupilColor="#2D2D2D"
+              forceLookX={peeking ? -5 : undefined}
+              forceLookY={peeking ? -4 : undefined}
+            />
           ))}
         </div>
-        <div className="shape-mouth" style={{ left: 40 + yellow.faceX, top: 88 + yellow.faceY }} />
+        <div
+          style={{
+            position: 'absolute',
+            width: 80,
+            height: 4,
+            backgroundColor: '#2D2D2D',
+            borderRadius: 2,
+            left: peeking ? 10 : 40 + yp.faceX,
+            top: peeking ? 88 : 88 + yp.faceY,
+            transition: 'all 0.2s ease-out'
+          }}
+        />
       </div>
     </div>
   );

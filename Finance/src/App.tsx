@@ -23,6 +23,7 @@ function LoginPage() {
   const { login, error, loading } = useAuth();
   const [email, setEmail] = useState('BOLCCOP@Gmail.com');
   const [password, setPassword] = useState('Bolccop110550');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [focusField, setFocusField] = useState<'none' | 'email' | 'password'>('none');
 
   const submit = async (event: React.FormEvent) => {
@@ -37,14 +38,20 @@ function LoginPage() {
       <span className="login-dot dot-three" />
       <section className="login-panel">
         <div className="login-art">
-          <LoginAnimation isTyping={focusField === 'email'} passwordLength={focusField === 'password' ? password.length : 0} />
+          <LoginAnimation
+            isTyping={focusField === 'email'}
+            passwordLength={password.length}
+            passwordVisible={passwordVisible}
+          />
         </div>
         <div className="login-form-panel">
           <div>
             <p className="eyebrow">BOLCCOP Finance 2.0</p>
             <h1>信望愛靈糧堂财务系统</h1>
-            <p className="muted">各人要照所得的恩賜彼此服事，作神百般恩賜的好管家。
-              —— 彼得前书 4:10</p>
+            <p className="muted">
+              各人要照所得的恩賜彼此服事， 作 神百般恩賜的好管家。
+              <span className="bible-reference">— 彼得前书 4:10  </span>
+            </p>
           </div>
           <form onSubmit={submit} className="stack">
             <label>
@@ -60,14 +67,24 @@ function LoginPage() {
             </label>
             <label>
               密碼
-              <input
-                value={password}
-                onChange={event => setPassword(event.target.value)}
-                onFocus={() => setFocusField('password')}
-                onBlur={() => setFocusField('none')}
-                type="password"
-                required
-              />
+              <div className="input-with-icon">
+                <input
+                  value={password}
+                  onChange={event => setPassword(event.target.value)}
+                  onFocus={() => setFocusField('password')}
+                  onBlur={() => setFocusField('none')}
+                  type={passwordVisible ? 'text' : 'password'}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setPasswordVisible(value => !value)}
+                  aria-label={passwordVisible ? '隱藏密碼' : '顯示密碼'}
+                >
+                  {passwordVisible ? '🙈' : '👁️'}
+                </button>
+              </div>
             </label>
             {error && <p className="error">{error}</p>}
             <button className="primary" disabled={loading}>登入</button>
@@ -113,12 +130,12 @@ function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void })
   );
 }
 
-function StatCard({ title, value, note }: { title: string; value: string; note: string }) {
+function StatCard({ title, value, note }: { title: string; value: string; note?: string }) {
   return (
     <article className="stat-card">
       <span>{title}</span>
       <strong>{value}</strong>
-      <small>{note}</small>
+      {note && <small>{note}</small>}
     </article>
   );
 }
@@ -150,29 +167,76 @@ function DashboardPage() {
   const { dashboard, offerings, expenses } = useFinance();
   if (!dashboard) return <Empty title="正在載入儀表板" />;
 
+  // 计算收入统计
+  const now = new Date();
+  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+
+  const weekOfferings = offerings.filter(o => new Date(o.date) >= weekStart);
+  const monthOfferings = offerings.filter(o => new Date(o.date) >= monthStart);
+  const yearOfferings = offerings.filter(o => new Date(o.date) >= yearStart);
+  const totalOfferings = offerings;
+
+  const weekOfferingTotal = weekOfferings.reduce((sum, o) => sum + o.amount, 0);
+  const monthOfferingTotal = monthOfferings.reduce((sum, o) => sum + o.amount, 0);
+  const yearOfferingTotal = yearOfferings.reduce((sum, o) => sum + o.amount, 0);
+  const totalOfferingAmount = totalOfferings.reduce((sum, o) => sum + o.amount, 0);
+
+  // 计算支出统计
+  const weekExpenses = expenses.filter(e => new Date(e.date) >= weekStart);
+  const monthExpenses = expenses.filter(e => new Date(e.date) >= monthStart);
+  const yearExpenses = expenses.filter(e => new Date(e.date) >= yearStart);
+  const totalExpenses = expenses;
+
+  const weekExpenseTotal = weekExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthExpenseTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const yearExpenseTotal = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const totalExpenseAmount = totalExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+  const pendingExpenses = expenses.filter(e => e.status === 'pending');
+
   return (
     <section className="page">
       <PageTitle title="儀表板" subtitle="本週、本月與待處理財務事項總覽" />
-      <div className="stats-grid">
-        <StatCard title="本週奉獻" value={currency(dashboard.weekOfferingTotal)} note={`週環比 ${dashboard.weekOfferingChange}%`} />
-        <StatCard title="本月支出" value={currency(dashboard.monthExpenseTotal)} note={`預算剩餘 ${currency(dashboard.monthBudgetRemaining)}`} />
-        <StatCard title="待批准支出" value={`${dashboard.pendingExpenseCount}`} note="需要財務同工處理" />
-        <StatCard title="本月新增成員" value={`${dashboard.newMembersThisMonth}`} note="含訪客與正式成員" />
-      </div>
+
+      {/* 收入部分 */}
+      <Panel title="收入統計">
+        <div className="stats-grid">
+          <StatCard title="本週奉獻" value={currency(weekOfferingTotal)} />
+          <StatCard title="本月奉獻" value={currency(monthOfferingTotal)} />
+          <StatCard title="本年奉獻" value={currency(yearOfferingTotal)} />
+          <StatCard title="所有奉獻" value={currency(totalOfferingAmount)} />
+        </div>
+      </Panel>
+
+      {/* 支出部分 */}
+      <Panel title="支出統計">
+        <div className="stats-grid">
+          <StatCard title="本週支出" value={currency(weekExpenseTotal)} />
+          <StatCard title="本月支出" value={currency(monthExpenseTotal)} note={`預算剩餘 ${currency(dashboard.monthBudgetRemaining)}`} />
+          <StatCard title="本年支出" value={currency(yearExpenseTotal)} />
+          <StatCard title="所有支出" value={currency(totalExpenseAmount)} />
+          <StatCard title="待批准支出" value={`${dashboard.pendingExpenseCount}`} note="需要財務同工處理" />
+        </div>
+      </Panel>
+
+      {/* 动态部分 */}
       <div className="two-col">
-        <Panel title="最近奉獻趨勢">
-          <MiniBars data={dashboard.offeringTrend} />
+        <Panel title="最近奉獻">
+          <SimpleList items={offerings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
         </Panel>
         <Panel title="收支對比">
           <MiniBars data={dashboard.incomeExpense} />
         </Panel>
       </div>
+
       <div className="two-col">
-        <Panel title="最近奉獻">
-          <SimpleList items={offerings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
+        <Panel title="奉獻趨勢">
+          <MiniBars data={dashboard.offeringTrend} />
         </Panel>
         <Panel title="待審核支出">
-          <SimpleList items={expenses.filter(item => item.status === 'pending').slice(0, 5).map(item => `${shortDate(item.date)} ${item.description} ${currency(item.amount)}`)} />
+          <SimpleList items={pendingExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description} ${currency(item.amount)}`)} />
         </Panel>
       </div>
     </section>
@@ -373,7 +437,6 @@ function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <header className="page-title">
       <div>
-        <p className="eyebrow">Finance 2.0</p>
         <h1>{title}</h1>
       </div>
       <p>{subtitle}</p>
