@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
-import type { Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod } from './types';
-import { currency, shortDate } from './utils/format';
+import type { AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod } from './types';
+import { currency, dateTime, shortDate } from './utils/format';
 import { api } from './utils/api';
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports';
@@ -42,6 +42,15 @@ const expenseStatusLabels: Record<ExpenseStatus, string> = {
   approved: '已批准',
   rejected: '已拒絕'
 };
+
+// 成員顯示格式：First Name Last Name (中文名)
+function memberDisplayName(member?: Member | null): string {
+  if (!member) return '';
+  const en = [member.firstName, member.lastName].filter(Boolean).join(' ').trim();
+  const zh = (member.name || '').trim();
+  if (en && zh) return `${en} (${zh})`;
+  return en || zh;
+}
 
 function LoginPage() {
   const { login, error, loading } = useAuth();
@@ -126,7 +135,7 @@ function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void })
     ['members', '成員管理'],
     ['offerings', '奉獻記錄'],
     ['expenses', '支出管理'],
-    ['reports', '報表']
+    ['reports', '報表日誌']
   ];
 
   return (
@@ -304,6 +313,114 @@ function MemberDetail({ member, onClose }: { member: Member; onClose: () => void
   );
 }
 
+function ConfirmDeleteModal({ title, target, onClose, onConfirm }: {
+  title: string;
+  target: string;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const trimmed = reason.trim();
+
+  const submit = async () => {
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onConfirm(trimmed);
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '刪除失敗');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: 'min(440px, 100%)' }}>
+        <header><h2>{title}</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <p style={{ margin: 0, color: '#526176' }}>
+          確定要刪除「<strong>{target}</strong>」嗎？此操作無法復原。
+        </p>
+        <label className="stack" style={{ gap: '0.4rem', color: '#526176', fontWeight: 700 }}>
+          刪除原因（必填）
+          <textarea
+            value={reason}
+            onChange={event => { setReason(event.target.value); setErr(null); }}
+            placeholder="請輸入刪除原因，將記入審計日誌"
+            autoFocus
+          />
+        </label>
+        {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="primary" style={{ background: '#dc2626' }} disabled={!trimmed || busy} onClick={submit}>
+            {busy ? '刪除中…' : '確認刪除'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function OfferingDetail({ offering, offerings, members, onClose, onNavigate }: {
+  offering: Offering;
+  offerings: Offering[];
+  members: Member[];
+  onClose: () => void;
+  onNavigate: (offering: Offering) => void;
+}) {
+  const index = offerings.findIndex(o => o.id === offering.id);
+  const prev = index > 0 ? offerings[index - 1] : null;
+  const next = index >= 0 && index < offerings.length - 1 ? offerings[index + 1] : null;
+
+  const member = offering.memberId ? members.find(m => m.id === offering.memberId) : null;
+  const memberLabel = offering.memberId
+    ? (memberDisplayName(member) || offering.memberName || '未知成員')
+    : '匿名';
+
+  const fields: Array<[string, string]> = [
+    ['日期', shortDate(offering.date)],
+    ['成員', memberLabel],
+    ['分類', offering.categoryName || '—'],
+    ['方式', offering.methodName || '—'],
+    ['金額', currency(offering.amount)],
+    ['備註', offering.notes || '—'],
+    ['建立時間', offering.createdAt ? shortDate(offering.createdAt.slice(0, 10)) : '—'],
+    ['更新時間', offering.updatedAt ? shortDate(offering.updatedAt.slice(0, 10)) : '—']
+  ];
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <header>
+          <h2>奉獻詳情</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <div className="detail-grid">
+          {fields.map(([label, value]) => (
+            <div key={label} className="detail-field">
+              <small>{label}</small>
+              <span>{value}</span>
+            </div>
+          ))}
+        </div>
+        {offering.receiptUrl && (
+          <div className="detail-field">
+            <small>憑證</small>
+            <img src={offering.receiptUrl} alt="憑證" style={{ width: '100%', borderRadius: 8, marginTop: '0.35rem', display: 'block' }} />
+          </div>
+        )}
+        <footer>
+          <button type="button" disabled={!prev} onClick={() => prev && onNavigate(prev)}>← 上一條</button>
+          <button type="button" disabled={!next} onClick={() => next && onNavigate(next)}>下一條 →</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 type MemberColKey = 'star' | 'name' | 'partner' | 'phone' | 'email' | 'address' | 'yearOffering' | 'totalOffering' | 'actions';
 
 const MEMBER_COLUMNS: ReadonlyArray<{ key: MemberColKey; label: string; width: number; required?: boolean }> = [
@@ -357,6 +474,7 @@ function MembersPage() {
   const [editing, setEditing] = useState<Member | null>(null);
   const [detail, setDetail] = useState<Member | null>(null);
   const [offeringMember, setOfferingMember] = useState<Offering | null>(null);
+  const [deletingMember, setDeletingMember] = useState<Member | null>(null);
 
   const isDesktop = useIsDesktop();
   const [visibleCols, setVisibleCols] = useState<Set<MemberColKey>>(() => loadVisibleMemberCols());
@@ -469,6 +587,14 @@ function MembersPage() {
         />
       )}
       {detail && <MemberDetail member={detail} onClose={() => setDetail(null)} />}
+      {deletingMember && (
+        <ConfirmDeleteModal
+          title="刪除成員"
+          target={memberDisplayName(deletingMember) || deletingMember.name}
+          onClose={() => setDeletingMember(null)}
+          onConfirm={async reason => { await deleteMember(deletingMember.id, reason); setDeletingMember(null); }}
+        />
+      )}
       {offeringMember && (
         <OfferingForm
           offering={offeringMember}
@@ -563,7 +689,7 @@ function MembersPage() {
                   </button>
                   <button className="desk-only" style={{ padding: '0.45rem 0.6rem', fontSize: '0.95rem' }} onClick={() => setDetail(member)}>詳情</button>
                   <button style={{ padding: '0.45rem 0.6rem', fontSize: '0.95rem' }} onClick={() => setEditing(member)}>編輯</button>
-                  <button className="desk-only" style={{ padding: '0.45rem 0.6rem', fontSize: '0.95rem' }} onClick={() => deleteMember(member.id)}>刪除</button>
+                  <button className="desk-only" style={{ padding: '0.45rem 0.6rem', fontSize: '0.95rem' }} onClick={() => setDeletingMember(member)}>刪除</button>
                 </td>
               </tr>
             );
@@ -596,7 +722,13 @@ function OfferingsPage() {
   const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
   const [editing, setEditing] = useState<Offering | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Offering | null>(null);
+  const [deletingOffering, setDeletingOffering] = useState<Offering | null>(null);
   const total = offerings.reduce((sum, item) => sum + item.amount, 0);
+
+  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+  const offeringMemberLabel = (item: Offering) =>
+    item.memberId ? (memberDisplayName(memberById.get(item.memberId)) || item.memberName || '未知成員') : '匿名';
 
   return (
     <section className="page">
@@ -618,22 +750,39 @@ function OfferingsPage() {
           }}
         />
       )}
+      {detail && (
+        <OfferingDetail
+          offering={detail}
+          offerings={offerings}
+          members={members}
+          onClose={() => setDetail(null)}
+          onNavigate={setDetail}
+        />
+      )}
+      {deletingOffering && (
+        <ConfirmDeleteModal
+          title="刪除奉獻記錄"
+          target={`${shortDate(deletingOffering.date)} ${offeringMemberLabel(deletingOffering)} ${currency(deletingOffering.amount)}`}
+          onClose={() => setDeletingOffering(null)}
+          onConfirm={async reason => { await deleteOffering(deletingOffering.id, reason); setDeletingOffering(null); }}
+        />
+      )}
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
       <table>
         <thead>
-          <tr><th>日期</th><th>成員</th><th>分類</th><th>方式</th><th>金額</th><th>備註</th><th>憑證</th><th></th></tr>
+          <tr><th>日期</th><th>成員</th><th>分類</th><th>方式</th><th>金額</th><th>備註</th><th>憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
           {offerings.map(item => (
             <tr key={item.id}>
               <td>{shortDate(item.date)}</td>
-              <td>{item.memberName || '匿名'}</td>
+              <td>{offeringMemberLabel(item)}</td>
               <td>{item.categoryName || '-'}</td>
               <td>{item.methodName || '-'}</td>
               <td>{currency(item.amount)}</td>
               <td>{item.notes}</td>
               <td>{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
-              <td className="actions"><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => deleteOffering(item.id)}>刪除</button></td>
+              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></td>
             </tr>
           ))}
         </tbody>
@@ -645,6 +794,7 @@ function OfferingsPage() {
 function ExpensesPage() {
   const { members, expenses, lookups, saveExpense, deleteExpense, approveExpense, rejectExpense } = useFinance();
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const pending = expenses.filter(item => item.status === 'pending');
 
   return (
@@ -666,6 +816,14 @@ function ExpensesPage() {
           }}
         />
       )}
+      {deletingExpense && (
+        <ConfirmDeleteModal
+          title="刪除支出記錄"
+          target={`${shortDate(deletingExpense.date)} ${deletingExpense.description || ''} ${currency(deletingExpense.amount)}`.trim()}
+          onClose={() => setDeletingExpense(null)}
+          onConfirm={async reason => { await deleteExpense(deletingExpense.id, reason); setDeletingExpense(null); }}
+        />
+      )}
       <table>
         <thead>
           <tr><th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th>金額</th><th>狀態</th><th></th></tr>
@@ -683,7 +841,7 @@ function ExpensesPage() {
                 {item.status === 'pending' && <button onClick={() => approveExpense(item.id)}>批准</button>}
                 {item.status === 'pending' && <button onClick={() => rejectExpense(item.id)}>拒絕</button>}
                 <button onClick={() => setEditing(item)}>編輯</button>
-                <button onClick={() => deleteExpense(item.id)}>刪除</button>
+                <button onClick={() => setDeletingExpense(item)}>刪除</button>
               </td>
             </tr>
           ))}
@@ -693,14 +851,54 @@ function ExpensesPage() {
   );
 }
 
+const auditActionLabels: Record<string, string> = {
+  create: '新增',
+  update: '修改',
+  delete: '刪除',
+  approve: '批准',
+  reject: '拒絕'
+};
+
+const auditEntityLabels: Record<string, string> = {
+  member: '成員',
+  offering: '奉獻',
+  expense: '支出'
+};
+
+function AuditLogTable({ logs }: { logs: AuditLog[] }) {
+  if (!logs.length) return <SimpleList items={[]} />;
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table>
+        <thead>
+          <tr><th>時間</th><th>操作人</th><th>操作</th><th>對象</th><th>原因／備註</th></tr>
+        </thead>
+        <tbody>
+          {logs.map(log => (
+            <tr key={log.id}>
+              <td style={{ whiteSpace: 'nowrap' }}>{dateTime(log.createdAt)}</td>
+              <td>{log.userName || '—'}</td>
+              <td><Badge>{auditActionLabels[log.action] || log.action}</Badge></td>
+              <td>{log.entitySummary || auditEntityLabels[log.entityType] || log.entityType}</td>
+              <td>{log.reason || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ReportsPage() {
-  const { dashboard, lookups, expenses } = useFinance();
+  const { dashboard, lookups, expenses, auditLogs } = useFinance();
   const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly, 0);
   const approvedTotal = expenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
 
   return (
     <section className="page">
-      <PageTitle title="報表" subtitle="月度收支、預算與現金流摘要" />
+      <PageTitle title="報表日誌" subtitle="月度收支、預算與操作日誌" />
+
+      {/* 第一部分：報表 */}
       <div className="two-col">
         <Panel title="預算 vs 實際">
           <p className="report-number">{currency(approvedTotal)} / {currency(budgetTotal)}</p>
@@ -714,6 +912,11 @@ function ReportsPage() {
           <MiniBars data={dashboard?.incomeExpense ?? []} />
         </Panel>
       </div>
+
+      {/* 第二部分：操作日誌 */}
+      <Panel title={`操作日誌（最近 ${auditLogs.length} 條）`}>
+        <AuditLogTable logs={auditLogs} />
+      </Panel>
     </section>
   );
 }
@@ -834,7 +1037,11 @@ function OfferingForm({
       <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
       <select value={form.memberId ?? ''} onChange={event => setForm({ ...form, memberId: event.target.value || null })}>
         <option value="">匿名奉獻</option>
-        {members.map((item: Member) => <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{item.name}</option>)}
+        {[...members]
+          .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
+          .map(item => (
+            <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
+          ))}
       </select>
       <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
         <option value="">選擇分類</option>

@@ -103,6 +103,52 @@ function now() {
   return new Date().toISOString();
 }
 
+async function recordAudit(
+  env: Env,
+  user: SessionUser,
+  entry: { action: string; entityType: string; entityId: string; entitySummary: string; reason?: string }
+) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO audit_logs (id, action, entity_type, entity_id, entity_summary, reason, user_id, user_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id(), entry.action, entry.entityType, entry.entityId, entry.entitySummary, entry.reason || '', user.id, user.name, now()).run();
+  } catch {
+    // 審計寫入失敗不應影響主操作
+  }
+}
+
+function mapAuditLog(row: any) {
+  return {
+    id: row.id,
+    action: row.action,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    entitySummary: row.entity_summary || '',
+    reason: row.reason || '',
+    userId: row.user_id || '',
+    userName: row.user_name || '',
+    createdAt: row.created_at
+  };
+}
+
+async function listAuditLogs(env: Env) {
+  try {
+    const result = await env.DB.prepare(
+      'SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 300'
+    ).all();
+    return json({ items: (result.results || []).map(mapAuditLog), total: result.results?.length || 0 });
+  } catch {
+    // audit_logs 表尚未建立時返回空，避免整個應用載入失敗
+    return json({ items: [], total: 0 });
+  }
+}
+
+async function readDeleteReason(request: Request): Promise<string> {
+  const payload = await readJson<{ reason?: string }>(request).catch(() => ({} as { reason?: string }));
+  return String(payload?.reason || '').trim();
+}
+
 function mapMember(row: any) {
   return {
     id: row.id,
@@ -326,6 +372,7 @@ const worker: ExportedHandler<Env> = {
         if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url);
         if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env);
         if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env);
+        if (url.pathname === '/api/audit-logs' && request.method === 'GET') return listAuditLogs(env);
 
         if (url.pathname === '/api/members' && request.method === 'POST') {
           if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
@@ -363,7 +410,14 @@ const worker: ExportedHandler<Env> = {
             now()
           ).run();
           const row = await env.DB.prepare('SELECT m.*, g.name AS group_name, 0 AS total_offering FROM members m LEFT JOIN member_groups g ON g.id = m.group_id WHERE m.id = ?').bind(itemId).first();
-          return json(mapMember(row), 201);
+          const created = mapMember(row);
+          await recordAudit(env, user, {
+            action: 'create',
+            entityType: 'member',
+            entityId: itemId,
+            entitySummary: `成員 ${[created.firstName, created.lastName].filter(Boolean).join(' ').trim() || created.name || itemId}`
+          });
+          return json(created, 201);
         }
 
         if (url.pathname === '/api/offerings' && request.method === 'POST') {
@@ -373,7 +427,14 @@ const worker: ExportedHandler<Env> = {
           await env.DB.prepare(
             'INSERT INTO offerings (id, member_id, amount, date, category_id, method_id, notes, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(itemId, payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), now()).run();
-          return json(await getOffering(env, itemId), 201);
+          const created = await getOffering(env, itemId);
+          await recordAudit(env, user, {
+            action: 'create',
+            entityType: 'offering',
+            entityId: itemId,
+            entitySummary: `奉獻 ${created?.amount ?? ''} ${created?.date ?? ''} ${created?.memberName || '匿名'}`.trim()
+          });
+          return json(created, 201);
         }
 
         if (url.pathname === '/api/expenses' && request.method === 'POST') {
@@ -383,7 +444,14 @@ const worker: ExportedHandler<Env> = {
           await env.DB.prepare(
             'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.receiptUrl || null, now(), now()).run();
-          return json(await getExpense(env, itemId), 201);
+          const created = await getExpense(env, itemId);
+          await recordAudit(env, user, {
+            action: 'create',
+            entityType: 'expense',
+            entityId: itemId,
+            entitySummary: `支出 ${created?.amount ?? ''} ${created?.date ?? ''} ${created?.description || ''}`.trim()
+          });
+          return json(created, 201);
         }
 
         if (url.pathname.match(/^\/api\/members\/[^/]+\/star$/) && request.method === 'POST') {
@@ -436,9 +504,23 @@ const worker: ExportedHandler<Env> = {
               itemId
             ).run();
             const row = await env.DB.prepare('SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering FROM members m LEFT JOIN member_groups g ON g.id = m.group_id LEFT JOIN offerings o ON o.member_id = m.id WHERE m.id = ? GROUP BY m.id').bind(itemId).first();
-            return json(mapMember(row));
+            const updated = mapMember(row);
+            await recordAudit(env, user, {
+              action: 'update',
+              entityType: 'member',
+              entityId: itemId,
+              entitySummary: `成員 ${[updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() || updated.name || itemId}`
+            });
+            return json(updated);
           }
           if (request.method === 'DELETE') {
+            const reason = await readDeleteReason(request);
+            if (!reason) return error('刪除原因不能為空');
+            const existing = await env.DB.prepare('SELECT name, first_name, last_name FROM members WHERE id = ?').bind(itemId).first<any>();
+            if (!existing) return error('Member not found', 404);
+            const fullName = [existing.first_name, existing.last_name].filter(Boolean).join(' ').trim();
+            const summary = `成員 ${fullName || existing.name || itemId}`;
+            await recordAudit(env, user, { action: 'delete', entityType: 'member', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM members WHERE id = ?').bind(itemId).run();
             return json({ ok: true });
           }
@@ -451,9 +533,22 @@ const worker: ExportedHandler<Env> = {
             const payload = await readJson<any>(request);
             await env.DB.prepare('UPDATE offerings SET member_id = ?, amount = ?, date = ?, category_id = ?, method_id = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
               .bind(payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
-            return json(await getOffering(env, itemId));
+            const updated = await getOffering(env, itemId);
+            await recordAudit(env, user, {
+              action: 'update',
+              entityType: 'offering',
+              entityId: itemId,
+              entitySummary: `奉獻 ${updated?.amount ?? ''} ${updated?.date ?? ''} ${updated?.memberName || '匿名'}`.trim()
+            });
+            return json(updated);
           }
           if (request.method === 'DELETE') {
+            const reason = await readDeleteReason(request);
+            if (!reason) return error('刪除原因不能為空');
+            const existing = await getOffering(env, itemId);
+            if (!existing) return error('Offering not found', 404);
+            const summary = `奉獻 ${existing.amount} ${existing.date} ${existing.memberName || '匿名'}`.trim();
+            await recordAudit(env, user, { action: 'delete', entityType: 'offering', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM offerings WHERE id = ?').bind(itemId).run();
             return json({ ok: true });
           }
@@ -464,7 +559,14 @@ const worker: ExportedHandler<Env> = {
           const [, , , itemId, action] = url.pathname.split('/');
           const status = action === 'approve' ? 'approved' : 'rejected';
           await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?').bind(status, user.memberId, now(), itemId).run();
-          return json(await getExpense(env, itemId));
+          const reviewed = await getExpense(env, itemId);
+          await recordAudit(env, user, {
+            action,
+            entityType: 'expense',
+            entityId: itemId,
+            entitySummary: `支出 ${reviewed?.amount ?? ''} ${reviewed?.date ?? ''} ${reviewed?.description || ''}`.trim()
+          });
+          return json(reviewed);
         }
 
         if (url.pathname.match(/^\/api\/expenses\/[^/]+$/)) {
@@ -474,9 +576,22 @@ const worker: ExportedHandler<Env> = {
             const payload = await readJson<any>(request);
             await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
               .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.receiptUrl || null, now(), itemId).run();
-            return json(await getExpense(env, itemId));
+            const updated = await getExpense(env, itemId);
+            await recordAudit(env, user, {
+              action: 'update',
+              entityType: 'expense',
+              entityId: itemId,
+              entitySummary: `支出 ${updated?.amount ?? ''} ${updated?.date ?? ''} ${updated?.description || ''}`.trim()
+            });
+            return json(updated);
           }
           if (request.method === 'DELETE') {
+            const reason = await readDeleteReason(request);
+            if (!reason) return error('刪除原因不能為空');
+            const existing = await getExpense(env, itemId);
+            if (!existing) return error('Expense not found', 404);
+            const summary = `支出 ${existing.amount} ${existing.date} ${existing.description || ''}`.trim();
+            await recordAudit(env, user, { action: 'delete', entityType: 'expense', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(itemId).run();
             return json({ ok: true });
           }

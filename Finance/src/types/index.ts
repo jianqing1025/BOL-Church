@@ -102,6 +102,18 @@ export interface Expense {
   updatedAt: string;
 }
 
+export interface AuditLog {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  entitySummary: string;
+  reason: string;
+  userId: string;
+  userName: string;
+  createdAt: string;
+}
+
 export interface DashboardStats {
   weekOfferingTotal: number;
   weekOfferingChange: number;

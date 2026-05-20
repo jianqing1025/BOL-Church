@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer } from 'react';
-import type { DashboardStats, Expense, LookupData, Member, Offering } from '../types';
+import type { AuditLog, DashboardStats, Expense, LookupData, Member, Offering } from '../types';
 import { api } from '../utils/api';
 
 type FinanceState = {
@@ -7,6 +7,7 @@ type FinanceState = {
   members: Member[];
   offerings: Offering[];
   expenses: Expense[];
+  auditLogs: AuditLog[];
   lookups: LookupData | null;
   loading: boolean;
   error: string | null;
@@ -15,12 +16,12 @@ type FinanceState = {
 type FinanceContextValue = FinanceState & {
   refreshAll: () => Promise<void>;
   saveMember: (payload: Partial<Member>, id?: string) => Promise<void>;
-  deleteMember: (id: string) => Promise<void>;
+  deleteMember: (id: string, reason: string) => Promise<void>;
   starMember: (id: string) => Promise<void>;
   saveOffering: (payload: Partial<Offering>, id?: string) => Promise<void>;
-  deleteOffering: (id: string) => Promise<void>;
+  deleteOffering: (id: string, reason: string) => Promise<void>;
   saveExpense: (payload: Partial<Expense>, id?: string) => Promise<void>;
-  deleteExpense: (id: string) => Promise<void>;
+  deleteExpense: (id: string, reason: string) => Promise<void>;
   approveExpense: (id: string) => Promise<void>;
   rejectExpense: (id: string) => Promise<void>;
 };
@@ -58,6 +59,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     members: [],
     offerings: [],
     expenses: [],
+    auditLogs: [],
     lookups: emptyLookups,
     loading: true,
     error: null
@@ -66,12 +68,13 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const refreshAll = async () => {
     dispatch({ type: 'loading', loading: true });
     try {
-      const [dashboard, lookups, members, offerings, expenses] = await Promise.all([
+      const [dashboard, lookups, members, offerings, expenses, auditLogs] = await Promise.all([
         api.dashboard(),
         api.lookups(),
         api.members(),
         api.offerings(),
-        api.expenses()
+        api.expenses(),
+        api.auditLogs()
       ]);
       dispatch({
         type: 'data',
@@ -80,7 +83,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           lookups,
           members: members.items,
           offerings: offerings.items,
-          expenses: expenses.items
+          expenses: expenses.items,
+          auditLogs: auditLogs.items
         }
       });
     } catch (error) {
@@ -89,15 +93,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshAfterWrite = async () => {
-    const [dashboard, members, offerings, expenses] = await Promise.all([
+    const [dashboard, members, offerings, expenses, auditLogs] = await Promise.all([
       api.dashboard(),
       api.members(),
       api.offerings(),
-      api.expenses()
+      api.expenses(),
+      api.auditLogs()
     ]);
     dispatch({
       type: 'data',
-      data: { dashboard, members: members.items, offerings: offerings.items, expenses: expenses.items }
+      data: { dashboard, members: members.items, offerings: offerings.items, expenses: expenses.items, auditLogs: auditLogs.items }
     });
   };
 
@@ -108,8 +113,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       id ? await api.updateMember(id, payload) : await api.createMember(payload);
       await refreshAfterWrite();
     },
-    deleteMember: async id => {
-      await api.deleteMember(id);
+    deleteMember: async (id, reason) => {
+      await api.deleteMember(id, reason);
       await refreshAfterWrite();
     },
     starMember: async id => {
@@ -122,16 +127,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       id ? await api.updateOffering(id, payload) : await api.createOffering(payload);
       await refreshAfterWrite();
     },
-    deleteOffering: async id => {
-      await api.deleteOffering(id);
+    deleteOffering: async (id, reason) => {
+      await api.deleteOffering(id, reason);
       await refreshAfterWrite();
     },
     saveExpense: async (payload, id) => {
       id ? await api.updateExpense(id, payload) : await api.createExpense(payload);
       await refreshAfterWrite();
     },
-    deleteExpense: async id => {
-      await api.deleteExpense(id);
+    deleteExpense: async (id, reason) => {
+      await api.deleteExpense(id, reason);
       await refreshAfterWrite();
     },
     approveExpense: async id => {
