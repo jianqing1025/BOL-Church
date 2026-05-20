@@ -1,4 +1,4 @@
-import type { AuditLog, DashboardStats, Expense, ExpenseCategory, LookupData, Member, Offering, User } from '../types';
+import type { AppSettings, AuditLog, DashboardStats, Expense, ExpenseCategory, LookupData, Member, Offering, User } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -30,6 +30,9 @@ export const api = {
     request<{ user: User }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
   dashboard: () => request<DashboardStats>('/api/finance/dashboard'),
+  settings: () => request<AppSettings>('/api/settings'),
+  updateSettings: (payload: AppSettings) =>
+    request<AppSettings>('/api/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   lookups: () => request<LookupData>('/api/lookups'),
   members: (query = '') => request<{ items: Member[]; total: number }>(`/api/members${query}`),
   createMember: (payload: Partial<Member>) =>

@@ -2,10 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
-import type { AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod } from './types';
+import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, TaxStatementSettings, TaxStatementTextFields } from './types';
 import { currency, dateTime, shortDate } from './utils/format';
 import { api } from './utils/api';
-import { buildTaxStatementData, buildTaxStatementHtml } from './shared/taxStatement';
+import {
+  DEFAULT_REPLY_TO,
+  DEFAULT_TAX_STATEMENT_HTML_TEMPLATE,
+  DEFAULT_TAX_STATEMENT_SETTINGS,
+  DEFAULT_TAX_STATEMENT_TEXT_FIELDS,
+  buildTaxStatementData,
+  buildTaxStatementHtml,
+  normalizeTaxStatementSettings
+} from './shared/taxStatement';
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports';
 
@@ -198,7 +206,7 @@ function MiniBars({ data }: { data: Array<{ label: string; amount?: number; offe
 }
 
 function DashboardPage() {
-  const { dashboard, offerings, expenses } = useFinance();
+  const { dashboard, lookups, offerings, expenses } = useFinance();
   if (!dashboard) return <Empty title="正在載入數據看板" />;
 
   // 计算收入统计
@@ -229,6 +237,9 @@ function DashboardPage() {
   const totalExpenseAmount = totalExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   const pendingExpenses = expenses.filter(e => e.status === 'pending');
+  const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly, 0);
+  const approvedTotal = expenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
+  const budgetUsed = budgetTotal ? Math.min(100, Math.round((approvedTotal / budgetTotal) * 100)) : 0;
 
   return (
     <section className="page">
@@ -256,12 +267,40 @@ function DashboardPage() {
       </Panel>
 
       {/* 动态部分 */}
+      <div className="two-col finance-overview">
+        <Panel title="預算 vs 實際">
+          <div className="budget-overview">
+            <div>
+              <span>Approved Expenses</span>
+              <strong>{currency(approvedTotal)}</strong>
+            </div>
+            <div>
+              <span>Monthly Budget</span>
+              <strong>{currency(budgetTotal)}</strong>
+            </div>
+          </div>
+          <div className="budget-meter" aria-label={`Budget used ${budgetUsed}%`}>
+            <i style={{ width: `${budgetUsed}%` }} />
+          </div>
+          <p className="panel-note">已使用 {budgetUsed}% · 剩餘 {currency(Math.max(0, budgetTotal - approvedTotal))}</p>
+          <MiniBars data={(lookups?.expenseCategories ?? []).map(category => ({
+            label: category.name,
+            offerings: category.budgetMonthly,
+            expenses: expenses.filter(item => item.categoryId === category.id && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
+          }))} />
+        </Panel>
+        <Panel title="現金流">
+          <p className="panel-note">最近月份收入與核准支出對比</p>
+          <MiniBars data={dashboard.incomeExpense} />
+        </Panel>
+      </div>
+
       <div className="two-col">
         <Panel title="最近奉獻">
           <SimpleList items={offerings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
         </Panel>
-        <Panel title="收支對比">
-          <MiniBars data={dashboard.incomeExpense} />
+        <Panel title="最近支出">
+          <SimpleList items={expenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
         </Panel>
       </div>
 
@@ -725,7 +764,26 @@ function OfferingsPage() {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [detail, setDetail] = useState<Offering | null>(null);
   const [deletingOffering, setDeletingOffering] = useState<Offering | null>(null);
-  const total = offerings.reduce((sum, item) => sum + item.amount, 0);
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of offerings) {
+      const y = (item.date || '').slice(0, 4);
+      if (y) set.add(y);
+    }
+    return Array.from(set).sort().reverse();
+  }, [offerings]);
+  const [year, setYear] = useState<number>(() => {
+    const current = new Date().getFullYear();
+    const present = new Set(offerings.map(o => (o.date || '').slice(0, 4)).filter(Boolean));
+    if (present.has(String(current - 1))) return current - 1;
+    const sorted = Array.from(present).sort();
+    return sorted.length ? Number(sorted[sorted.length - 1]) : current;
+  });
+  const filteredOfferings = useMemo(
+    () => offerings.filter(item => (item.date || '').slice(0, 4) === String(year)),
+    [offerings, year]
+  );
+  const total = filteredOfferings.reduce((sum, item) => sum + item.amount, 0);
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const offeringMemberLabel = (item: Offering) =>
@@ -737,6 +795,11 @@ function OfferingsPage() {
       <Toolbar>
         <strong>目前列表合計：{currency(total)}</strong>
         <button className="primary" onClick={() => setEditing(blankOffering())}>記錄奉獻</button>
+        <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+          {years.length
+            ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
+            : <option value={year}>{year} 年度</option>}
+        </select>
       </Toolbar>
       {editing && (
         <OfferingForm
@@ -754,7 +817,7 @@ function OfferingsPage() {
       {detail && (
         <OfferingDetail
           offering={detail}
-          offerings={offerings}
+          offerings={filteredOfferings}
           members={members}
           onClose={() => setDetail(null)}
           onNavigate={setDetail}
@@ -774,7 +837,7 @@ function OfferingsPage() {
           <tr><th>日期</th><th>成員</th><th>分類</th><th>方式</th><th>金額</th><th>備註</th><th>憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
-          {offerings.map(item => (
+          {filteredOfferings.map(item => (
             <tr key={item.id}>
               <td>{shortDate(item.date)}</td>
               <td>{offeringMemberLabel(item)}</td>
@@ -919,10 +982,11 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
   );
 }
 
-function TaxStatementModal({ member, year, offerings, onClose }: {
+function TaxStatementModal({ member, year, offerings, settings, onClose }: {
   member: Member;
   year: number;
   offerings: Offering[];
+  settings: TaxStatementSettings;
   onClose: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -930,8 +994,8 @@ function TaxStatementModal({ member, year, offerings, onClose }: {
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const html = useMemo(
-    () => buildTaxStatementHtml(buildTaxStatementData(member, member.id, offerings, year)),
-    [member, offerings, year]
+    () => buildTaxStatementHtml(buildTaxStatementData(member, member.id, offerings, year), undefined, settings),
+    [member, offerings, year, settings]
   );
 
   const send = async () => {
@@ -972,9 +1036,261 @@ function TaxStatementModal({ member, year, offerings, onClose }: {
   );
 }
 
+const mailFromPresets = [
+  'Seattle Bread of Life Christian Church <Lingling@bolccop.org>',
+  'Bread of Life Christian Church on the Plateau <giving@bolccop.org>',
+  'Bread of Life Christian Church on the Plateau <finance@bolccop.org>',
+  'Bread of Life Christian Church on the Plateau <office@bolccop.org>',
+  'Bread of Life Christian Church on the Plateau <donations@bolccop.org>'
+];
+
+const textFieldLabels: Array<[keyof TaxStatementTextFields, string, 'input' | 'textarea']> = [
+  ['churchNameEn', 'Church Name', 'input'],
+  ['churchNameZh', '中文堂名', 'input'],
+  ['churchAddress', '地址', 'input'],
+  ['churchPhone', '電話', 'input'],
+  ['churchWebsite', '網址', 'input'],
+  ['appreciation', '致謝語', 'textarea'],
+  ['notice', '聯絡提示', 'textarea'],
+  ['disclosure', 'IRS 聲明', 'textarea'],
+  ['signerName', '簽名人', 'input']
+];
+
+function TaxSettingsModal({
+  settings,
+  onClose,
+  onSave
+}: {
+  settings: AppSettings;
+  onClose: () => void;
+  onSave: (settings: AppSettings) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<AppSettings>(() => ({
+    taxStatement: normalizeTaxStatementSettings(settings.taxStatement)
+  }));
+  const [tab, setTab] = useState<'mail' | 'signature' | 'template'>('mail');
+  const [templateMode, setTemplateMode] = useState<'text' | 'html'>('text');
+  const [htmlEditorMode, setHtmlEditorMode] = useState<'edit' | 'preview'>('edit');
+  const [customMail, setCustomMail] = useState(!mailFromPresets.includes(settings.taxStatement.mailFrom));
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const updateTax = (patch: Partial<TaxStatementSettings>) => {
+    setDraft(current => ({
+      taxStatement: normalizeTaxStatementSettings({
+        ...current.taxStatement,
+        ...patch,
+        textFields: {
+          ...current.taxStatement.textFields,
+          ...(patch.textFields || {})
+        }
+      })
+    }));
+  };
+
+  const updateTextField = (key: keyof TaxStatementTextFields, value: string) => {
+    updateTax({ textFields: { ...draft.taxStatement.textFields, [key]: value } });
+  };
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onSave({ taxStatement: normalizeTaxStatementSettings(draft.taxStatement) });
+      setMessage('設定已儲存');
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '設定儲存失敗');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const uploadSignature = async (file?: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      const { url } = await api.upload(file, 'signatures', 'tax-statement');
+      updateTax({ signatureUrl: url });
+      setMessage('簽名已上傳，請儲存設定');
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : '簽名上傳失敗');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const selectedMailFrom = mailFromPresets.includes(draft.taxStatement.mailFrom)
+    ? draft.taxStatement.mailFrom
+    : mailFromPresets[0];
+  const htmlPreview = useMemo(() => buildTaxStatementHtml({
+    year: new Date().getFullYear() - 1,
+    donorName: 'Grace Chen (陳恩典)',
+    donorAddress: '65 Front St. S., Issaquah, WA 98027',
+    gifts: [
+      { date: `${new Date().getFullYear() - 1}-01-07`, fund: '主日奉獻', method: '支票', amount: 250 },
+      { date: `${new Date().getFullYear() - 1}-03-17`, fund: '特殊奉獻', method: '現金', amount: 120 },
+      { date: `${new Date().getFullYear() - 1}-11-24`, fund: '線上奉獻', method: '轉帳', amount: 500 }
+    ],
+    total: 870
+  }, undefined, draft.taxStatement), [draft.taxStatement]);
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal tax-settings-modal">
+        <header>
+          <div className="settings-modal-head">
+            <h2>報稅設定</h2>
+            <p>寄件信箱、簽名與報稅文件模板</p>
+          </div>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+
+        <div className="settings-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'mail'} className={tab === 'mail' ? 'active' : ''} onClick={() => setTab('mail')}>寄件郵箱</button>
+          <button type="button" role="tab" aria-selected={tab === 'signature'} className={tab === 'signature' ? 'active' : ''} onClick={() => setTab('signature')}>簽名</button>
+          <button type="button" role="tab" aria-selected={tab === 'template'} className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>文件模板</button>
+        </div>
+
+        {tab === 'mail' && (
+          <div className="settings-panel">
+            <label>
+              From
+              <select
+                value={customMail ? 'custom' : selectedMailFrom}
+                onChange={event => {
+                  if (event.target.value === 'custom') {
+                    setCustomMail(true);
+                    return;
+                  }
+                  setCustomMail(false);
+                  updateTax({ mailFrom: event.target.value });
+                }}
+              >
+                {mailFromPresets.map(item => <option key={item} value={item}>{item}</option>)}
+                <option value="custom">自訂...</option>
+              </select>
+            </label>
+            {customMail && (
+              <label>
+                自訂 From
+                <input value={draft.taxStatement.mailFrom} onChange={event => updateTax({ mailFrom: event.target.value })} />
+              </label>
+            )}
+            <p className="settings-callout">bolccop.org 網域已完成驗證，可使用任何自訂信箱發送。</p>
+            <label>
+              Reply-To
+              <input
+                type="email"
+                value={draft.taxStatement.replyTo || DEFAULT_REPLY_TO}
+                onChange={event => updateTax({ replyTo: event.target.value })}
+              />
+            </label>
+          </div>
+        )}
+
+        {tab === 'signature' && (
+          <div className="settings-panel">
+            <div className="signature-block">
+              <div className="signature-preview">
+                {draft.taxStatement.signatureUrl
+                  ? <img src={draft.taxStatement.signatureUrl} alt="Signature preview" />
+                  : <span>尚未設定簽名</span>}
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={event => uploadSignature(event.target.files?.[0])}
+              />
+              <div className="signature-actions">
+                <button type="button" className="primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  {uploading ? '上傳中...' : '上傳新簽名'}
+                </button>
+                <span className="settings-note">建議使用透明背景 PNG，會自動套用至報稅文件。</span>
+              </div>
+              <label>
+                簽名圖片 URL
+                <input value={draft.taxStatement.signatureUrl} onChange={event => updateTax({ signatureUrl: event.target.value })} />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {tab === 'template' && (
+          <div className="settings-panel">
+            <div className="settings-tabs secondary">
+              <button type="button" className={templateMode === 'text' ? 'active' : ''} onClick={() => setTemplateMode('text')}>文字字段</button>
+              <button type="button" className={templateMode === 'html' ? 'active' : ''} onClick={() => setTemplateMode('html')}>進階 HTML</button>
+            </div>
+
+            {templateMode === 'text' && (
+              <>
+                <div className="form-grid settings-grid">
+                  {textFieldLabels.map(([key, label, kind]) => (
+                    <label key={key}>
+                      {label}
+                      {kind === 'textarea' ? (
+                        <textarea value={draft.taxStatement.textFields[key]} onChange={event => updateTextField(key, event.target.value)} />
+                      ) : (
+                        <input value={draft.taxStatement.textFields[key]} onChange={event => updateTextField(key, event.target.value)} />
+                      )}
+                    </label>
+                  ))}
+                </div>
+                <button type="button" onClick={() => updateTax({ textFields: DEFAULT_TAX_STATEMENT_TEXT_FIELDS })}>恢復預設文字</button>
+              </>
+            )}
+
+            {templateMode === 'html' && (
+              <>
+                <div className="template-actions">
+                  <button type="button" onClick={() => updateTax({ htmlTemplate: settings.taxStatement.htmlTemplate })}>載入當前模板</button>
+                  <button type="button" onClick={() => updateTax({ htmlTemplate: DEFAULT_TAX_STATEMENT_HTML_TEMPLATE })}>恢復預設 HTML</button>
+                  <button type="button" className={htmlEditorMode === 'edit' ? 'primary' : ''} onClick={() => setHtmlEditorMode('edit')}>HTML 編輯</button>
+                  <button type="button" className={htmlEditorMode === 'preview' ? 'primary' : ''} onClick={() => setHtmlEditorMode('preview')}>預覽</button>
+                </div>
+                {htmlEditorMode === 'edit' ? (
+                  <textarea
+                    className="html-template-editor"
+                    spellCheck={false}
+                    value={draft.taxStatement.htmlTemplate}
+                    onChange={event => updateTax({ htmlTemplate: event.target.value })}
+                  />
+                ) : (
+                  <iframe className="html-template-preview" srcDoc={htmlPreview} title="HTML 模板預覽" />
+                )}
+                <div className="template-token-hint">
+                  <span>可用占位符：</span>
+                  {['{{year}}', '{{contributorName}}', '{{contributorAddress}}', '{{statementDate}}', '{{donorRows}}', '{{giftRows}}', '{{giftCount}}', '{{giftLabel}}', '{{total}}', '{{signatureUrl}}', '{{churchNameEn}}', '{{churchNameZh}}', '{{churchAddress}}', '{{churchPhone}}', '{{churchWebsite}}', '{{appreciation}}', '{{notice}}', '{{disclosure}}', '{{signerName}}'].map(token => (
+                    <code key={token}>{token}</code>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {message && <p className={message.includes('失敗') || message.includes('Forbidden') ? 'error' : 'tax-sent'}>{message}</p>}
+        <footer>
+          <button type="button" onClick={() => setDraft({ taxStatement: DEFAULT_TAX_STATEMENT_SETTINGS })}>全部恢復預設</button>
+          <button type="button" className="primary" onClick={save} disabled={saving}>{saving ? '儲存中...' : '儲存'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function AnnualTaxReportSection() {
-  const { members, offerings } = useFinance();
+  const { members, offerings, settings, saveMember, saveSettings } = useFinance();
+  const { hasPermission } = useAuth();
   const [taxMember, setTaxMember] = useState<Member | null>(null);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const years = useMemo(() => {
     const set = new Set<string>();
@@ -1015,11 +1331,16 @@ function AnnualTaxReportSection() {
   }, [offerings, year, memberById]);
 
   const action = (
-    <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+    <div className="tax-report-actions">
+      {hasPermission('finance_admin', 'super_admin') && (
+        <button type="button" onClick={() => setSettingsOpen(true)}>報稅設定</button>
+      )}
+      <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
       {years.length
         ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
         : <option value={year}>{year} 年度</option>}
-    </select>
+      </select>
+    </div>
   );
 
   return (
@@ -1041,6 +1362,7 @@ function AnnualTaxReportSection() {
                   <td>{row.count}</td>
                   <td>{currency(row.total)}</td>
                   <td className="actions">
+                    <button onClick={() => setEditingMember(row.member)}>編輯</button>
                     <button onClick={() => setTaxMember(row.member)}>生成稅務文件</button>
                   </td>
                 </tr>
@@ -1054,12 +1376,27 @@ function AnnualTaxReportSection() {
       {anonymousTotal > 0 && (
         <p className="tax-foot">另有匿名奉獻 {currency(anonymousTotal)}（無法開立報稅證明）</p>
       )}
+      {editingMember && (
+        <MemberForm
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSave={async payload => { await saveMember(payload, editingMember.id); setEditingMember(null); }}
+        />
+      )}
       {taxMember && (
         <TaxStatementModal
           member={taxMember}
           year={year}
           offerings={offerings}
+          settings={settings.taxStatement}
           onClose={() => setTaxMember(null)}
+        />
+      )}
+      {settingsOpen && (
+        <TaxSettingsModal
+          settings={settings}
+          onSave={saveSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
     </Panel>
@@ -1067,28 +1404,11 @@ function AnnualTaxReportSection() {
 }
 
 function ReportsPage() {
-  const { dashboard, lookups, expenses, auditLogs } = useFinance();
-  const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly, 0);
-  const approvedTotal = expenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
+  const { auditLogs } = useFinance();
 
   return (
-    <section className="page">
+    <section className="page reports-page">
       <PageTitle title="報表日誌" subtitle="月度收支、預算與操作日誌" />
-
-      {/* 第一部分：報表 */}
-      <div className="two-col">
-        <Panel title="預算 vs 實際">
-          <p className="report-number">{currency(approvedTotal)} / {currency(budgetTotal)}</p>
-          <MiniBars data={(lookups?.expenseCategories ?? []).map(category => ({
-            label: category.name,
-            offerings: category.budgetMonthly,
-            expenses: expenses.filter(item => item.categoryId === category.id && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
-          }))} />
-        </Panel>
-        <Panel title="現金流">
-          <MiniBars data={dashboard?.incomeExpense ?? []} />
-        </Panel>
-      </div>
 
       {/* 第二部分：年度奉獻報稅 */}
       <AnnualTaxReportSection />

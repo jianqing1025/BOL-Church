@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
-import type { AuditLog, DashboardStats, Expense, LookupData, Member, Offering } from '../types';
+import type { AppSettings, AuditLog, DashboardStats, Expense, LookupData, Member, Offering } from '../types';
 import { api } from '../utils/api';
+import { DEFAULT_TAX_STATEMENT_SETTINGS } from '../shared/taxStatement';
 
 type FinanceState = {
   dashboard: DashboardStats | null;
@@ -9,6 +10,7 @@ type FinanceState = {
   expenses: Expense[];
   auditLogs: AuditLog[];
   lookups: LookupData | null;
+  settings: AppSettings;
   loading: boolean;
   error: string | null;
 };
@@ -24,6 +26,7 @@ type FinanceContextValue = FinanceState & {
   deleteExpense: (id: string, reason: string) => Promise<void>;
   approveExpense: (id: string) => Promise<void>;
   rejectExpense: (id: string) => Promise<void>;
+  saveSettings: (payload: AppSettings) => Promise<void>;
 };
 
 type Action =
@@ -61,6 +64,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     expenses: [],
     auditLogs: [],
     lookups: emptyLookups,
+    settings: { taxStatement: DEFAULT_TAX_STATEMENT_SETTINGS },
     loading: true,
     error: null
   });
@@ -68,8 +72,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const refreshAll = async () => {
     dispatch({ type: 'loading', loading: true });
     try {
-      const [dashboard, lookups, members, offerings, expenses, auditLogs] = await Promise.all([
+      const [dashboard, settings, lookups, members, offerings, expenses, auditLogs] = await Promise.all([
         api.dashboard(),
+        api.settings(),
         api.lookups(),
         api.members(),
         api.offerings(),
@@ -80,6 +85,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         type: 'data',
         data: {
           dashboard,
+          settings,
           lookups,
           members: members.items,
           offerings: offerings.items,
@@ -146,6 +152,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     rejectExpense: async id => {
       await api.rejectExpense(id);
       await refreshAfterWrite();
+    },
+    saveSettings: async payload => {
+      const settings = await api.updateSettings(payload);
+      dispatch({ type: 'data', data: { settings } });
     }
   };
 

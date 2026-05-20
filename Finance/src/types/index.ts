@@ -132,3 +132,27 @@ export interface LookupData {
   offeringMethods: OfferingMethod[];
   expenseCategories: ExpenseCategory[];
 }
+
+export interface TaxStatementTextFields {
+  churchNameEn: string;
+  churchNameZh: string;
+  churchAddress: string;
+  churchPhone: string;
+  churchWebsite: string;
+  appreciation: string;
+  notice: string;
+  disclosure: string;
+  signerName: string;
+}
+
+export interface TaxStatementSettings {
+  mailFrom: string;
+  replyTo: string;
+  signatureUrl: string;
+  textFields: TaxStatementTextFields;
+  htmlTemplate: string;
+}
+
+export interface AppSettings {
+  taxStatement: TaxStatementSettings;
+}

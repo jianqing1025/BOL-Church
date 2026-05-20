@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { ExpenseStatus, MemberStatus, Role } from '../types';
-import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml } from '../shared/taxStatement';
+import type { AppSettings, ExpenseStatus, MemberStatus, Role, TaxStatementSettings } from '../types';
+import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml, normalizeTaxStatementSettings } from '../shared/taxStatement';
 
 type Env = {
   DB: D1Database;
@@ -166,6 +166,56 @@ async function listAuditLogs(env: Env) {
     // audit_logs 表尚未建立時返回空，避免整個應用載入失敗
     return json({ items: [], total: 0 });
   }
+}
+
+async function ensureAppSettingsTable(env: Env) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_by TEXT,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+}
+
+async function readTaxStatementSettings(env: Env): Promise<TaxStatementSettings> {
+  try {
+    await ensureAppSettingsTable(env);
+    const row = await env.DB.prepare('SELECT value_json FROM app_settings WHERE key = ?').bind('taxStatement').first<{ value_json: string }>();
+    if (!row?.value_json) return normalizeTaxStatementSettings();
+    return normalizeTaxStatementSettings(JSON.parse(row.value_json));
+  } catch {
+    return normalizeTaxStatementSettings();
+  }
+}
+
+async function readAppSettings(env: Env): Promise<AppSettings> {
+  return { taxStatement: await readTaxStatementSettings(env) };
+}
+
+async function saveAppSettings(env: Env, user: SessionUser, payload: AppSettings): Promise<AppSettings> {
+  await ensureAppSettingsTable(env);
+  const current = await readAppSettings(env);
+  const next: AppSettings = {
+    taxStatement: normalizeTaxStatementSettings({
+      ...current.taxStatement,
+      ...(payload?.taxStatement || {}),
+      textFields: {
+        ...current.taxStatement.textFields,
+        ...(payload?.taxStatement?.textFields || {})
+      }
+    })
+  };
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key, value_json, updated_by, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value_json = excluded.value_json,
+       updated_by = excluded.updated_by,
+       updated_at = excluded.updated_at`
+  ).bind('taxStatement', JSON.stringify(next.taxStatement), user.id, now()).run();
+  return next;
 }
 
 async function readDeleteReason(request: Request): Promise<string> {
@@ -379,6 +429,23 @@ const worker: ExportedHandler<Env> = {
 
         if (url.pathname === '/api/finance/dashboard') return dashboard(env);
 
+        if (url.pathname === '/api/settings' && request.method === 'GET') {
+          return json(await readAppSettings(env));
+        }
+
+        if (url.pathname === '/api/settings' && request.method === 'PUT') {
+          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          const payload = await readJson<AppSettings>(request);
+          const saved = await saveAppSettings(env, user, payload);
+          await recordAudit(env, user, {
+            action: 'update',
+            entityType: 'settings',
+            entityId: 'taxStatement',
+            entitySummary: 'Tax statement settings updated'
+          });
+          return json(saved);
+        }
+
         if (url.pathname === '/api/lookups') {
           const [groups, offeringCategories, offeringMethods, expenseCategories] = await Promise.all([
             env.DB.prepare('SELECT id, name, description, created_at AS createdAt FROM member_groups ORDER BY name').all(),
@@ -423,8 +490,9 @@ const worker: ExportedHandler<Env> = {
           const offerings = (offeringRows.results || []).map(mapOffering);
           if (!offerings.length) return error(`${year} 年度沒有該成員的奉獻記錄`, 400);
 
+          const settings = await readTaxStatementSettings(env);
           const data = buildTaxStatementData(member, memberId, offerings, year);
-          const html = buildTaxStatementHtml(data);
+          const html = buildTaxStatementHtml(data, undefined, settings);
 
           const resendResponse = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -433,10 +501,10 @@ const worker: ExportedHandler<Env> = {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              from: env.MAIL_FROM || `${CHURCH_INFO.nameEn} <onboarding@resend.dev>`,
+              from: settings.mailFrom || env.MAIL_FROM || `${CHURCH_INFO.nameEn} <onboarding@resend.dev>`,
               to: member.email,
-              reply_to: CHURCH_INFO.email,
-              subject: `${year} Annual Contribution Statement — ${CHURCH_INFO.nameEn}`,
+              reply_to: settings.replyTo || CHURCH_INFO.email,
+              subject: `${year} Annual Contribution Statement — ${settings.textFields.churchNameEn || CHURCH_INFO.nameEn}`,
               html
             })
           });
