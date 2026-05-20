@@ -5,6 +5,7 @@ import { LoginAnimation } from './components/LoginAnimation';
 import type { AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod } from './types';
 import { currency, dateTime, shortDate } from './utils/format';
 import { api } from './utils/api';
+import { buildTaxStatementData, buildTaxStatementHtml } from './shared/taxStatement';
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports';
 
@@ -131,7 +132,7 @@ function LoginPage() {
 function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void }) {
   const { user, logout } = useAuth();
   const items: Array<[Page, string]> = [
-    ['dashboard', '儀表板'],
+    ['dashboard', '數據看板'],
     ['members', '成員管理'],
     ['offerings', '奉獻記錄'],
     ['expenses', '支出管理'],
@@ -198,7 +199,7 @@ function MiniBars({ data }: { data: Array<{ label: string; amount?: number; offe
 
 function DashboardPage() {
   const { dashboard, offerings, expenses } = useFinance();
-  if (!dashboard) return <Empty title="正在載入儀表板" />;
+  if (!dashboard) return <Empty title="正在載入數據看板" />;
 
   // 计算收入统计
   const now = new Date();
@@ -231,7 +232,7 @@ function DashboardPage() {
 
   return (
     <section className="page">
-      <PageTitle title="儀表板" subtitle="本週、本月與待處理財務事項總覽" />
+      <PageTitle title="數據看板" subtitle="本週、本月與待處理財務事項總覽" />
 
       {/* 收入部分 */}
       <Panel title="收入統計">
@@ -797,6 +798,13 @@ function ExpensesPage() {
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const pending = expenses.filter(item => item.status === 'pending');
 
+  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+  // 付款人顯示：First Name Last Name (中文名)
+  const paidByLabel = (item: Expense): string => {
+    if (!item.paidBy) return '—';
+    return memberDisplayName(memberById.get(item.paidBy)) || item.paidByName || '未知';
+  };
+
   return (
     <section className="page">
       <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
@@ -834,7 +842,7 @@ function ExpensesPage() {
               <td>{shortDate(item.date)}</td>
               <td>{item.description}</td>
               <td>{item.categoryName || '-'}</td>
-              <td>{item.paidByName || '-'}</td>
+              <td>{paidByLabel(item)}</td>
               <td>{currency(item.amount)}</td>
               <td><Badge>{expenseStatusLabels[item.status]}</Badge></td>
               <td className="actions">
@@ -856,13 +864,25 @@ const auditActionLabels: Record<string, string> = {
   update: '修改',
   delete: '刪除',
   approve: '批准',
-  reject: '拒絕'
+  reject: '拒絕',
+  send: '發送'
+};
+
+// 操作徽章配色：刪除紅、新增綠、修改琥珀；批准/拒絕沿用同色系
+const auditActionColors: Record<string, { bg: string; fg: string }> = {
+  create: { bg: '#e6f6ec', fg: '#1d8a4a' },
+  update: { bg: '#fef3cd', fg: '#a16207' },
+  delete: { bg: '#fde8e8', fg: '#c0392b' },
+  approve: { bg: '#e6f6ec', fg: '#1d8a4a' },
+  reject: { bg: '#fde8e8', fg: '#c0392b' },
+  send: { bg: '#e9f2ff', fg: '#1959b8' }
 };
 
 const auditEntityLabels: Record<string, string> = {
   member: '成員',
   offering: '奉獻',
-  expense: '支出'
+  expense: '支出',
+  tax_statement: '報稅文件'
 };
 
 function AuditLogTable({ logs }: { logs: AuditLog[] }) {
@@ -878,7 +898,17 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
             <tr key={log.id}>
               <td style={{ whiteSpace: 'nowrap' }}>{dateTime(log.createdAt)}</td>
               <td>{log.userName || '—'}</td>
-              <td><Badge>{auditActionLabels[log.action] || log.action}</Badge></td>
+              <td>
+                <span
+                  className="badge"
+                  style={{
+                    background: (auditActionColors[log.action] ?? { bg: '#e9f2ff' }).bg,
+                    color: (auditActionColors[log.action] ?? { fg: '#1959b8' }).fg
+                  }}
+                >
+                  {auditActionLabels[log.action] || log.action}
+                </span>
+              </td>
               <td>{log.entitySummary || auditEntityLabels[log.entityType] || log.entityType}</td>
               <td>{log.reason || '—'}</td>
             </tr>
@@ -886,6 +916,153 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TaxStatementModal({ member, year, offerings, onClose }: {
+  member: Member;
+  year: number;
+  offerings: Offering[];
+  onClose: () => void;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const html = useMemo(
+    () => buildTaxStatementHtml(buildTaxStatementData(member, member.id, offerings, year)),
+    [member, offerings, year]
+  );
+
+  const send = async () => {
+    if (sending) return;
+    setSending(true);
+    setResult(null);
+    try {
+      await api.sendTaxStatement(member.id, year);
+      setResult({ ok: true, message: `已發送至 ${member.email}` });
+    } catch (caught) {
+      setResult({ ok: false, message: caught instanceof Error ? caught.message : '發送失敗' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: 'min(880px, 100%)' }}>
+        <header>
+          <h2>報稅文件預覽 — {memberDisplayName(member)}</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <iframe ref={iframeRef} className="tax-preview-frame" srcDoc={html} title="報稅文件預覽" />
+        {result && <p className={result.ok ? 'tax-sent' : 'error'} style={{ margin: 0 }}>{result.message}</p>}
+        <footer>
+          <button type="button" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
+          {member.email ? (
+            <button type="button" className="primary" onClick={send} disabled={sending}>
+              {sending ? '發送中…' : `發送至 ${member.email}`}
+            </button>
+          ) : (
+            <button type="button" className="primary" disabled title="該成員無電郵地址">無電郵，無法發送</button>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function AnnualTaxReportSection() {
+  const { members, offerings } = useFinance();
+  const [taxMember, setTaxMember] = useState<Member | null>(null);
+
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of offerings) {
+      const y = (item.date || '').slice(0, 4);
+      if (y) set.add(y);
+    }
+    return Array.from(set).sort().reverse();
+  }, [offerings]);
+
+  const [year, setYear] = useState<number>(() => {
+    const current = new Date().getFullYear();
+    const present = new Set(offerings.map(o => (o.date || '').slice(0, 4)).filter(Boolean));
+    if (present.has(String(current - 1))) return current - 1;
+    const sorted = Array.from(present).sort();
+    return sorted.length ? Number(sorted[sorted.length - 1]) : current;
+  });
+
+  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+
+  const { rows, anonymousTotal, grandTotal } = useMemo(() => {
+    const yearStr = String(year);
+    const agg = new Map<string, { count: number; total: number }>();
+    let anonymous = 0;
+    for (const item of offerings) {
+      if ((item.date || '').slice(0, 4) !== yearStr) continue;
+      if (!item.memberId) { anonymous += item.amount; continue; }
+      const current = agg.get(item.memberId) ?? { count: 0, total: 0 };
+      current.count += 1;
+      current.total += item.amount;
+      agg.set(item.memberId, current);
+    }
+    const rows = Array.from(agg.entries())
+      .map(([memberId, value]) => ({ member: memberById.get(memberId), ...value }))
+      .filter((row): row is { member: Member; count: number; total: number } => Boolean(row.member))
+      .sort((a, b) => b.total - a.total);
+    return { rows, anonymousTotal: anonymous, grandTotal: rows.reduce((sum, row) => sum + row.total, 0) };
+  }, [offerings, year, memberById]);
+
+  const action = (
+    <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+      {years.length
+        ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
+        : <option value={year}>{year} 年度</option>}
+    </select>
+  );
+
+  return (
+    <Panel title="年度奉獻報稅證明" action={action}>
+      <p className="tax-summary">
+        {year} 年度 · 共 <strong>{rows.length}</strong> 人參與奉獻 · 合計 <strong>{currency(grandTotal)}</strong>
+      </p>
+      {rows.length ? (
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>姓名</th><th>電郵</th><th>筆數</th><th>年度合計</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={row.member.id}>
+                  <td>{memberDisplayName(row.member)}</td>
+                  <td>{row.member.email || <span style={{ color: '#94a3b8' }}>無電郵</span>}</td>
+                  <td>{row.count}</td>
+                  <td>{currency(row.total)}</td>
+                  <td className="actions">
+                    <button onClick={() => setTaxMember(row.member)}>生成稅務文件</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty">該年度暫無實名奉獻記錄</div>
+      )}
+      {anonymousTotal > 0 && (
+        <p className="tax-foot">另有匿名奉獻 {currency(anonymousTotal)}（無法開立報稅證明）</p>
+      )}
+      {taxMember && (
+        <TaxStatementModal
+          member={taxMember}
+          year={year}
+          offerings={offerings}
+          onClose={() => setTaxMember(null)}
+        />
+      )}
+    </Panel>
   );
 }
 
@@ -913,7 +1090,10 @@ function ReportsPage() {
         </Panel>
       </div>
 
-      {/* 第二部分：操作日誌 */}
+      {/* 第二部分：年度奉獻報稅 */}
+      <AnnualTaxReportSection />
+
+      {/* 第三部分：操作日誌 */}
       <Panel title={`操作日誌（最近 ${auditLogs.length} 條）`}>
         <AuditLogTable logs={auditLogs} />
       </Panel>
@@ -932,8 +1112,13 @@ function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="panel"><h2>{title}</h2>{children}</section>;
+function Panel({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>{title}</h2>{action}</div>
+      {children}
+    </section>
+  );
 }
 
 function Toolbar({ children }: { children: React.ReactNode }) {
@@ -979,6 +1164,16 @@ function MemberForm({
   );
 }
 
+// 上一個星期日（今天為週日則取當天），回傳 yyyy-mm-dd（本地時區）
+function lastSundayStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - d.getDay());
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function OfferingForm({
   offering,
   members,
@@ -994,7 +1189,16 @@ function OfferingForm({
   onClose: () => void;
   onSave: (payload: Partial<Offering>) => Promise<void>;
 }) {
-  const [form, setForm] = useState(offering);
+  const [form, setForm] = useState<Offering>(() => {
+    if (offering.id) return offering; // 編輯既有記錄：保留原值
+    // 新增記錄：套用預設值（支付方式=支票、分類=主日奉献、日期=上一個星期日）
+    return {
+      ...offering,
+      date: lastSundayStr(),
+      methodId: offering.methodId ?? methods.find(m => m.name === '支票')?.id ?? null,
+      categoryId: offering.categoryId ?? categories.find(c => c.name === '主日奉献')?.id ?? null
+    };
+  });
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1016,42 +1220,44 @@ function OfferingForm({
   const footer = (
     <>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-          {uploading ? '上傳中…' : '上傳附件'}
-        </button>
-        {form.receiptUrl && (
-          <>
-            <img src={form.receiptUrl} alt="憑證預覽" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-            <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除</button>
-          </>
-        )}
-      </div>
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
+      </button>
       <button className="primary">保存</button>
     </>
   );
 
   return (
     <FormModal title="奉獻記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
-      <input type="number" min="0" step="0.01" value={form.amount} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="金額" required />
-      <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
-      <select value={form.memberId ?? ''} onChange={event => setForm({ ...form, memberId: event.target.value || null })}>
-        <option value="">匿名奉獻</option>
+      <select
+        value={form.memberId ?? ''}
+        onChange={event => setForm({ ...form, memberId: event.target.value || null })}
+        style={{ color: form.memberId ? '#172033' : '#94a3b8' }}
+      >
+        <option value="" style={{ color: '#94a3b8' }}>奉献人</option>
         {[...members]
           .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
           .map(item => (
-            <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
+            <option key={item.id} value={item.id} style={{ color: '#172033' }}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
           ))}
+      </select>
+      <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="奉献金额" required />
+      <select value={form.methodId ?? ''} onChange={event => setForm({ ...form, methodId: event.target.value || null })}>
+        <option value="">支付方式</option>
+        {methods.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
       <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
         <option value="">選擇分類</option>
-        {categories.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
-      <select value={form.methodId ?? ''} onChange={event => setForm({ ...form, methodId: event.target.value || null })}>
-        <option value="">支付方式</option>
-        {methods.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
+      <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
       <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
+      {form.receiptUrl && (
+        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-start' }}>
+          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 360, maxHeight: 360, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
+          <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
+        </div>
+      )}
     </FormModal>
   );
 }
@@ -1070,22 +1276,61 @@ function ExpenseForm({
   onSave: (payload: Partial<Expense>) => Promise<void>;
 }) {
   const [form, setForm] = useState(expense);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const blob = await compressImage(file);
+      const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+      const { url } = await api.upload(compressed, 'expenses', form.id || undefined);
+      setForm(f => ({ ...f, receiptUrl: url }));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const footer = (
+    <>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
+      </button>
+      <button className="primary">保存</button>
+    </>
+  );
+
   return (
-    <FormModal title="支出記錄" onClose={onClose} onSubmit={() => onSave(form)}>
-      <input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="描述" required />
-      <input type="number" min="0" step="0.01" value={form.amount} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="金額" required />
+    <FormModal title="支出記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
+      <input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="支出描述" required />
+      <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="支出金额" required />
       <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
       <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
         <option value="">選擇分類</option>
-        {categories.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
       <select value={form.paidBy ?? ''} onChange={event => setForm({ ...form, paidBy: event.target.value || null })}>
         <option value="">付款人</option>
-        {members.map((item: Member) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {[...members]
+          .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
+          .map(item => (
+            <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
+          ))}
       </select>
       <select value={form.paymentMethod} onChange={event => setForm({ ...form, paymentMethod: event.target.value })}>
         <option>現金</option><option>銀行轉帳</option><option>支票</option><option>信用卡</option>
       </select>
+      <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
+      {form.receiptUrl && (
+        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-start' }}>
+          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 360, maxHeight: 360, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
+          <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
+        </div>
+      )}
     </FormModal>
   );
 }
@@ -1134,7 +1379,7 @@ function blankOffering(memberId: string | null = null): Offering {
 }
 
 function blankExpense(): Expense {
-  return { id: '', categoryId: null, amount: 0, date: new Date().toISOString().slice(0, 10), description: '', paidBy: null, approvedBy: null, paymentMethod: '現金', status: 'pending', createdAt: '', updatedAt: '' };
+  return { id: '', categoryId: null, amount: 0, date: new Date().toISOString().slice(0, 10), description: '', paidBy: null, approvedBy: null, paymentMethod: '現金', status: 'pending', notes: '', receiptUrl: null, createdAt: '', updatedAt: '' };
 }
 
 export default function App() {

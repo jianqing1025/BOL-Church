@@ -21,3 +21,6 @@ bucket_name = "church-finance"
 JWT_SECRET = "replace-this-before-production"
 CLOUDFLARE_ZONE_ID = "e1ef9097590cbe387d567ddb29f13dc7"
 FILES_URL = "https://church-finance.bolccop.org"
+# 報稅文件寄件者；地址網域須與 Resend 已驗證的網域一致。
+# RESEND_API_KEY 請用 `wrangler secret put RESEND_API_KEY` 設定，勿寫入此檔。
+MAIL_FROM = "Bread of Life Christian Church on the Plateau <giving@bolccop.org>"

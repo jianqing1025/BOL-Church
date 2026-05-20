@@ -97,6 +97,7 @@ export interface Expense {
   approvedByName?: string;
   paymentMethod: string;
   status: ExpenseStatus;
+  notes: string;
   receiptUrl?: string | null;
   createdAt: string;
   updatedAt: string;

@@ -57,6 +57,8 @@ export const api = {
   rejectExpense: (id: string) => request<Expense>(`/api/expenses/${id}/reject`, { method: 'POST' }),
   expenseCategories: () => request<ExpenseCategory[]>('/api/expenses/categories'),
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
+  sendTaxStatement: (memberId: string, year: number) =>
+    request<{ ok: true }>('/api/reports/tax-statement/send', { method: 'POST', body: JSON.stringify({ memberId, year }) }),
   upload: (file: File, type: string, entityId?: string) => {
     const form = new FormData();
     form.append('file', file);

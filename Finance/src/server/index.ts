@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import type { ExpenseStatus, MemberStatus, Role } from '../types';
+import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml } from '../shared/taxStatement';
 
 type Env = {
   DB: D1Database;
@@ -8,6 +9,8 @@ type Env = {
   ASSETS: Fetcher;
   JWT_SECRET: string;
   FILES_URL: string;
+  RESEND_API_KEY: string;
+  MAIL_FROM: string;
 };
 
 type SessionUser = {
@@ -118,6 +121,27 @@ async function recordAudit(
   }
 }
 
+const statusZhMap: Record<string, string> = { active: '活躍', inactive: '非活躍', visitor: '訪客' };
+function statusZh(value: any): string {
+  return statusZhMap[String(value)] || String(value ?? '');
+}
+
+// 比對欄位新舊值，產生「欄位：舊值→新值」的變更摘要
+function buildChangeSummary(fields: Array<{ label: string; from: any; to: any }>): string {
+  const fmt = (v: any) => (v === null || v === undefined || v === '' ? '(空)' : String(v));
+  const changed = fields.filter(f => fmt(f.from) !== fmt(f.to));
+  if (!changed.length) return '無變更';
+  return changed.map(f => `${f.label}：${fmt(f.from)}→${fmt(f.to)}`).join('，');
+}
+
+// 審計「對象」欄統一格式：日期 | 類型 金額 | 主體
+function offeringSummary(o: any): string {
+  return `${o?.date ?? ''} | 奉獻 ${o?.amount ?? ''} | ${o?.memberName || '匿名'}`.trim();
+}
+function expenseSummary(e: any): string {
+  return `${e?.date ?? ''} | 支出 ${e?.amount ?? ''} | ${e?.description || ''}`.trim();
+}
+
 function mapAuditLog(row: any) {
   return {
     id: row.id,
@@ -212,6 +236,7 @@ function mapExpense(row: any) {
     approvedByName: row.approved_by_name || undefined,
     paymentMethod: row.payment_method || '',
     status: row.status as ExpenseStatus,
+    notes: row.notes || '',
     receiptUrl: row.receipt_url || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -374,6 +399,61 @@ const worker: ExportedHandler<Env> = {
         if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env);
         if (url.pathname === '/api/audit-logs' && request.method === 'GET') return listAuditLogs(env);
 
+        if (url.pathname === '/api/reports/tax-statement/send' && request.method === 'POST') {
+          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          const payload = await readJson<{ memberId?: string; year?: number }>(request);
+          const memberId = String(payload.memberId || '');
+          const year = Number(payload.year);
+          if (!memberId || !year) return error('缺少 memberId 或 year');
+          if (!env.RESEND_API_KEY) return error('郵件服務尚未設定（缺少 RESEND_API_KEY）', 500);
+
+          const memberRow = await env.DB.prepare('SELECT * FROM members WHERE id = ?').bind(memberId).first<any>();
+          if (!memberRow) return error('Member not found', 404);
+          const member = mapMember(memberRow);
+          if (!member.email) return error('該成員沒有電郵地址，無法發送', 400);
+
+          const offeringRows = await env.DB.prepare(
+            `SELECT o.*, c.name AS category_name, method.name AS method_name
+             FROM offerings o
+             LEFT JOIN offering_categories c ON c.id = o.category_id
+             LEFT JOIN offering_methods method ON method.id = o.method_id
+             WHERE o.member_id = ? AND substr(o.date, 1, 4) = ?
+             ORDER BY o.date`
+          ).bind(memberId, String(year)).all();
+          const offerings = (offeringRows.results || []).map(mapOffering);
+          if (!offerings.length) return error(`${year} 年度沒有該成員的奉獻記錄`, 400);
+
+          const data = buildTaxStatementData(member, memberId, offerings, year);
+          const html = buildTaxStatementHtml(data);
+
+          const resendResponse = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.RESEND_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              from: env.MAIL_FROM || `${CHURCH_INFO.nameEn} <onboarding@resend.dev>`,
+              to: member.email,
+              reply_to: CHURCH_INFO.email,
+              subject: `${year} Annual Contribution Statement — ${CHURCH_INFO.nameEn}`,
+              html
+            })
+          });
+          if (!resendResponse.ok) {
+            const detail = await resendResponse.text();
+            return error(`郵件發送失敗：${detail || resendResponse.status}`, 502);
+          }
+
+          await recordAudit(env, user, {
+            action: 'send',
+            entityType: 'tax_statement',
+            entityId: memberId,
+            entitySummary: `報稅文件 ${year} ｜ ${data.donorName} <${member.email}>`
+          });
+          return json({ ok: true });
+        }
+
         if (url.pathname === '/api/members' && request.method === 'POST') {
           if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
@@ -432,7 +512,7 @@ const worker: ExportedHandler<Env> = {
             action: 'create',
             entityType: 'offering',
             entityId: itemId,
-            entitySummary: `奉獻 ${created?.amount ?? ''} ${created?.date ?? ''} ${created?.memberName || '匿名'}`.trim()
+            entitySummary: offeringSummary(created)
           });
           return json(created, 201);
         }
@@ -442,14 +522,14 @@ const worker: ExportedHandler<Env> = {
           const payload = await readJson<any>(request);
           const itemId = id();
           await env.DB.prepare(
-            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.receiptUrl || null, now(), now()).run();
+            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.notes || '', payload.receiptUrl || null, now(), now()).run();
           const created = await getExpense(env, itemId);
           await recordAudit(env, user, {
             action: 'create',
             entityType: 'expense',
             entityId: itemId,
-            entitySummary: `支出 ${created?.amount ?? ''} ${created?.date ?? ''} ${created?.description || ''}`.trim()
+            entitySummary: expenseSummary(created)
           });
           return json(created, 201);
         }
@@ -472,6 +552,7 @@ const worker: ExportedHandler<Env> = {
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
+            const before = await env.DB.prepare('SELECT * FROM members WHERE id = ?').bind(itemId).first<any>();
             await env.DB.prepare(
               `UPDATE members SET
                 import_pid = ?, name = ?, first_name = ?, last_name = ?, partner = ?, email = ?,
@@ -505,11 +586,26 @@ const worker: ExportedHandler<Env> = {
             ).run();
             const row = await env.DB.prepare('SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering FROM members m LEFT JOIN member_groups g ON g.id = m.group_id LEFT JOIN offerings o ON o.member_id = m.id WHERE m.id = ? GROUP BY m.id').bind(itemId).first();
             const updated = mapMember(row);
+            const memberName = [updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() || updated.name || itemId;
+            const changes = buildChangeSummary([
+              { label: 'First Name', from: before?.first_name, to: payload.firstName },
+              { label: 'Last Name', from: before?.last_name, to: payload.lastName },
+              { label: '姓名', from: before?.name, to: payload.name },
+              { label: 'Partner', from: before?.partner, to: payload.partner },
+              { label: '電話', from: before?.phone, to: payload.phone },
+              { label: 'Email', from: before?.email, to: payload.email },
+              { label: '地址', from: before?.address, to: payload.address },
+              { label: '城市', from: before?.city, to: payload.city },
+              { label: '州/省', from: before?.state_region, to: payload.stateRegion },
+              { label: '郵編', from: before?.postal_code, to: payload.postalCode },
+              { label: '備註', from: before?.notes, to: payload.notes },
+              { label: '狀態', from: statusZh(before?.status), to: statusZh(payload.status) }
+            ]);
             await recordAudit(env, user, {
               action: 'update',
               entityType: 'member',
               entityId: itemId,
-              entitySummary: `成員 ${[updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() || updated.name || itemId}`
+              entitySummary: `成員 ${memberName} ｜ ${changes}`
             });
             return json(updated);
           }
@@ -531,14 +627,24 @@ const worker: ExportedHandler<Env> = {
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
+            const before = await getOffering(env, itemId);
             await env.DB.prepare('UPDATE offerings SET member_id = ?, amount = ?, date = ?, category_id = ?, method_id = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
               .bind(payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
             const updated = await getOffering(env, itemId);
+            const changes = buildChangeSummary([
+              { label: '奉獻人', from: before?.memberName || '匿名', to: updated?.memberName || '匿名' },
+              { label: '金額', from: before?.amount, to: updated?.amount },
+              { label: '日期', from: before?.date, to: updated?.date },
+              { label: '分類', from: before?.categoryName, to: updated?.categoryName },
+              { label: '方式', from: before?.methodName, to: updated?.methodName },
+              { label: '備註', from: before?.notes, to: updated?.notes },
+              { label: '憑證', from: before?.receiptUrl ? '有' : '無', to: updated?.receiptUrl ? '有' : '無' }
+            ]);
             await recordAudit(env, user, {
               action: 'update',
               entityType: 'offering',
               entityId: itemId,
-              entitySummary: `奉獻 ${updated?.amount ?? ''} ${updated?.date ?? ''} ${updated?.memberName || '匿名'}`.trim()
+              entitySummary: `${offeringSummary(updated)} ｜ ${changes}`
             });
             return json(updated);
           }
@@ -547,7 +653,7 @@ const worker: ExportedHandler<Env> = {
             if (!reason) return error('刪除原因不能為空');
             const existing = await getOffering(env, itemId);
             if (!existing) return error('Offering not found', 404);
-            const summary = `奉獻 ${existing.amount} ${existing.date} ${existing.memberName || '匿名'}`.trim();
+            const summary = offeringSummary(existing);
             await recordAudit(env, user, { action: 'delete', entityType: 'offering', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM offerings WHERE id = ?').bind(itemId).run();
             return json({ ok: true });
@@ -564,7 +670,7 @@ const worker: ExportedHandler<Env> = {
             action,
             entityType: 'expense',
             entityId: itemId,
-            entitySummary: `支出 ${reviewed?.amount ?? ''} ${reviewed?.date ?? ''} ${reviewed?.description || ''}`.trim()
+            entitySummary: expenseSummary(reviewed)
           });
           return json(reviewed);
         }
@@ -574,14 +680,25 @@ const worker: ExportedHandler<Env> = {
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
-            await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
-              .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.receiptUrl || null, now(), itemId).run();
+            const before = await getExpense(env, itemId);
+            await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
+              .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
             const updated = await getExpense(env, itemId);
+            const changes = buildChangeSummary([
+              { label: '描述', from: before?.description, to: updated?.description },
+              { label: '金額', from: before?.amount, to: updated?.amount },
+              { label: '日期', from: before?.date, to: updated?.date },
+              { label: '分類', from: before?.categoryName, to: updated?.categoryName },
+              { label: '付款人', from: before?.paidByName, to: updated?.paidByName },
+              { label: '支付方式', from: before?.paymentMethod, to: updated?.paymentMethod },
+              { label: '備註', from: before?.notes, to: updated?.notes },
+              { label: '憑證', from: before?.receiptUrl ? '有' : '無', to: updated?.receiptUrl ? '有' : '無' }
+            ]);
             await recordAudit(env, user, {
               action: 'update',
               entityType: 'expense',
               entityId: itemId,
-              entitySummary: `支出 ${updated?.amount ?? ''} ${updated?.date ?? ''} ${updated?.description || ''}`.trim()
+              entitySummary: `${expenseSummary(updated)} ｜ ${changes}`
             });
             return json(updated);
           }
@@ -590,7 +707,7 @@ const worker: ExportedHandler<Env> = {
             if (!reason) return error('刪除原因不能為空');
             const existing = await getExpense(env, itemId);
             if (!existing) return error('Expense not found', 404);
-            const summary = `支出 ${existing.amount} ${existing.date} ${existing.description || ''}`.trim();
+            const summary = expenseSummary(existing);
             await recordAudit(env, user, { action: 'delete', entityType: 'expense', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(itemId).run();
             return json({ ok: true });
