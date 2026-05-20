@@ -226,12 +226,10 @@ function DashboardPage() {
   const totalOfferingAmount = totalOfferings.reduce((sum, o) => sum + o.amount, 0);
 
   // 计算支出统计
-  const weekExpenses = expenses.filter(e => new Date(e.date) >= weekStart);
   const monthExpenses = expenses.filter(e => new Date(e.date) >= monthStart);
   const yearExpenses = expenses.filter(e => new Date(e.date) >= yearStart);
   const totalExpenses = expenses;
 
-  const weekExpenseTotal = weekExpenses.reduce((sum, e) => sum + e.amount, 0);
   const monthExpenseTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
   const yearExpenseTotal = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
   const totalExpenseAmount = totalExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -258,7 +256,6 @@ function DashboardPage() {
       {/* 支出部分 */}
       <Panel title="支出統計">
         <div className="stats-grid">
-          <StatCard title="本週支出" value={currency(weekExpenseTotal)} />
           <StatCard title="本月支出" value={currency(monthExpenseTotal)} note={`預算剩餘 ${currency(dashboard.monthBudgetRemaining)}`} />
           <StatCard title="本年支出" value={currency(yearExpenseTotal)} />
           <StatCard title="所有支出" value={currency(totalExpenseAmount)} />

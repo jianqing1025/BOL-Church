@@ -362,8 +362,9 @@ td small {
 }
 
 /* ===== 報稅設定 Modal ===== */
-.tax-settings-modal {
-  width: min(1040px, 100%);
+/* 用 .modal.tax-settings-modal 提高優先級，蓋過後面定義的 .modal 寬度 */
+.modal.tax-settings-modal {
+  width: min(1200px, 100%);
   gap: 1.15rem;
 }
 
