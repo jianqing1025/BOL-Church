@@ -7,6 +7,7 @@ type Env = {
   FILES: R2Bucket;
   ASSETS: Fetcher;
   JWT_SECRET: string;
+  FILES_URL: string;
 };
 
 type SessionUser = {
@@ -122,6 +123,7 @@ function mapMember(row: any) {
     stateRegion: row.state_region || '',
     postalCode: row.postal_code || '',
     notes: row.notes || '',
+    starred: Boolean(row.starred),
     avatarUrl: row.avatar_url || null,
     contactConfirmed: Boolean(row.contact_confirmed),
     externalContact: Boolean(row.external_contact),
@@ -384,6 +386,19 @@ const worker: ExportedHandler<Env> = {
           return json(await getExpense(env, itemId), 201);
         }
 
+        if (url.pathname.match(/^\/api\/members\/[^/]+\/star$/) && request.method === 'POST') {
+          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          const itemId = url.pathname.split('/')[3];
+          const current = await env.DB.prepare('SELECT starred FROM members WHERE id = ?').bind(itemId).first<any>();
+          if (!current) return error('Member not found', 404);
+          const newStarred = current.starred ? 0 : 1;
+          await env.DB.prepare('UPDATE members SET starred = ?, updated_at = ? WHERE id = ?').bind(newStarred, now(), itemId).run();
+          const row = await env.DB.prepare(
+            'SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering FROM members m LEFT JOIN member_groups g ON g.id = m.group_id LEFT JOIN offerings o ON o.member_id = m.id WHERE m.id = ? GROUP BY m.id'
+          ).bind(itemId).first();
+          return json(mapMember(row));
+        }
+
         if (url.pathname.match(/^\/api\/members\/[^/]+$/)) {
           if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
@@ -476,7 +491,8 @@ const worker: ExportedHandler<Env> = {
           if (!(file instanceof File)) return error('Missing file');
           const key = `${type}/${entityId}/${Date.now()}-${file.name}`;
           await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-          return json({ key, url: `/api/files/${encodeURIComponent(key)}` });
+          const fileUrl = env.FILES_URL ? `${env.FILES_URL.replace(/\/$/, '')}/${key}` : `/api/files/${encodeURIComponent(key)}`;
+          return json({ key, url: fileUrl });
         }
 
         if (url.pathname.startsWith('/api/files/') && request.method === 'GET') {

@@ -37,6 +37,7 @@ export const api = {
   updateMember: (id: string, payload: Partial<Member>) =>
     request<Member>(`/api/members/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteMember: (id: string) => request<{ ok: true }>(`/api/members/${id}`, { method: 'DELETE' }),
+  starMember: (id: string) => request<Member>(`/api/members/${id}/star`, { method: 'POST' }),
   offerings: (query = '') => request<{ items: Offering[]; total: number }>(`/api/offerings${query}`),
   createOffering: (payload: Partial<Offering>) =>
     request<Offering>('/api/offerings', { method: 'POST', body: JSON.stringify(payload) }),

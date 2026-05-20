@@ -36,6 +36,7 @@ export interface Member {
   stateRegion?: string;
   postalCode?: string;
   notes: string;
+  starred: boolean;
   avatarUrl?: string | null;
   contactConfirmed?: boolean;
   externalContact?: boolean;

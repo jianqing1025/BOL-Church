@@ -16,6 +16,7 @@ type FinanceContextValue = FinanceState & {
   refreshAll: () => Promise<void>;
   saveMember: (payload: Partial<Member>, id?: string) => Promise<void>;
   deleteMember: (id: string) => Promise<void>;
+  starMember: (id: string) => Promise<void>;
   saveOffering: (payload: Partial<Offering>, id?: string) => Promise<void>;
   deleteOffering: (id: string) => Promise<void>;
   saveExpense: (payload: Partial<Expense>, id?: string) => Promise<void>;
@@ -110,6 +111,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     deleteMember: async id => {
       await api.deleteMember(id);
       await refreshAfterWrite();
+    },
+    starMember: async id => {
+      const updated = await api.starMember(id);
+      const newMembers = state.members.map(m => m.id === id ? updated : m);
+      newMembers.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name));
+      dispatch({ type: 'data', data: { members: newMembers } });
     },
     saveOffering: async (payload, id) => {
       id ? await api.updateOffering(id, payload) : await api.createOffering(payload);

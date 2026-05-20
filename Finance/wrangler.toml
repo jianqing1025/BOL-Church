@@ -20,3 +20,4 @@ bucket_name = "church-finance"
 [vars]
 JWT_SECRET = "replace-this-before-production"
 CLOUDFLARE_ZONE_ID = "e1ef9097590cbe387d567ddb29f13dc7"
+FILES_URL = "https://church-finance.bolccop.org"
