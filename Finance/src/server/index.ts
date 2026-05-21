@@ -22,11 +22,34 @@ type SessionUser = {
 };
 
 const roleRank: Record<Role, number> = {
-  member: 1,
+  dev: 1,
   auditor: 2,
   finance_admin: 3,
   super_admin: 4
 };
+
+const VALID_ROLES: Role[] = ['super_admin', 'finance_admin', 'auditor', 'dev'];
+
+// 角色權限（非線性：Reader 可改成員、卻不能改奉獻/支出）
+function canManageMembers(role: Role): boolean {
+  return role === 'super_admin' || role === 'finance_admin' || role === 'auditor' || role === 'dev';
+}
+function canManageFinance(role: Role): boolean {
+  return role === 'super_admin' || role === 'finance_admin' || role === 'dev';
+}
+function canManageSettings(role: Role): boolean {
+  return role === 'super_admin' || role === 'finance_admin';
+}
+function canManageUsers(role: Role): boolean {
+  return role === 'super_admin';
+}
+// dev 帳號只在測試數據沙盒內活動
+function testFlagFor(role: Role): number {
+  return role === 'dev' ? 1 : 0;
+}
+function sameTestScope(role: Role, isTest: unknown): boolean {
+  return (role === 'dev') === Boolean(isTest);
+}
 
 function json(data: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -87,7 +110,7 @@ async function currentUser(request: Request, env: Env) {
   return token ? verifyToken(decodeURIComponent(token), env.JWT_SECRET || 'dev-secret') : null;
 }
 
-async function requireUser(request: Request, env: Env, role: Role = 'member') {
+async function requireUser(request: Request, env: Env, role: Role = 'dev') {
   const user = await currentUser(request, env);
   if (!user) return error('Authentication required', 401);
   if (roleRank[user.role] < roleRank[role]) return error('Forbidden', 403);
@@ -166,6 +189,19 @@ async function listAuditLogs(env: Env) {
     // audit_logs 表尚未建立時返回空，避免整個應用載入失敗
     return json({ items: [], total: 0 });
   }
+}
+
+async function ensurePasswordResetsTable(env: Env) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL
+    )`
+  ).run();
 }
 
 async function ensureAppSettingsTable(env: Env) {
@@ -249,6 +285,7 @@ function mapMember(row: any) {
     externalContact: Boolean(row.external_contact),
     importSource: row.import_source || '',
     totalOffering: Number(row.total_offering || 0),
+    isTest: Boolean(row.is_test),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -267,6 +304,7 @@ function mapOffering(row: any) {
     methodName: row.method_name || undefined,
     notes: row.notes || '',
     receiptUrl: row.receipt_url || null,
+    isTest: Boolean(row.is_test),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -288,34 +326,49 @@ function mapExpense(row: any) {
     status: row.status as ExpenseStatus,
     notes: row.notes || '',
     receiptUrl: row.receipt_url || null,
+    isTest: Boolean(row.is_test),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
-async function listMembers(env: Env, url: URL) {
+function mapUser(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role as Role,
+    memberId: row.member_id || null,
+    active: Boolean(row.active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+async function listMembers(env: Env, url: URL, testFlag: number) {
   const search = `%${url.searchParams.get('q') || ''}%`;
   const result = await env.DB.prepare(
     `SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering
      FROM members m
      LEFT JOIN member_groups g ON g.id = m.group_id
-     LEFT JOIN offerings o ON o.member_id = m.id
-     WHERE m.name LIKE ? OR m.email LIKE ? OR m.phone LIKE ?
+     LEFT JOIN offerings o ON o.member_id = m.id AND o.is_test = ?
+     WHERE (m.name LIKE ? OR m.email LIKE ? OR m.phone LIKE ?) AND m.is_test = ?
      GROUP BY m.id
      ORDER BY m.name`
-  ).bind(search, search, search).all();
+  ).bind(testFlag, search, search, search, testFlag).all();
   return json({ items: (result.results || []).map(mapMember), total: result.results?.length || 0 });
 }
 
-async function listOfferings(env: Env) {
+async function listOfferings(env: Env, testFlag: number) {
   const result = await env.DB.prepare(
     `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
      FROM offerings o
      LEFT JOIN members m ON m.id = o.member_id
      LEFT JOIN offering_categories c ON c.id = o.category_id
      LEFT JOIN offering_methods method ON method.id = o.method_id
+     WHERE o.is_test = ?
      ORDER BY o.date DESC, o.created_at DESC`
-  ).all();
+  ).bind(testFlag).all();
   return json({ items: (result.results || []).map(mapOffering), total: result.results?.length || 0 });
 }
 
@@ -331,15 +384,16 @@ async function getOffering(env: Env, offeringId: string) {
   return row ? mapOffering(row) : null;
 }
 
-async function listExpenses(env: Env) {
+async function listExpenses(env: Env, testFlag: number) {
   const result = await env.DB.prepare(
     `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name, approved.name AS approved_by_name
      FROM expenses e
      LEFT JOIN expense_categories c ON c.id = e.category_id
      LEFT JOIN members paid ON paid.id = e.paid_by
      LEFT JOIN members approved ON approved.id = e.approved_by
+     WHERE e.is_test = ?
      ORDER BY e.date DESC, e.created_at DESC`
-  ).all();
+  ).bind(testFlag).all();
   return json({ items: (result.results || []).map(mapExpense), total: result.results?.length || 0 });
 }
 
@@ -355,7 +409,7 @@ async function getExpense(env: Env, expenseId: string) {
   return row ? mapExpense(row) : null;
 }
 
-async function dashboard(env: Env) {
+async function dashboard(env: Env, testFlag: number) {
   const today = new Date();
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay());
@@ -364,23 +418,24 @@ async function dashboard(env: Env) {
   const month = today.toISOString().slice(0, 7);
   const weekStart = startOfWeek.toISOString().slice(0, 10);
   const prevWeekStart = previousWeek.toISOString().slice(0, 10);
+  const t = testFlag ? 1 : 0;
 
-  const weekOffering = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ?').bind(weekStart).first<any>();
-  const prevOffering = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND date < ?').bind(prevWeekStart, weekStart).first<any>();
-  const monthExpense = await env.DB.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE substr(date, 1, 7) = ? AND status = 'approved'").bind(month).first<any>();
+  const weekOffering = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND is_test = ${t}`).bind(weekStart).first<any>();
+  const prevOffering = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND date < ? AND is_test = ${t}`).bind(prevWeekStart, weekStart).first<any>();
+  const monthExpense = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE substr(date, 1, 7) = ? AND status = 'approved' AND is_test = ${t}`).bind(month).first<any>();
   const budget = await env.DB.prepare('SELECT COALESCE(SUM(budget_monthly), 0) AS total FROM expense_categories').first<any>();
-  const pending = await env.DB.prepare("SELECT COUNT(*) AS count FROM expenses WHERE status = 'pending'").first<any>();
-  const newMembers = await env.DB.prepare('SELECT COUNT(*) AS count FROM members WHERE substr(join_date, 1, 7) = ?').bind(month).first<any>();
-  const trend = await env.DB.prepare("SELECT substr(date, 1, 7) AS label, SUM(amount) AS amount FROM offerings GROUP BY label ORDER BY label DESC LIMIT 12").all<any>();
+  const pending = await env.DB.prepare(`SELECT COUNT(*) AS count FROM expenses WHERE status = 'pending' AND is_test = ${t}`).first<any>();
+  const newMembers = await env.DB.prepare(`SELECT COUNT(*) AS count FROM members WHERE substr(join_date, 1, 7) = ? AND is_test = ${t}`).bind(month).first<any>();
+  const trend = await env.DB.prepare(`SELECT substr(date, 1, 7) AS label, SUM(amount) AS amount FROM offerings WHERE is_test = ${t} GROUP BY label ORDER BY label DESC LIMIT 12`).all<any>();
   const incomeExpense = await env.DB.prepare(
     `WITH months AS (
-       SELECT substr(date, 1, 7) AS label FROM offerings
+       SELECT substr(date, 1, 7) AS label FROM offerings WHERE is_test = ${t}
        UNION
-       SELECT substr(date, 1, 7) AS label FROM expenses
+       SELECT substr(date, 1, 7) AS label FROM expenses WHERE is_test = ${t}
      )
      SELECT months.label,
-       COALESCE((SELECT SUM(amount) FROM offerings WHERE substr(date, 1, 7) = months.label), 0) AS offerings,
-       COALESCE((SELECT SUM(amount) FROM expenses WHERE substr(date, 1, 7) = months.label AND status = 'approved'), 0) AS expenses
+       COALESCE((SELECT SUM(amount) FROM offerings WHERE substr(date, 1, 7) = months.label AND is_test = ${t}), 0) AS offerings,
+       COALESCE((SELECT SUM(amount) FROM expenses WHERE substr(date, 1, 7) = months.label AND status = 'approved' AND is_test = ${t}), 0) AS expenses
      FROM months ORDER BY months.label DESC LIMIT 6`
   ).all<any>();
 
@@ -422,19 +477,97 @@ const worker: ExportedHandler<Env> = {
         return json({ user: await currentUser(request, env) });
       }
 
+      if (url.pathname === '/api/auth/forgot-password' && request.method === 'POST') {
+        const payload = await readJson<{ email?: string }>(request).catch(() => ({} as { email?: string }));
+        const email = String(payload.email || '').trim();
+        if (email && env.RESEND_API_KEY) {
+          try {
+            await ensurePasswordResetsTable(env);
+            const account = await env.DB.prepare('SELECT id, name, email FROM users WHERE lower(email) = lower(?) AND active = 1').bind(email).first<any>();
+            if (account) {
+              const token = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+              const tokenHash = await sha256(token);
+              const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+              await env.DB.prepare('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').bind(now(), account.id).run();
+              await env.DB.prepare('INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)')
+                .bind(id(), account.id, tokenHash, expiresAt, now()).run();
+              const settings = await readTaxStatementSettings(env);
+              const resetUrl = `${url.origin}/?reset=${token}`;
+              const html = `<!doctype html><html><body style="margin:0;background:#eef1f6;font-family:Arial,'Helvetica Neue',sans-serif;color:#172033;">
+  <div style="max-width:480px;margin:0 auto;padding:28px 24px;">
+    <div style="background:#fff;border-radius:10px;padding:28px 26px;box-shadow:0 10px 30px rgba(25,41,70,.1);">
+      <h2 style="margin:0 0 4px;font-size:18px;color:#172033;">重設密碼 Reset Password</h2>
+      <p style="margin:14px 0 0;font-size:14px;">您好 ${account.name}，</p>
+      <p style="margin:10px 0 0;font-size:14px;line-height:1.6;">我們收到了您在「信望愛靈糧堂財務系統」的密碼重設請求。請點擊下方按鈕設定新密碼，連結 <strong>1 小時內</strong>有效。</p>
+      <p style="margin:22px 0;"><a href="${resetUrl}" style="display:inline-block;background:#1f6feb;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">重設密碼</a></p>
+      <p style="margin:0;font-size:12px;color:#68758a;line-height:1.6;">若按鈕無法點擊，請複製此連結至瀏覽器開啟：<br/>${resetUrl}</p>
+      <p style="margin:16px 0 0;font-size:12px;color:#68758a;">如果您並未提出此請求，請忽略本郵件，您的密碼不會被更改。</p>
+    </div>
+  </div></body></html>`;
+              await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  from: settings.mailFrom || env.MAIL_FROM,
+                  to: account.email,
+                  reply_to: settings.replyTo,
+                  subject: '重設密碼 — 信望愛靈糧堂財務系統',
+                  html
+                })
+              });
+            }
+          } catch {
+            // 不向客戶端透露任何細節（防郵箱枚舉）
+          }
+        }
+        return json({ ok: true });
+      }
+
+      if (url.pathname === '/api/auth/reset-password' && request.method === 'POST') {
+        const payload = await readJson<{ token?: string; password?: string }>(request).catch(() => ({} as { token?: string; password?: string }));
+        const token = String(payload.token || '');
+        const password = String(payload.password || '');
+        if (!token) return error('連結無效');
+        if (password.length < 6) return error('密碼至少 6 個字元');
+        await ensurePasswordResetsTable(env);
+        const tokenHash = await sha256(token);
+        const row = await env.DB.prepare('SELECT * FROM password_resets WHERE token_hash = ?').bind(tokenHash).first<any>();
+        if (!row || row.used_at || String(row.expires_at) < now()) {
+          return error('連結已失效或過期，請重新申請', 400);
+        }
+        await env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').bind(await sha256(password), now(), row.user_id).run();
+        await env.DB.prepare('UPDATE password_resets SET used_at = ? WHERE id = ?').bind(now(), row.id).run();
+        return json({ ok: true });
+      }
+
       if (url.pathname.startsWith('/api/')) {
-        const auth = await requireUser(request, env, 'auditor');
+        const auth = await requireUser(request, env, 'dev');
         if (auth instanceof Response) return auth;
         const user = auth;
+        const testFlag = testFlagFor(user.role);
 
-        if (url.pathname === '/api/finance/dashboard') return dashboard(env);
+        if (url.pathname === '/api/auth/change-password' && request.method === 'POST') {
+          const payload = await readJson<{ currentPassword?: string; newPassword?: string }>(request);
+          const current = String(payload.currentPassword || '');
+          const next = String(payload.newPassword || '');
+          if (next.length < 6) return error('新密碼至少 6 個字元');
+          const row = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first<any>();
+          if (!row) return error('User not found', 404);
+          if (row.password_hash !== current && row.password_hash !== await sha256(current)) {
+            return error('當前密碼不正確', 400);
+          }
+          await env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').bind(await sha256(next), now(), user.id).run();
+          return json({ ok: true });
+        }
+
+        if (url.pathname === '/api/finance/dashboard') return dashboard(env, testFlag);
 
         if (url.pathname === '/api/settings' && request.method === 'GET') {
           return json(await readAppSettings(env));
         }
 
         if (url.pathname === '/api/settings' && request.method === 'PUT') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
           const payload = await readJson<AppSettings>(request);
           const saved = await saveAppSettings(env, user, payload);
           await recordAudit(env, user, {
@@ -461,13 +594,13 @@ const worker: ExportedHandler<Env> = {
           });
         }
 
-        if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url);
-        if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env);
-        if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env);
+        if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url, testFlag);
+        if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env, testFlag);
+        if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env, testFlag);
         if (url.pathname === '/api/audit-logs' && request.method === 'GET') return listAuditLogs(env);
 
         if (url.pathname === '/api/reports/tax-statement/send' && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
           const payload = await readJson<{ memberId?: string; year?: number }>(request);
           const memberId = String(payload.memberId || '');
           const year = Number(payload.year);
@@ -484,7 +617,7 @@ const worker: ExportedHandler<Env> = {
              FROM offerings o
              LEFT JOIN offering_categories c ON c.id = o.category_id
              LEFT JOIN offering_methods method ON method.id = o.method_id
-             WHERE o.member_id = ? AND substr(o.date, 1, 4) = ?
+             WHERE o.member_id = ? AND substr(o.date, 1, 4) = ? AND o.is_test = 0
              ORDER BY o.date`
           ).bind(memberId, String(year)).all();
           const offerings = (offeringRows.results || []).map(mapOffering);
@@ -522,16 +655,93 @@ const worker: ExportedHandler<Env> = {
           return json({ ok: true });
         }
 
+        if (url.pathname === '/api/users' && request.method === 'GET') {
+          if (!canManageUsers(user.role)) return error('Forbidden', 403);
+          const result = await env.DB.prepare('SELECT * FROM users ORDER BY created_at').all();
+          return json({ items: (result.results || []).map(mapUser), total: result.results?.length || 0 });
+        }
+
+        if (url.pathname === '/api/users' && request.method === 'POST') {
+          if (!canManageUsers(user.role)) return error('Forbidden', 403);
+          const payload = await readJson<any>(request);
+          const name = String(payload.name || '').trim();
+          const email = String(payload.email || '').trim();
+          const role = String(payload.role || '') as Role;
+          const password = String(payload.password || '');
+          if (!name || !email) return error('姓名與電郵必填');
+          if (!VALID_ROLES.includes(role)) return error('角色無效');
+          if (password.length < 6) return error('密碼至少 6 個字元');
+          const dup = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').bind(email).first();
+          if (dup) return error('該電郵已被使用');
+          const itemId = id();
+          await env.DB.prepare(
+            'INSERT INTO users (id, name, email, role, member_id, password_hash, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)'
+          ).bind(itemId, name, email, role, payload.memberId || null, await sha256(password), now(), now()).run();
+          const row = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(itemId).first();
+          await recordAudit(env, user, { action: 'create', entityType: 'user', entityId: itemId, entitySummary: `用戶 ${name} <${email}>` });
+          return json(mapUser(row), 201);
+        }
+
+        if (url.pathname.match(/^\/api\/users\/[^/]+\/reset-password$/) && request.method === 'POST') {
+          if (!canManageUsers(user.role)) return error('Forbidden', 403);
+          const itemId = url.pathname.split('/')[3];
+          const payload = await readJson<{ password?: string }>(request);
+          const password = String(payload.password || '');
+          if (password.length < 6) return error('密碼至少 6 個字元');
+          const target = await env.DB.prepare('SELECT name, email FROM users WHERE id = ?').bind(itemId).first<any>();
+          if (!target) return error('User not found', 404);
+          await env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').bind(await sha256(password), now(), itemId).run();
+          await recordAudit(env, user, { action: 'update', entityType: 'user', entityId: itemId, entitySummary: `重置密碼 ｜ ${target.name} <${target.email}>` });
+          return json({ ok: true });
+        }
+
+        if (url.pathname.match(/^\/api\/users\/[^/]+$/)) {
+          if (!canManageUsers(user.role)) return error('Forbidden', 403);
+          const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
+          const target = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(itemId).first<any>();
+          if (!target) return error('User not found', 404);
+          if (request.method === 'PUT') {
+            const payload = await readJson<any>(request);
+            const name = String(payload.name ?? target.name).trim();
+            const email = String(payload.email ?? target.email).trim();
+            const role = String(payload.role ?? target.role) as Role;
+            const active = payload.active === undefined ? Number(target.active) : (payload.active ? 1 : 0);
+            if (!name || !email) return error('姓名與電郵必填');
+            if (!VALID_ROLES.includes(role)) return error('角色無效');
+            if (target.role === 'super_admin' && (role !== 'super_admin' || !active)) {
+              const supers = await env.DB.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'super_admin' AND active = 1").first<any>();
+              if (Number(supers?.c || 0) <= 1) return error('必須保留至少一個啟用的 Super Admin');
+            }
+            const dup = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = lower(?) AND id != ?').bind(email, itemId).first();
+            if (dup) return error('該電郵已被使用');
+            await env.DB.prepare('UPDATE users SET name = ?, email = ?, role = ?, member_id = ?, active = ?, updated_at = ? WHERE id = ?')
+              .bind(name, email, role, payload.memberId || null, active, now(), itemId).run();
+            const row = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(itemId).first();
+            await recordAudit(env, user, { action: 'update', entityType: 'user', entityId: itemId, entitySummary: `用戶 ${name} <${email}>` });
+            return json(mapUser(row));
+          }
+          if (request.method === 'DELETE') {
+            if (itemId === user.id) return error('不能刪除自己的帳號');
+            if (target.role === 'super_admin') {
+              const supers = await env.DB.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'super_admin' AND active = 1").first<any>();
+              if (Number(supers?.c || 0) <= 1) return error('必須保留至少一個啟用的 Super Admin');
+            }
+            await recordAudit(env, user, { action: 'delete', entityType: 'user', entityId: itemId, entitySummary: `用戶 ${target.name} <${target.email}>`, reason: '用戶管理刪除' });
+            await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(itemId).run();
+            return json({ ok: true });
+          }
+        }
+
         if (url.pathname === '/api/members' && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageMembers(user.role)) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
           const itemId = id();
           await env.DB.prepare(
             `INSERT INTO members (
               id, import_pid, name, first_name, last_name, partner, email, phone, home_phone,
               group_id, status, join_date, address, city, state_region, postal_code, notes,
-              avatar_url, contact_confirmed, external_contact, import_source, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              avatar_url, contact_confirmed, external_contact, import_source, is_test, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             itemId,
             payload.importPid || null,
@@ -554,6 +764,7 @@ const worker: ExportedHandler<Env> = {
             payload.contactConfirmed ? 1 : 0,
             payload.externalContact ? 1 : 0,
             payload.importSource || null,
+            testFlag,
             now(),
             now()
           ).run();
@@ -569,12 +780,12 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname === '/api/offerings' && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
           const itemId = id();
           await env.DB.prepare(
-            'INSERT INTO offerings (id, member_id, amount, date, category_id, method_id, notes, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(itemId, payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), now()).run();
+            'INSERT INTO offerings (id, member_id, amount, date, category_id, method_id, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(itemId, payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, testFlag, now(), now()).run();
           const created = await getOffering(env, itemId);
           await recordAudit(env, user, {
             action: 'create',
@@ -586,12 +797,12 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname === '/api/expenses' && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
           const itemId = id();
           await env.DB.prepare(
-            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.notes || '', payload.receiptUrl || null, now(), now()).run();
+            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.notes || '', payload.receiptUrl || null, testFlag, now(), now()).run();
           const created = await getExpense(env, itemId);
           await recordAudit(env, user, {
             action: 'create',
@@ -603,10 +814,11 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/members\/[^/]+\/star$/) && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageMembers(user.role)) return error('Forbidden', 403);
           const itemId = url.pathname.split('/')[3];
-          const current = await env.DB.prepare('SELECT starred FROM members WHERE id = ?').bind(itemId).first<any>();
+          const current = await env.DB.prepare('SELECT starred, is_test FROM members WHERE id = ?').bind(itemId).first<any>();
           if (!current) return error('Member not found', 404);
+          if (!sameTestScope(user.role, current.is_test)) return error('Forbidden', 403);
           const newStarred = current.starred ? 0 : 1;
           await env.DB.prepare('UPDATE members SET starred = ?, updated_at = ? WHERE id = ?').bind(newStarred, now(), itemId).run();
           const row = await env.DB.prepare(
@@ -616,11 +828,12 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/members\/[^/]+$/)) {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageMembers(user.role)) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
             const before = await env.DB.prepare('SELECT * FROM members WHERE id = ?').bind(itemId).first<any>();
+            if (before && !sameTestScope(user.role, before.is_test)) return error('Forbidden', 403);
             await env.DB.prepare(
               `UPDATE members SET
                 import_pid = ?, name = ?, first_name = ?, last_name = ?, partner = ?, email = ?,
@@ -680,8 +893,9 @@ const worker: ExportedHandler<Env> = {
           if (request.method === 'DELETE') {
             const reason = await readDeleteReason(request);
             if (!reason) return error('刪除原因不能為空');
-            const existing = await env.DB.prepare('SELECT name, first_name, last_name FROM members WHERE id = ?').bind(itemId).first<any>();
+            const existing = await env.DB.prepare('SELECT name, first_name, last_name, is_test FROM members WHERE id = ?').bind(itemId).first<any>();
             if (!existing) return error('Member not found', 404);
+            if (!sameTestScope(user.role, existing.is_test)) return error('Forbidden', 403);
             const fullName = [existing.first_name, existing.last_name].filter(Boolean).join(' ').trim();
             const summary = `成員 ${fullName || existing.name || itemId}`;
             await recordAudit(env, user, { action: 'delete', entityType: 'member', entityId: itemId, entitySummary: summary, reason });
@@ -691,11 +905,12 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/offerings\/[^/]+$/)) {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
             const before = await getOffering(env, itemId);
+            if (before && !sameTestScope(user.role, before.isTest)) return error('Forbidden', 403);
             await env.DB.prepare('UPDATE offerings SET member_id = ?, amount = ?, date = ?, category_id = ?, method_id = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
               .bind(payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
             const updated = await getOffering(env, itemId);
@@ -721,6 +936,7 @@ const worker: ExportedHandler<Env> = {
             if (!reason) return error('刪除原因不能為空');
             const existing = await getOffering(env, itemId);
             if (!existing) return error('Offering not found', 404);
+            if (!sameTestScope(user.role, existing.isTest)) return error('Forbidden', 403);
             const summary = offeringSummary(existing);
             await recordAudit(env, user, { action: 'delete', entityType: 'offering', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM offerings WHERE id = ?').bind(itemId).run();
@@ -729,8 +945,11 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/expenses\/[^/]+\/(approve|reject)$/) && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const [, , , itemId, action] = url.pathname.split('/');
+          const reviewTarget = await getExpense(env, itemId);
+          if (!reviewTarget) return error('Expense not found', 404);
+          if (!sameTestScope(user.role, reviewTarget.isTest)) return error('Forbidden', 403);
           const status = action === 'approve' ? 'approved' : 'rejected';
           await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?').bind(status, user.memberId, now(), itemId).run();
           const reviewed = await getExpense(env, itemId);
@@ -744,11 +963,12 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/expenses\/[^/]+$/)) {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
             const before = await getExpense(env, itemId);
+            if (before && !sameTestScope(user.role, before.isTest)) return error('Forbidden', 403);
             await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
               .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
             const updated = await getExpense(env, itemId);
@@ -775,6 +995,7 @@ const worker: ExportedHandler<Env> = {
             if (!reason) return error('刪除原因不能為空');
             const existing = await getExpense(env, itemId);
             if (!existing) return error('Expense not found', 404);
+            if (!sameTestScope(user.role, existing.isTest)) return error('Forbidden', 403);
             const summary = expenseSummary(existing);
             await recordAudit(env, user, { action: 'delete', entityType: 'expense', entityId: itemId, entitySummary: summary, reason });
             await env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(itemId).run();
@@ -783,7 +1004,7 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname === '/api/upload' && request.method === 'POST') {
-          if (roleRank[user.role] < roleRank.finance_admin) return error('Forbidden', 403);
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const form = await request.formData();
           const file = form.get('file');
           const type = String(form.get('type') || 'files');

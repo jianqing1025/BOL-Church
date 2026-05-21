@@ -1,4 +1,4 @@
-import type { AppSettings, AuditLog, DashboardStats, Expense, ExpenseCategory, LookupData, Member, Offering, User } from '../types';
+import type { AppSettings, AuditLog, DashboardStats, Expense, ExpenseCategory, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -29,6 +29,12 @@ export const api = {
   login: (email: string, password: string) =>
     request<{ user: User }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: true }>('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  forgotPassword: (email: string) =>
+    request<{ ok: true }>('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, password: string) =>
+    request<{ ok: true }>('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
   dashboard: () => request<DashboardStats>('/api/finance/dashboard'),
   settings: () => request<AppSettings>('/api/settings'),
   updateSettings: (payload: AppSettings) =>
@@ -62,6 +68,15 @@ export const api = {
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
   sendTaxStatement: (memberId: string, year: number) =>
     request<{ ok: true }>('/api/reports/tax-statement/send', { method: 'POST', body: JSON.stringify({ memberId, year }) }),
+  users: () => request<{ items: UserAccount[]; total: number }>('/api/users'),
+  createUser: (payload: { name: string; email: string; role: Role; password: string }) =>
+    request<UserAccount>('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
+  updateUser: (id: string, payload: { name: string; email: string; role: Role; active: boolean }) =>
+    request<UserAccount>(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteUser: (id: string) =>
+    request<{ ok: true }>(`/api/users/${id}`, { method: 'DELETE' }),
+  resetUserPassword: (id: string, password: string) =>
+    request<{ ok: true }>(`/api/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) }),
   upload: (file: File, type: string, entityId?: string) => {
     const form = new FormData();
     form.append('file', file);

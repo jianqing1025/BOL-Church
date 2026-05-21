@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
-import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, TaxStatementSettings, TaxStatementTextFields } from './types';
+import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { currency, dateTime, shortDate } from './utils/format';
 import { api } from './utils/api';
 import {
@@ -15,7 +15,24 @@ import {
   normalizeTaxStatementSettings
 } from './shared/taxStatement';
 
-type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports';
+type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users';
+
+const roleLabels: Record<Role, string> = {
+  super_admin: 'Super Admin',
+  finance_admin: 'Admin',
+  auditor: 'Reader',
+  dev: 'Dev'
+};
+
+function userInitials(name?: string, email?: string): string {
+  const n = (name || '').trim();
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    return n.slice(0, 2).toUpperCase();
+  }
+  return (email || '?').slice(0, 2).toUpperCase();
+}
 
 async function compressImage(file: File): Promise<Blob> {
   return new Promise((resolve) => {
@@ -67,6 +84,7 @@ function LoginPage() {
   const [password, setPassword] = useState('Bolccop110550');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [focusField, setFocusField] = useState<'none' | 'email' | 'password'>('none');
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -130,15 +148,19 @@ function LoginPage() {
             </label>
             {error && <p className="error">{error}</p>}
             <button className="primary" disabled={loading}>登入</button>
+            <button type="button" className="login-forgot" onClick={() => setForgotOpen(true)}>忘記密碼？</button>
           </form>
         </div>
       </section>
+      {forgotOpen && <ForgotPasswordModal onClose={() => setForgotOpen(false)} />}
     </main>
   );
 }
 
 function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void }) {
   const { user, logout } = useAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const items: Array<[Page, string]> = [
     ['dashboard', '數據看板'],
     ['members', '成員管理'],
@@ -146,6 +168,7 @@ function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void })
     ['expenses', '支出管理'],
     ['reports', '報表日誌']
   ];
+  if (user?.role === 'super_admin') items.push(['users', '用戶管理']);
 
   return (
     <aside className="sidebar">
@@ -163,11 +186,25 @@ function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void })
           </button>
         ))}
       </nav>
-      <div className="user-card">
-        <strong>{user?.name}</strong>
-        <small>{user?.role}</small>
-        <button onClick={logout}>登出</button>
-      </div>
+      {user && (
+        <div className="user-card">
+          <div className="user-card-avatar">{userInitials(user.name, user.email)}</div>
+          <div className="user-card-id">
+            <strong title={user.name}>{user.name}</strong>
+            <small>{roleLabels[user.role]}</small>
+          </div>
+          <details className="user-card-menu">
+            <summary aria-label="帳號選單">⋯</summary>
+            <div className="user-card-pop">
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setProfileOpen(true); }}>個人資料</button>
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setPasswordOpen(true); }}>變更密碼</button>
+              <button type="button" className="danger" onClick={() => logout()}>登出</button>
+            </div>
+          </details>
+        </div>
+      )}
+      {profileOpen && user && <ProfileModal user={user} onClose={() => setProfileOpen(false)} />}
+      {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
     </aside>
   );
 }
@@ -589,10 +626,10 @@ function MembersPage() {
       <Toolbar>
         <input placeholder="搜尋姓名、電話或郵件" value={query} onChange={event => setQuery(event.target.value)} />
         <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <button className="primary" onClick={() => setEditing(blankMember())}>新增成員</button>
           <button type="button" onClick={() => setActiveOnly(v => !v)} className={activeOnly ? 'primary' : ''}>
             {activeOnly ? '僅活躍成員' : '顯示全部'}
           </button>
-          <button className="primary" onClick={() => setEditing(blankMember())}>新增成員</button>
           <div className="col-settings-wrap desk-only" ref={colSettingsRef}>
             <button type="button" onClick={() => setColSettingsOpen(open => !open)} className={colSettingsOpen ? 'primary' : ''}>
               欄位設定
@@ -757,6 +794,8 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 
 function OfferingsPage() {
   const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
   const [editing, setEditing] = useState<Offering | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [detail, setDetail] = useState<Offering | null>(null);
@@ -791,12 +830,14 @@ function OfferingsPage() {
       <PageTitle title="奉獻記錄" subtitle="分類、支付方式、匿名奉獻與收據追蹤" />
       <Toolbar>
         <strong>目前列表合計：{currency(total)}</strong>
-        <button className="primary" onClick={() => setEditing(blankOffering())}>記錄奉獻</button>
-        <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
-          {years.length
-            ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
-            : <option value={year}>{year} 年度</option>}
-        </select>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {canEdit && <button className="primary" onClick={() => setEditing(blankOffering())}>記錄奉獻</button>}
+          <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+            {years.length
+              ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
+              : <option value={year}>{year} 年度</option>}
+          </select>
+        </div>
       </Toolbar>
       {editing && (
         <OfferingForm
@@ -843,7 +884,7 @@ function OfferingsPage() {
               <td>{currency(item.amount)}</td>
               <td>{item.notes}</td>
               <td>{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
-              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></td>
+              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
           ))}
         </tbody>
@@ -854,6 +895,8 @@ function OfferingsPage() {
 
 function ExpensesPage() {
   const { members, expenses, lookups, saveExpense, deleteExpense, approveExpense, rejectExpense } = useFinance();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
   const [editing, setEditing] = useState<Expense | null>(null);
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const pending = expenses.filter(item => item.status === 'pending');
@@ -870,7 +913,7 @@ function ExpensesPage() {
       <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
       <Toolbar>
         <strong>待審核：{pending.length}</strong>
-        <button className="primary" onClick={() => setEditing(blankExpense())}>新增支出</button>
+        {canEdit && <button className="primary" onClick={() => setEditing(blankExpense())}>新增支出</button>}
       </Toolbar>
       {editing && (
         <ExpenseForm
@@ -906,10 +949,10 @@ function ExpensesPage() {
               <td>{currency(item.amount)}</td>
               <td><Badge>{expenseStatusLabels[item.status]}</Badge></td>
               <td className="actions">
-                {item.status === 'pending' && <button onClick={() => approveExpense(item.id)}>批准</button>}
-                {item.status === 'pending' && <button onClick={() => rejectExpense(item.id)}>拒絕</button>}
-                <button onClick={() => setEditing(item)}>編輯</button>
-                <button onClick={() => setDeletingExpense(item)}>刪除</button>
+                {canEdit && item.status === 'pending' && <button onClick={() => approveExpense(item.id)}>批准</button>}
+                {canEdit && item.status === 'pending' && <button onClick={() => rejectExpense(item.id)}>拒絕</button>}
+                {canEdit && <button onClick={() => setEditing(item)}>編輯</button>}
+                {canEdit && <button onClick={() => setDeletingExpense(item)}>刪除</button>}
               </td>
             </tr>
           ))}
@@ -942,7 +985,9 @@ const auditEntityLabels: Record<string, string> = {
   member: '成員',
   offering: '奉獻',
   expense: '支出',
-  tax_statement: '報稅文件'
+  tax_statement: '報稅文件',
+  settings: '報稅設定',
+  user: '用戶'
 };
 
 function AuditLogTable({ logs }: { logs: AuditLog[] }) {
@@ -987,6 +1032,8 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
   onClose: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { hasPermission } = useAuth();
+  const canSend = hasPermission('super_admin', 'finance_admin');
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -1020,13 +1067,13 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
         {result && <p className={result.ok ? 'tax-sent' : 'error'} style={{ margin: 0 }}>{result.message}</p>}
         <footer>
           <button type="button" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
-          {member.email ? (
+          {canSend && (member.email ? (
             <button type="button" className="primary" onClick={send} disabled={sending}>
               {sending ? '發送中…' : `發送至 ${member.email}`}
             </button>
           ) : (
             <button type="button" className="primary" disabled title="該成員無電郵地址">無電郵，無法發送</button>
-          )}
+          ))}
         </footer>
       </div>
     </div>
@@ -1222,7 +1269,7 @@ function TaxSettingsModal({
           <div className="settings-panel">
             <div className="settings-tabs secondary">
               <button type="button" className={templateMode === 'text' ? 'active' : ''} onClick={() => setTemplateMode('text')}>文字字段</button>
-              <button type="button" className={templateMode === 'html' ? 'active' : ''} onClick={() => setTemplateMode('html')}>進階 HTML</button>
+              <button type="button" className={templateMode === 'html' ? 'active' : ''} onClick={() => setTemplateMode('html')}>HTML 編輯</button>
             </div>
 
             {templateMode === 'text' && (
@@ -1352,9 +1399,16 @@ function AnnualTaxReportSection() {
               <tr><th>姓名</th><th>電郵</th><th>筆數</th><th>年度合計</th><th>操作</th></tr>
             </thead>
             <tbody>
-              {rows.map(row => (
+              {rows.map(row => {
+                const address = [row.member.address, row.member.city, row.member.stateRegion, row.member.postalCode]
+                  .filter(Boolean)
+                  .join(', ');
+                return (
                 <tr key={row.member.id}>
-                  <td>{memberDisplayName(row.member)}</td>
+                  <td>
+                    <strong style={{ display: 'block' }}>{memberDisplayName(row.member)}</strong>
+                    {address && <small>{address}</small>}
+                  </td>
                   <td>{row.member.email || <span style={{ color: '#94a3b8' }}>無電郵</span>}</td>
                   <td>{row.count}</td>
                   <td>{currency(row.total)}</td>
@@ -1363,7 +1417,8 @@ function AnnualTaxReportSection() {
                     <button onClick={() => setTaxMember(row.member)}>生成稅務文件</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1570,8 +1625,8 @@ function OfferingForm({
       <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
       <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
       {form.receiptUrl && (
-        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-start' }}>
-          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 360, maxHeight: 360, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
+        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center' }}>
+          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 400, maxHeight: 400, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
           <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
         </div>
       )}
@@ -1643,8 +1698,8 @@ function ExpenseForm({
       </select>
       <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
       {form.receiptUrl && (
-        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-start' }}>
-          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 360, maxHeight: 360, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
+        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center' }}>
+          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 400, maxHeight: 400, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
           <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
         </div>
       )}
@@ -1699,10 +1754,399 @@ function blankExpense(): Expense {
   return { id: '', categoryId: null, amount: 0, date: new Date().toISOString().slice(0, 10), description: '', paidBy: null, approvedBy: null, paymentMethod: '現金', status: 'pending', notes: '', receiptUrl: null, createdAt: '', updatedAt: '' };
 }
 
+function ConfirmModal({ title, message, confirmText = '確認', danger, onClose, onConfirm }: {
+  title: string;
+  message: React.ReactNode;
+  confirmText?: string;
+  danger?: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onConfirm();
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '操作失敗');
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: 'min(420px, 100%)' }}>
+        <header><h2>{title}</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <p style={{ margin: 0, color: '#526176' }}>{message}</p>
+        {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="primary" style={danger ? { background: '#dc2626' } : undefined} disabled={busy} onClick={run}>
+            {busy ? '處理中…' : confirmText}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function UserForm({ user, onClose, onSaved }: {
+  user?: UserAccount;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  const isEdit = Boolean(user);
+  const [name, setName] = useState(user?.name ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [role, setRole] = useState<Role>(user?.role ?? 'auditor');
+  const [active, setActive] = useState(user?.active ?? true);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      if (isEdit && user) {
+        await api.updateUser(user.id, { name, email, role, active });
+      } else {
+        await api.createUser({ name, email, role, password });
+      }
+      await onSaved();
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '儲存失敗');
+      setBusy(false);
+    }
+  };
+
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} disabled={busy}>取消</button>
+      <button className="primary" disabled={busy}>{busy ? '儲存中…' : '儲存'}</button>
+    </>
+  );
+
+  return (
+    <FormModal title={isEdit ? '編輯用戶' : '新增用戶'} onClose={onClose} onSubmit={submit} footer={footer}>
+      <input value={name} onChange={event => setName(event.target.value)} placeholder="姓名 *" required />
+      <input value={email} onChange={event => setEmail(event.target.value)} type="email" placeholder="電郵 *" required />
+      <select value={role} onChange={event => setRole(event.target.value as Role)}>
+        {(Object.keys(roleLabels) as Role[]).map(r => <option key={r} value={r}>{roleLabels[r]}</option>)}
+      </select>
+      {isEdit ? (
+        <select value={active ? '1' : '0'} onChange={event => setActive(event.target.value === '1')}>
+          <option value="1">啟用</option>
+          <option value="0">停用</option>
+        </select>
+      ) : (
+        <input value={password} onChange={event => setPassword(event.target.value)} type="password" placeholder="初始密碼 *（至少 6 字元）" required />
+      )}
+      {err && <p className="error" style={{ gridColumn: '1 / -1', margin: 0 }}>{err}</p>}
+    </FormModal>
+  );
+}
+
+function ResetPasswordModal({ user, onClose }: { user: UserAccount; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    if (password.length < 6) { setErr('密碼至少 6 個字元'); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.resetUserPassword(user.id, password);
+      setDone(true);
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '重置失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal" style={{ width: 'min(420px, 100%)' }} onSubmit={event => { event.preventDefault(); submit(); }}>
+        <header><h2>重置密碼</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <p style={{ margin: 0, color: '#526176' }}>為 <strong>{user.name}</strong> 設定新密碼。</p>
+        <input
+          value={password}
+          onChange={event => { setPassword(event.target.value); setErr(null); setDone(false); }}
+          type="password"
+          placeholder="新密碼（至少 6 字元）"
+          autoFocus
+        />
+        {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+        {done && <p className="tax-sent" style={{ margin: 0 }}>密碼已重置</p>}
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>關閉</button>
+          <button type="submit" className="primary" disabled={busy || done}>{busy ? '處理中…' : '重置密碼'}</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function UsersPage() {
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<UserAccount | null>(null);
+  const [resetting, setResetting] = useState<UserAccount | null>(null);
+  const [deleting, setDeleting] = useState<UserAccount | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const result = await api.users();
+      setUsers(result.items);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '載入失敗');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <section className="page">
+      <PageTitle title="用戶管理" subtitle="帳號、角色與密碼管理" />
+      <Toolbar>
+        <strong>共 {users.length} 個帳號</strong>
+        <button className="primary" onClick={() => setCreating(true)}>新增用戶</button>
+      </Toolbar>
+      {error && <p className="error">{error}</p>}
+      {loading ? (
+        <div className="empty">載入中…</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>姓名</th><th>電郵</th><th>角色</th><th>狀態</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {users.map(item => (
+                <tr key={item.id}>
+                  <td>{item.name}{item.id === currentUser?.id && <small>目前登入</small>}</td>
+                  <td>{item.email}</td>
+                  <td><Badge>{roleLabels[item.role]}</Badge></td>
+                  <td>{item.active ? '啟用' : <span style={{ color: '#94a3b8' }}>停用</span>}</td>
+                  <td className="actions">
+                    <button onClick={() => setEditing(item)}>編輯</button>
+                    <button onClick={() => setResetting(item)}>重置密碼</button>
+                    <button onClick={() => setDeleting(item)} disabled={item.id === currentUser?.id}>刪除</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {creating && <UserForm onClose={() => setCreating(false)} onSaved={async () => { setCreating(false); await load(); }} />}
+      {editing && <UserForm user={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
+      {resetting && <ResetPasswordModal user={resetting} onClose={() => setResetting(null)} />}
+      {deleting && (
+        <ConfirmModal
+          title="刪除用戶"
+          message={<>確定要刪除「<strong>{deleting.name}</strong>」嗎？此操作無法復原。</>}
+          confirmText="確認刪除"
+          danger
+          onClose={() => setDeleting(null)}
+          onConfirm={async () => { await api.deleteUser(deleting.id); setDeleting(null); await load(); }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: 'min(400px, 100%)' }}>
+        <header><h2>個人資料</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <div className="profile-card">
+          <div className="profile-card-avatar">{userInitials(user.name, user.email)}</div>
+          <strong>{user.name}</strong>
+          <span className="user-card-role">{roleLabels[user.role]}</span>
+        </div>
+        <div className="detail-grid">
+          <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
+            <small>電郵</small>
+            <span>{user.email}</span>
+          </div>
+        </div>
+        <footer><button type="button" className="primary" onClick={onClose}>關閉</button></footer>
+      </div>
+    </div>
+  );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    if (next.length < 6) { setErr('新密碼至少 6 個字元'); return; }
+    if (next !== confirm) { setErr('兩次輸入的新密碼不一致'); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.changePassword(current, next);
+      setDone(true);
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '變更失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal" style={{ width: 'min(420px, 100%)' }} onSubmit={event => { event.preventDefault(); submit(); }}>
+        <header><h2>變更密碼</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <div className="stack">
+          <label>當前密碼
+            <input type="password" value={current} onChange={event => { setCurrent(event.target.value); setErr(null); }} required />
+          </label>
+          <label>新密碼（至少 6 字元）
+            <input type="password" value={next} onChange={event => { setNext(event.target.value); setErr(null); }} required />
+          </label>
+          <label>確認新密碼
+            <input type="password" value={confirm} onChange={event => { setConfirm(event.target.value); setErr(null); }} required />
+          </label>
+        </div>
+        {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+        {done && <p className="tax-sent" style={{ margin: 0 }}>密碼已變更</p>}
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>關閉</button>
+          <button type="submit" className="primary" disabled={busy || done}>{busy ? '處理中…' : '變更密碼'}</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.forgotPassword(email);
+      setSent(true);
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '發送失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal" style={{ width: 'min(420px, 100%)' }} onSubmit={event => { event.preventDefault(); submit(); }}>
+        <header><h2>忘記密碼</h2><button type="button" onClick={onClose}>關閉</button></header>
+        {sent ? (
+          <p style={{ margin: 0, color: '#526176', lineHeight: 1.6 }}>
+            若該電郵已註冊，重設密碼的連結已寄出，請查收郵件（含垃圾郵件匣）。連結 1 小時內有效。
+          </p>
+        ) : (
+          <>
+            <p style={{ margin: 0, color: '#526176', lineHeight: 1.6 }}>輸入你的帳號電郵，系統會寄出重設密碼的連結。</p>
+            <input type="email" value={email} onChange={event => { setEmail(event.target.value); setErr(null); }} placeholder="電郵" autoFocus required />
+            {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+          </>
+        )}
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>關閉</button>
+          {!sent && <button type="submit" className="primary" disabled={busy}>{busy ? '發送中…' : '寄出重設連結'}</button>}
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function ResetPasswordView({ token }: { token: string }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    if (password.length < 6) { setErr('密碼至少 6 個字元'); return; }
+    if (password !== confirm) { setErr('兩次輸入的密碼不一致'); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.resetPassword(token, password);
+      setDone(true);
+    } catch (caught) {
+      setErr(caught instanceof Error ? caught.message : '重設失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const goLogin = () => { window.location.href = window.location.pathname; };
+
+  return (
+    <main className="login-shell">
+      <span className="login-dot dot-one" />
+      <span className="login-dot dot-two" />
+      <span className="login-dot dot-three" />
+      <section className="reset-panel">
+        <p className="eyebrow">BOLCCOP Finance 2.0</p>
+        <h1>重設密碼</h1>
+        {done ? (
+          <div className="stack">
+            <p className="tax-sent" style={{ margin: 0 }}>密碼已重設，請使用新密碼登入。</p>
+            <button type="button" className="primary" onClick={goLogin}>前往登入</button>
+          </div>
+        ) : (
+          <form className="stack" onSubmit={event => { event.preventDefault(); submit(); }}>
+            <label>新密碼（至少 6 字元）
+              <input type="password" value={password} onChange={event => { setPassword(event.target.value); setErr(null); }} required />
+            </label>
+            <label>確認新密碼
+              <input type="password" value={confirm} onChange={event => { setConfirm(event.target.value); setErr(null); }} required />
+            </label>
+            {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+            <button type="submit" className="primary" disabled={busy}>{busy ? '處理中…' : '重設密碼'}</button>
+            <button type="button" className="login-forgot" onClick={goLogin}>返回登入</button>
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
   const { user, loading } = useAuth();
   const finance = useFinance();
   const [page, setPage] = useState<Page>('dashboard');
+  const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
 
   useEffect(() => {
     if (user) finance.refreshAll();
@@ -1715,10 +2159,12 @@ export default function App() {
     if (page === 'offerings') return <OfferingsPage />;
     if (page === 'expenses') return <ExpensesPage />;
     if (page === 'reports') return <ReportsPage />;
+    if (page === 'users') return <UsersPage />;
     return <DashboardPage />;
   }, [page, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
   if (loading) return <Empty title="正在檢查登入狀態" />;
+  if (resetToken && !user) return <ResetPasswordView token={resetToken} />;
   if (!user) return <LoginPage />;
 
   return (

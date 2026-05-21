@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'finance_admin' | 'auditor' | 'member';
+export type Role = 'super_admin' | 'finance_admin' | 'auditor' | 'dev';
 export type MemberStatus = 'active' | 'inactive' | 'visitor';
 export type ExpenseStatus = 'pending' | 'approved' | 'rejected';
 
@@ -42,6 +42,7 @@ export interface Member {
   externalContact?: boolean;
   importSource?: string;
   totalOffering: number;
+  isTest?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,6 +73,7 @@ export interface Offering {
   methodName?: string;
   notes: string;
   receiptUrl?: string | null;
+  isTest?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,6 +101,18 @@ export interface Expense {
   status: ExpenseStatus;
   notes: string;
   receiptUrl?: string | null;
+  isTest?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  memberId: string | null;
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 }
