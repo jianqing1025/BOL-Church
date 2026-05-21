@@ -3,7 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
 import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
-import { currency, dateTime, shortDate } from './utils/format';
+import { currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import {
   DEFAULT_REPLY_TO,
@@ -178,8 +178,18 @@ function Shell({ page, setPage, onOpenAccount }: {
         <span className="brand-mark">財</span>
         <div className="brand-text">
           <strong>信望愛靈糧堂</strong>
-          <small>财务管理系统</small>
+          <small><span className="desk-only">财务管理系统</span><span className="mob-only">财务系统</span></small>
         </div>
+        {user && (
+          <details className="brand-account mob-only">
+            <summary className="brand-avatar" aria-label="帳號選單">{userInitials(user.name, user.email)}</summary>
+            <div className="user-card-pop">
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('profile'); }}>個人資料</button>
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('password'); }}>變更密碼</button>
+              <button type="button" className="danger" onClick={() => logout()}>登出</button>
+            </div>
+          </details>
+        )}
       </div>
       <nav>
         {items.map(([id, label]) => (
@@ -438,12 +448,15 @@ function ConfirmDeleteModal({ title, target, onClose, onConfirm }: {
   );
 }
 
-function OfferingDetail({ offering, offerings, members, onClose, onNavigate }: {
+function OfferingDetail({ offering, offerings, members, canEdit, onClose, onNavigate, onEdit, onDelete }: {
   offering: Offering;
   offerings: Offering[];
   members: Member[];
+  canEdit: boolean;
   onClose: () => void;
   onNavigate: (offering: Offering) => void;
+  onEdit: (offering: Offering) => void;
+  onDelete: (offering: Offering) => void;
 }) {
   const index = offerings.findIndex(o => o.id === offering.id);
   const prev = index > 0 ? offerings[index - 1] : null;
@@ -488,6 +501,8 @@ function OfferingDetail({ offering, offerings, members, onClose, onNavigate }: {
         )}
         <footer>
           <button type="button" disabled={!prev} onClick={() => prev && onNavigate(prev)}>← 上一條</button>
+          {canEdit && <button type="button" onClick={() => onEdit(offering)}>編輯</button>}
+          {canEdit && <button type="button" onClick={() => onDelete(offering)}>刪除</button>}
           <button type="button" disabled={!next} onClick={() => next && onNavigate(next)}>下一條 →</button>
         </footer>
       </div>
@@ -785,7 +800,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
         <img src={url} alt="憑證" style={{ maxWidth: '80vw', maxHeight: '75vh', borderRadius: 8, display: 'block', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
         <button
           onClick={onClose}
-          style={{ position: 'absolute', top: -14, right: -14, width: 28, height: 28, borderRadius: '50%', border: 'none', background: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: 14, lineHeight: '28px', textAlign: 'center', padding: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
+          style={{ position: 'absolute', top: -14, right: -14, width: 28, height: 28, borderRadius: '50%', border: 'none', background: '#fde8e8', color: '#c0392b', cursor: 'pointer', fontWeight: 'bold', fontSize: 14, lineHeight: '28px', textAlign: 'center', padding: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
         >✕</button>
       </div>
     </div>
@@ -830,7 +845,7 @@ function OfferingsPage() {
       <PageTitle title="奉獻記錄" subtitle="分類、支付方式、匿名奉獻與收據追蹤" />
       <Toolbar>
         <strong>目前列表合計：{currency(total)}</strong>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end' }}>
           {canEdit && <button className="primary" onClick={() => setEditing(blankOffering())}>記錄奉獻</button>}
           <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
             {years.length
@@ -857,8 +872,11 @@ function OfferingsPage() {
           offering={detail}
           offerings={filteredOfferings}
           members={members}
+          canEdit={canEdit}
           onClose={() => setDetail(null)}
           onNavigate={setDetail}
+          onEdit={offering => { setDetail(null); setEditing(offering); }}
+          onDelete={offering => { setDetail(null); setDeletingOffering(offering); }}
         />
       )}
       {deletingOffering && (
@@ -872,19 +890,19 @@ function OfferingsPage() {
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
       <table>
         <thead>
-          <tr><th>日期</th><th>成員</th><th>分類</th><th>方式</th><th>金額</th><th>備註</th><th>憑證</th><th>操作</th></tr>
+          <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th>金額</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
           {filteredOfferings.map(item => (
             <tr key={item.id}>
-              <td>{shortDate(item.date)}</td>
+              <td className="desk-only">{shortDate(item.date)}</td>
               <td>{offeringMemberLabel(item)}</td>
-              <td>{item.categoryName || '-'}</td>
-              <td>{item.methodName || '-'}</td>
+              <td className="desk-only">{item.categoryName || '-'}</td>
+              <td className="desk-only">{item.methodName || '-'}</td>
               <td>{currency(item.amount)}</td>
-              <td>{item.notes}</td>
-              <td>{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
-              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
+              <td className="desk-only">{item.notes}</td>
+              <td className="desk-only">{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
+              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button className="desk-only" onClick={() => setEditing(item)}>編輯</button><button className="desk-only" onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
           ))}
         </tbody>
@@ -986,22 +1004,106 @@ const auditEntityLabels: Record<string, string> = {
   offering: '奉獻',
   expense: '支出',
   tax_statement: '報稅文件',
-  settings: '報稅設定',
+  settings: '帳單設定',
   user: '用戶'
 };
 
+const auditFieldLabels: Record<string, string> = {
+  name: '姓名', firstName: 'First Name', lastName: 'Last Name', partner: '配偶',
+  email: '電郵', phone: '電話', homePhone: '住家電話', status: '狀態',
+  joinDate: '入會日期', address: '地址', city: '城市', stateRegion: '州/省',
+  postalCode: '郵編', notes: '備註', starred: '收藏', isTest: '測試數據',
+  groupName: '分組', contactConfirmed: '聯絡確認', externalContact: '外部聯絡人',
+  memberName: '奉獻人', amount: '金額', date: '日期', categoryName: '分類',
+  methodName: '方式', receiptUrl: '憑證', description: '描述', paidByName: '付款人',
+  approvedByName: '審批人', paymentMethod: '支付方式',
+  role: '角色', active: '啟用', mailFrom: '寄件地址', replyTo: '回覆地址', signatureUrl: '簽名圖'
+};
+
+const auditDiffSkip = new Set([
+  'id', 'createdAt', 'updatedAt', 'memberId', 'categoryId', 'methodId',
+  'paidBy', 'approvedBy', 'groupId', 'importPid', 'importSource', 'avatarUrl',
+  'totalOffering', 'htmlTemplate', 'textFields'
+]);
+
+function auditFmt(key: string, value: unknown): string {
+  if (key === 'receiptUrl' || key === 'signatureUrl') return value ? '有' : '無';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (value === null || value === undefined || value === '') return '—';
+  return String(value);
+}
+
+function AuditLogDetail({ log, onClose }: { log: AuditLog; onClose: () => void }) {
+  const before = log.before;
+  const after = log.after;
+  const hasSnapshot = Boolean(before || after);
+  const isUpdate = Boolean(before && after);
+  const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]))
+    .filter(key => !auditDiffSkip.has(key))
+    .filter(key => {
+      const bv = before ? before[key] : undefined;
+      const av = after ? after[key] : undefined;
+      if ((bv !== null && typeof bv === 'object') || (av !== null && typeof av === 'object')) return false;
+      if (isUpdate) return auditFmt(key, bv) !== auditFmt(key, av);
+      return true;
+    });
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: 'min(560px, 100%)' }}>
+        <header><h2>操作詳情</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <div className="detail-grid">
+          <div className="detail-field"><small>時間</small><span>{dateTime(log.createdAt)}</span></div>
+          <div className="detail-field"><small>操作人</small><span>{log.userName || '—'}</span></div>
+          <div className="detail-field"><small>操作</small><span>{auditActionLabels[log.action] || log.action}</span></div>
+          <div className="detail-field"><small>對象類型</small><span>{auditEntityLabels[log.entityType] || log.entityType}</span></div>
+          <div className="detail-field" style={{ gridColumn: '1 / -1' }}><small>對象</small><span>{log.entitySummary || '—'}</span></div>
+          {log.reason && <div className="detail-field" style={{ gridColumn: '1 / -1' }}><small>原因／備註</small><span>{log.reason}</span></div>}
+        </div>
+        {hasSnapshot && keys.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="audit-diff">
+              <thead><tr><th>欄位</th><th>修改前</th><th>修改後</th></tr></thead>
+              <tbody>
+                {keys.map(key => {
+                  const bv = auditFmt(key, before ? before[key] : undefined);
+                  const av = auditFmt(key, after ? after[key] : undefined);
+                  return (
+                    <tr key={key} className={bv !== av ? 'audit-diff-changed' : ''}>
+                      <td>{auditFieldLabels[key] || key}</td>
+                      <td>{bv}</td>
+                      <td>{av}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {hasSnapshot && keys.length === 0 && <p className="settings-note">此操作無欄位明細變動。</p>}
+        {!hasSnapshot && <p className="settings-note">此筆記錄無前後快照（可能為舊記錄）。</p>}
+        <footer><button type="button" className="primary" onClick={onClose}>關閉</button></footer>
+      </div>
+    </div>
+  );
+}
+
 function AuditLogTable({ logs }: { logs: AuditLog[] }) {
+  const [detailLog, setDetailLog] = useState<AuditLog | null>(null);
   if (!logs.length) return <SimpleList items={[]} />;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table>
         <thead>
-          <tr><th>時間</th><th>操作人</th><th>操作</th><th>對象</th><th>原因／備註</th></tr>
+          <tr><th>時間</th><th>操作人</th><th>操作</th><th className="desk-only">對象</th><th className="desk-only">原因／備註</th><th>詳情</th></tr>
         </thead>
         <tbody>
           {logs.map(log => (
             <tr key={log.id}>
-              <td style={{ whiteSpace: 'nowrap' }}>{dateTime(log.createdAt)}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                <span className="desk-only">{dateTime(log.createdAt)}</span>
+                <span className="mob-only">{tinyDate(log.createdAt)}</span>
+              </td>
               <td>{log.userName || '—'}</td>
               <td>
                 <span
@@ -1014,12 +1116,14 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
                   {auditActionLabels[log.action] || log.action}
                 </span>
               </td>
-              <td>{log.entitySummary || auditEntityLabels[log.entityType] || log.entityType}</td>
-              <td>{log.reason || '—'}</td>
+              <td className="desk-only">{log.entitySummary || auditEntityLabels[log.entityType] || log.entityType}</td>
+              <td className="desk-only">{log.reason || '—'}</td>
+              <td className="actions"><button onClick={() => setDetailLog(log)}>詳情</button></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {detailLog && <AuditLogDetail log={detailLog} onClose={() => setDetailLog(null)} />}
     </div>
   );
 }
@@ -1032,8 +1136,6 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
   onClose: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const { hasPermission } = useAuth();
-  const canSend = hasPermission('super_admin', 'finance_admin');
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -1043,33 +1145,54 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
     [member, offerings, year, settings]
   );
 
+  // 把預覽 iframe 內的 .sheet 渲染成 A4 PDF（一頁內容只出一頁）
+  const generatePdf = async () => {
+    const doc = iframeRef.current?.contentDocument;
+    const sheet = doc?.querySelector('.sheet') as HTMLElement | null;
+    if (!doc || !sheet) throw new Error('預覽尚未就緒');
+    // 簽名圖改走同源代理，否則 html2canvas 無法擷取跨域圖片
+    const sig = doc.querySelector('.sign-img') as HTMLImageElement | null;
+    if (sig && !sig.src.includes('/api/reports/tax-signature')) {
+      await new Promise<void>(resolve => {
+        sig.onload = () => resolve();
+        sig.onerror = () => resolve();
+        sig.src = '/api/reports/tax-signature';
+      });
+    }
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf')
+    ]);
+    const prevZoom = sheet.style.zoom;
+    sheet.style.zoom = '';
+    const canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      .finally(() => { sheet.style.zoom = prevZoom; });
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageW = 210;
+    const pageH = 297;
+    let imgH = (canvas.height * pageW) / canvas.width;
+    // 一頁內容時容許 2mm 捨入誤差，避免多出一張空白頁
+    if (imgH <= pageH + 2) imgH = pageH;
+    let position = 0;
+    let heightLeft = imgH;
+    pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+      heightLeft -= pageH;
+    }
+    return pdf;
+  };
+
   const downloadPdf = async () => {
     if (downloading) return;
-    const sheet = iframeRef.current?.contentDocument?.querySelector('.sheet') as HTMLElement | null;
-    if (!sheet) return;
     setDownloading(true);
     setResult(null);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf')
-      ]);
-      const canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
-      const pageW = 210;
-      const pageH = 297;
-      const imgH = (canvas.height * pageW) / canvas.width;
-      let position = 0;
-      let heightLeft = imgH;
-      pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-      heightLeft -= pageH;
-      while (heightLeft > 0) {
-        position -= pageH;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-        heightLeft -= pageH;
-      }
+      const pdf = await generatePdf();
       const data = buildTaxStatementData(member, member.id, offerings, year);
       pdf.save(`${year} Annual Contribution Statement - ${data.donorName}.pdf`);
     } catch (caught) {
@@ -1083,8 +1206,14 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
     if (sending) return;
     setSending(true);
     setResult(null);
+    let pdf: string | undefined;
     try {
-      await api.sendTaxStatement(member.id, year);
+      pdf = (await generatePdf()).output('datauristring').split('base64,')[1];
+    } catch {
+      pdf = undefined; // PDF 生成失敗則只寄 HTML 版，不阻擋發送
+    }
+    try {
+      await api.sendTaxStatement(member.id, year, pdf);
       setResult({ ok: true, message: `已發送至 ${member.email}` });
     } catch (caught) {
       setResult({ ok: false, message: caught instanceof Error ? caught.message : '發送失敗' });
@@ -1103,15 +1232,17 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
         <iframe ref={iframeRef} className="tax-preview-frame" srcDoc={html} title="報稅文件預覽" />
         {result && <p className={result.ok ? 'tax-sent' : 'error'} style={{ margin: 0 }}>{result.message}</p>}
         <footer>
-          <button type="button" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
-          <button type="button" onClick={downloadPdf} disabled={downloading}>{downloading ? '生成中…' : '下載 PDF'}</button>
-          {canSend && (member.email ? (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
+            <button type="button" onClick={downloadPdf} disabled={downloading}>{downloading ? '生成中…' : '下載 PDF'}</button>
+          </div>
+          {member.email ? (
             <button type="button" className="primary" onClick={send} disabled={sending}>
               {sending ? '發送中…' : `發送至 ${member.email}`}
             </button>
           ) : (
             <button type="button" className="primary" disabled title="該成員無電郵地址">無電郵，無法發送</button>
-          ))}
+          )}
         </footer>
       </div>
     </div>
@@ -1225,8 +1356,8 @@ function TaxSettingsModal({
       <div className="modal tax-settings-modal">
         <header>
           <div className="settings-modal-head">
-            <h2>報稅設定</h2>
-            <p>寄件信箱、簽名與報稅文件模板</p>
+            <h2>帳單設定</h2>
+            <p>寄件信箱、簽名與帳單模板</p>
           </div>
           <button type="button" onClick={onClose}>關閉</button>
         </header>
@@ -1415,7 +1546,7 @@ function AnnualTaxReportSection() {
   const action = (
     <div className="tax-report-actions">
       {hasPermission('finance_admin', 'super_admin') && (
-        <button type="button" onClick={() => setSettingsOpen(true)}>報稅設定</button>
+        <button type="button" onClick={() => setSettingsOpen(true)}>帳單設定</button>
       )}
       <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
       {years.length
@@ -1432,9 +1563,9 @@ function AnnualTaxReportSection() {
       </p>
       {rows.length ? (
         <div style={{ overflowX: 'auto' }}>
-          <table>
+          <table className="tax-report-table">
             <thead>
-              <tr><th>姓名</th><th>電郵</th><th>筆數</th><th>年度合計</th><th>操作</th></tr>
+              <tr><th>姓名</th><th className="desk-only">電郵</th><th className="desk-only">筆數</th><th>年度合計</th><th>操作</th></tr>
             </thead>
             <tbody>
               {rows.map(row => {
@@ -1445,14 +1576,14 @@ function AnnualTaxReportSection() {
                 <tr key={row.member.id}>
                   <td>
                     <strong style={{ display: 'block' }}>{memberDisplayName(row.member)}</strong>
-                    {address && <small>{address}</small>}
+                    {address && <small className="desk-only">{address}</small>}
                   </td>
-                  <td>{row.member.email || <span style={{ color: '#94a3b8' }}>無電郵</span>}</td>
-                  <td>{row.count}</td>
+                  <td className="desk-only">{row.member.email || <span style={{ color: '#94a3b8' }}>無電郵</span>}</td>
+                  <td className="desk-only">{row.count}</td>
                   <td>{currency(row.total)}</td>
                   <td className="actions">
                     <button onClick={() => setEditingMember(row.member)}>編輯</button>
-                    <button onClick={() => setTaxMember(row.member)}>生成稅務文件</button>
+                    <button onClick={() => setTaxMember(row.member)}><span className="desk-only">生成年度帳單</span><span className="mob-only">帳單</span></button>
                   </td>
                 </tr>
                 );
@@ -1745,13 +1876,30 @@ function ExpenseForm({
   );
 }
 
-function FormModal({ title, children, onClose, onSubmit, footer }: { title: string; children: React.ReactNode; onClose: () => void; onSubmit: () => void; footer?: React.ReactNode }) {
+function FormModal({ title, children, onClose, onSubmit, footer }: { title: string; children: React.ReactNode; onClose: () => void; onSubmit: () => void | Promise<void>; footer?: React.ReactNode }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '保存失敗');
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop">
-      <form className="modal" onSubmit={event => { event.preventDefault(); onSubmit(); }}>
+      <form className="modal" onSubmit={handleSubmit}>
         <header><h2>{title}</h2><button type="button" onClick={onClose}>關閉</button></header>
         <div className="form-grid">{children}</div>
-        <footer>{footer ?? <><button type="button" onClick={onClose}>取消</button><button className="primary">保存</button></>}</footer>
+        {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+        <footer>{footer ?? <><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button></>}</footer>
       </form>
     </div>
   );

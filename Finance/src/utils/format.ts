@@ -19,6 +19,14 @@ export function monthKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// 簡寫日期，例如 5/21（手機端用）
+export function tinyDate(value: string): string {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return `${parsed.getMonth() + 1}/${parsed.getDate()}`;
+}
+
 export function dateTime(value: string): string {
   if (!value) return '-';
   const parsed = new Date(value);

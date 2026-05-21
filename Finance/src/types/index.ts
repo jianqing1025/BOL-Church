@@ -127,6 +127,8 @@ export interface AuditLog {
   userId: string;
   userName: string;
   createdAt: string;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
 }
 
 export interface DashboardStats {

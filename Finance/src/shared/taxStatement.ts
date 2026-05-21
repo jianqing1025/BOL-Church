@@ -204,6 +204,23 @@ export const DEFAULT_TAX_STATEMENT_HTML_TEMPLATE = `<!doctype html>
       <a href="{{churchWebsite}}">{{churchWebsite}}</a>
     </div>
   </div>
+  <script>
+    (function () {
+      var sheet = document.querySelector('.sheet');
+      if (!sheet) return;
+      function fit() {
+        sheet.style.zoom = '';
+        var avail = document.documentElement.clientWidth;
+        var w = sheet.offsetWidth;
+        if (w > avail + 1) sheet.style.zoom = String(avail / w);
+      }
+      function clear() { sheet.style.zoom = ''; }
+      window.addEventListener('resize', fit);
+      window.addEventListener('beforeprint', clear);
+      window.addEventListener('afterprint', fit);
+      fit();
+    })();
+  </script>
 </body>
 </html>`;
 
