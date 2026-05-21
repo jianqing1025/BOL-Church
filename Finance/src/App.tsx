@@ -15,7 +15,7 @@ import {
   normalizeTaxStatementSettings
 } from './shared/taxStatement';
 
-type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users';
+type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
 
 const roleLabels: Record<Role, string> = {
   super_admin: 'Super Admin',
@@ -157,10 +157,12 @@ function LoginPage() {
   );
 }
 
-function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void }) {
+function Shell({ page, setPage, onOpenAccount }: {
+  page: Page;
+  setPage: (page: Page) => void;
+  onOpenAccount: (tab: 'profile' | 'password') => void;
+}) {
   const { user, logout } = useAuth();
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
   const items: Array<[Page, string]> = [
     ['dashboard', '數據看板'],
     ['members', '成員管理'],
@@ -196,15 +198,13 @@ function Shell({ page, setPage }: { page: Page; setPage: (page: Page) => void })
           <details className="user-card-menu">
             <summary aria-label="帳號選單">⋯</summary>
             <div className="user-card-pop">
-              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setProfileOpen(true); }}>個人資料</button>
-              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setPasswordOpen(true); }}>變更密碼</button>
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('profile'); }}>個人資料</button>
+              <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('password'); }}>變更密碼</button>
               <button type="button" className="danger" onClick={() => logout()}>登出</button>
             </div>
           </details>
         </div>
       )}
-      {profileOpen && user && <ProfileModal user={user} onClose={() => setProfileOpen(false)} />}
-      {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
     </aside>
   );
 }
@@ -1035,12 +1035,49 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
   const { hasPermission } = useAuth();
   const canSend = hasPermission('super_admin', 'finance_admin');
   const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const html = useMemo(
     () => buildTaxStatementHtml(buildTaxStatementData(member, member.id, offerings, year), undefined, settings),
     [member, offerings, year, settings]
   );
+
+  const downloadPdf = async () => {
+    if (downloading) return;
+    const sheet = iframeRef.current?.contentDocument?.querySelector('.sheet') as HTMLElement | null;
+    if (!sheet) return;
+    setDownloading(true);
+    setResult(null);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+      const canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+      const pageW = 210;
+      const pageH = 297;
+      const imgH = (canvas.height * pageW) / canvas.width;
+      let position = 0;
+      let heightLeft = imgH;
+      pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+      heightLeft -= pageH;
+      while (heightLeft > 0) {
+        position -= pageH;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+        heightLeft -= pageH;
+      }
+      const data = buildTaxStatementData(member, member.id, offerings, year);
+      pdf.save(`${year} Annual Contribution Statement - ${data.donorName}.pdf`);
+    } catch (caught) {
+      setResult({ ok: false, message: caught instanceof Error ? caught.message : 'PDF 下載失敗' });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const send = async () => {
     if (sending) return;
@@ -1067,6 +1104,7 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
         {result && <p className={result.ok ? 'tax-sent' : 'error'} style={{ margin: 0 }}>{result.message}</p>}
         <footer>
           <button type="button" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
+          <button type="button" onClick={downloadPdf} disabled={downloading}>{downloading ? '生成中…' : '下載 PDF'}</button>
           {canSend && (member.email ? (
             <button type="button" className="primary" onClick={send} disabled={sending}>
               {sending ? '發送中…' : `發送至 ${member.email}`}
@@ -1970,35 +2008,32 @@ function UsersPage() {
   );
 }
 
-function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
+function AccountProfile({ user }: { user: User }) {
   return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ width: 'min(400px, 100%)' }}>
-        <header><h2>個人資料</h2><button type="button" onClick={onClose}>關閉</button></header>
-        <div className="profile-card">
-          <div className="profile-card-avatar">{userInitials(user.name, user.email)}</div>
-          <strong>{user.name}</strong>
-          <span className="user-card-role">{roleLabels[user.role]}</span>
-        </div>
-        <div className="detail-grid">
-          <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <small>電郵</small>
-            <span>{user.email}</span>
-          </div>
-        </div>
-        <footer><button type="button" className="primary" onClick={onClose}>關閉</button></footer>
+    <div className="panel account-panel">
+      <div className="profile-card">
+        <div className="profile-card-avatar">{userInitials(user.name, user.email)}</div>
+        <strong>{user.name}</strong>
+        <span className="user-card-role">{roleLabels[user.role]}</span>
+      </div>
+      <div className="detail-grid">
+        <div className="detail-field"><small>姓名</small><span>{user.name}</span></div>
+        <div className="detail-field"><small>角色</small><span>{roleLabels[user.role]}</span></div>
+        <div className="detail-field" style={{ gridColumn: '1 / -1' }}><small>電郵</small><span>{user.email}</span></div>
       </div>
     </div>
   );
 }
 
-function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+function AccountPassword() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  const reset = () => { setErr(null); setDone(false); };
 
   const submit = async () => {
     if (busy) return;
@@ -2009,6 +2044,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     try {
       await api.changePassword(current, next);
       setDone(true);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
     } catch (caught) {
       setErr(caught instanceof Error ? caught.message : '變更失敗');
     } finally {
@@ -2017,28 +2055,39 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <form className="modal" style={{ width: 'min(420px, 100%)' }} onSubmit={event => { event.preventDefault(); submit(); }}>
-        <header><h2>變更密碼</h2><button type="button" onClick={onClose}>關閉</button></header>
-        <div className="stack">
-          <label>當前密碼
-            <input type="password" value={current} onChange={event => { setCurrent(event.target.value); setErr(null); }} required />
-          </label>
-          <label>新密碼（至少 6 字元）
-            <input type="password" value={next} onChange={event => { setNext(event.target.value); setErr(null); }} required />
-          </label>
-          <label>確認新密碼
-            <input type="password" value={confirm} onChange={event => { setConfirm(event.target.value); setErr(null); }} required />
-          </label>
-        </div>
+    <div className="panel account-panel">
+      <form className="stack" onSubmit={event => { event.preventDefault(); submit(); }}>
+        <label>當前密碼
+          <input type="password" value={current} onChange={event => { setCurrent(event.target.value); reset(); }} required />
+        </label>
+        <label>新密碼（至少 6 字元）
+          <input type="password" value={next} onChange={event => { setNext(event.target.value); reset(); }} required />
+        </label>
+        <label>確認新密碼
+          <input type="password" value={confirm} onChange={event => { setConfirm(event.target.value); reset(); }} required />
+        </label>
         {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
         {done && <p className="tax-sent" style={{ margin: 0 }}>密碼已變更</p>}
-        <footer>
-          <button type="button" onClick={onClose} disabled={busy}>關閉</button>
-          <button type="submit" className="primary" disabled={busy || done}>{busy ? '處理中…' : '變更密碼'}</button>
-        </footer>
+        <div className="account-actions">
+          <button type="submit" className="primary" disabled={busy}>{busy ? '處理中…' : '變更密碼'}</button>
+        </div>
       </form>
     </div>
+  );
+}
+
+function AccountPage({ tab, setTab }: { tab: 'profile' | 'password'; setTab: (tab: 'profile' | 'password') => void }) {
+  const { user } = useAuth();
+  if (!user) return null;
+  return (
+    <section className="page">
+      <PageTitle title="帳號設定" subtitle="個人資料與密碼" />
+      <div className="settings-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={tab === 'profile'} className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>個人資料</button>
+        <button type="button" role="tab" aria-selected={tab === 'password'} className={tab === 'password' ? 'active' : ''} onClick={() => setTab('password')}>變更密碼</button>
+      </div>
+      {tab === 'profile' ? <AccountProfile user={user} /> : <AccountPassword />}
+    </section>
   );
 }
 
@@ -2146,6 +2195,7 @@ export default function App() {
   const { user, loading } = useAuth();
   const finance = useFinance();
   const [page, setPage] = useState<Page>('dashboard');
+  const [accountTab, setAccountTab] = useState<'profile' | 'password'>('profile');
   const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
 
   useEffect(() => {
@@ -2160,8 +2210,9 @@ export default function App() {
     if (page === 'expenses') return <ExpensesPage />;
     if (page === 'reports') return <ReportsPage />;
     if (page === 'users') return <UsersPage />;
+    if (page === 'account') return <AccountPage tab={accountTab} setTab={setAccountTab} />;
     return <DashboardPage />;
-  }, [page, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
+  }, [page, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
   if (loading) return <Empty title="正在檢查登入狀態" />;
   if (resetToken && !user) return <ResetPasswordView token={resetToken} />;
@@ -2169,7 +2220,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Shell page={page} setPage={setPage} />
+      <Shell
+        page={page}
+        setPage={setPage}
+        onOpenAccount={tab => { setAccountTab(tab); setPage('account'); }}
+      />
       <main className="content">{content}</main>
     </div>
   );

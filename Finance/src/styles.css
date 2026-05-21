@@ -341,6 +341,16 @@ td small {
   font-size: 1.05rem;
 }
 
+.account-panel {
+  display: grid;
+  gap: 1rem;
+  max-width: 560px;
+}
+
+.account-actions {
+  display: flex;
+}
+
 .content {
   min-width: 0;
   padding: 2rem;
