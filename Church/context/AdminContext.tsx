@@ -47,7 +47,7 @@ interface AdminContextType {
 
 export const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
-const ownerOnlySections = new Set(['homepage', 'users']);
+const ownerOnlySections = new Set(['homepage', 'users', 'livestream']);
 
 const setNestedValue = (obj: any, path: string, value: string) => {
   const keys = path.split('.');

@@ -931,7 +931,7 @@ function ExpensesPage() {
       <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
       <Toolbar>
         <strong>待審核：{pending.length}</strong>
-        {canEdit && <button className="primary" onClick={() => setEditing(blankExpense())}>新增支出</button>}
+        {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
       </Toolbar>
       {editing && (
         <ExpenseForm
@@ -1030,6 +1030,7 @@ function auditFmt(key: string, value: unknown): string {
   if (key === 'receiptUrl' || key === 'signatureUrl') return value ? '有' : '無';
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (value === null || value === undefined || value === '') return '—';
+  if (key === 'amount') return currency(Number(value));
   return String(value);
 }
 
@@ -1546,7 +1547,7 @@ function AnnualTaxReportSection() {
   const action = (
     <div className="tax-report-actions">
       {hasPermission('finance_admin', 'super_admin') && (
-        <button type="button" onClick={() => setSettingsOpen(true)}>帳單設定</button>
+        <button type="button" className="primary" onClick={() => setSettingsOpen(true)}>帳單設定</button>
       )}
       <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
       {years.length
@@ -1583,7 +1584,7 @@ function AnnualTaxReportSection() {
                   <td>{currency(row.total)}</td>
                   <td className="actions">
                     <button onClick={() => setEditingMember(row.member)}>編輯</button>
-                    <button onClick={() => setTaxMember(row.member)}><span className="desk-only">生成年度帳單</span><span className="mob-only">帳單</span></button>
+                    <button className="primary" onClick={() => setTaxMember(row.member)}><span className="desk-only">生成年度帳單</span><span className="mob-only">帳單</span></button>
                   </td>
                 </tr>
                 );
@@ -1760,7 +1761,7 @@ function OfferingForm({
 
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
       <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
         {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
       </button>
@@ -1837,7 +1838,7 @@ function ExpenseForm({
 
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
       <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
         {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
       </button>

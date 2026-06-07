@@ -5,6 +5,7 @@ import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
 import RichTextEditor from './RichTextEditor';
 import SermonManager from './SermonManager';
+import LiveStreamManager from './LiveStreamManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
 import { api } from '../api';
@@ -17,13 +18,14 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
   homepage: 'admin.homepage',
   text: 'admin.text',
   sermons: 'admin.sermons',
+  livestream: 'admin.livestream',
   manna: 'admin.manna',
   inbox: 'admin.inbox',
   prayer: 'admin.prayerRequest',
@@ -241,7 +243,7 @@ const AdminDashboard: React.FC = () => {
   const dateLocale = language === Language.ZH ? 'zh-TW' : 'en-US';
   const sectionLabel = (section: Section) => t(sectionLabelKeys[section]);
   const roleLabel = currentUser?.role === 'owner' ? t('admin.owner') : t('admin.adminRole');
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'manna', 'users'];
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'livestream', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
   const insightSections: Section[] = ['analytics'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
@@ -1242,6 +1244,8 @@ const AdminDashboard: React.FC = () => {
             <SermonManager entryType="daily-manna" />
           </div>
         );
+      case 'livestream':
+        return <LiveStreamManager />;
       case 'inbox':
         return renderMessages();
       case 'prayer':

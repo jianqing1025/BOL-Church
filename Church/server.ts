@@ -1283,6 +1283,455 @@ async function handleImageObject(env: Env, key: string): Promise<Response> {
   return new Response(object.body, { headers });
 }
 
+// ============================================================================
+// Live Stream — see docs/superpowers/specs/2026-05-21-youtube-livestream-design.md
+// ============================================================================
+
+type LiveStreamConfigRow = {
+  id: number;
+  channel_id: string | null;
+  api_key: string | null;
+  service_day: number;
+  service_start_local: string;
+  service_duration_minutes: number;
+  timezone: string;
+  manual_video_id: string | null;
+  enabled: number;
+  updated_at: number;
+};
+
+type LiveStreamStateRow = {
+  id: number;
+  is_live: number;
+  video_id: string | null;
+  started_at: number | null;
+  checked_at: number;
+  last_error: string | null;
+};
+
+const UNCHANGED_API_KEY = '__unchanged__';
+
+function maskApiKey(key: string | null): string {
+  if (!key) return '';
+  if (key.length <= 8) return '••••';
+  return `${key.slice(0, 4)}••••${key.slice(-4)}`;
+}
+
+async function getLiveStreamConfigRow(env: Env): Promise<LiveStreamConfigRow> {
+  const row = await env.DB
+    .prepare('SELECT * FROM live_stream_config WHERE id = 1')
+    .first<LiveStreamConfigRow>();
+  if (row) return row;
+  // Seed-on-read fallback in case migration ran but seed inserts were skipped.
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO live_stream_config (id, updated_at) VALUES (1, 0)"
+  ).run();
+  return {
+    id: 1,
+    channel_id: null,
+    api_key: null,
+    service_day: 0,
+    service_start_local: '10:00',
+    service_duration_minutes: 90,
+    timezone: 'America/Los_Angeles',
+    manual_video_id: null,
+    enabled: 0,
+    updated_at: 0,
+  };
+}
+
+async function getLiveStreamStateRow(env: Env): Promise<LiveStreamStateRow> {
+  const row = await env.DB
+    .prepare('SELECT * FROM live_stream_state WHERE id = 1')
+    .first<LiveStreamStateRow>();
+  if (row) return row;
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO live_stream_state (id, checked_at) VALUES (1, 0)"
+  ).run();
+  return { id: 1, is_live: 0, video_id: null, started_at: null, checked_at: 0, last_error: null };
+}
+
+function configRowToAdmin(row: LiveStreamConfigRow) {
+  return {
+    channelId: row.channel_id ?? '',
+    apiKeyMasked: maskApiKey(row.api_key),
+    apiKeyPresent: Boolean(row.api_key),
+    serviceDay: row.service_day,
+    serviceStartLocal: row.service_start_local,
+    serviceDurationMinutes: row.service_duration_minutes,
+    timezone: row.timezone,
+    manualVideoId: row.manual_video_id ?? '',
+    enabled: Boolean(row.enabled),
+    updatedAt: row.updated_at,
+  };
+}
+
+function stateRowToAdmin(row: LiveStreamStateRow) {
+  return {
+    isLive: Boolean(row.is_live),
+    videoId: row.video_id,
+    startedAt: row.started_at,
+    checkedAt: row.checked_at || null,
+    lastError: row.last_error,
+  };
+}
+
+// Use Intl to convert UTC `Date` into the configured timezone's wall clock parts.
+function nowInTimezone(now: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number; weekday: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
+    hour12: false,
+  });
+  const parts: Record<string, string> = {};
+  for (const part of fmt.formatToParts(now)) {
+    if (part.type !== 'literal') parts[part.type] = part.value;
+  }
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour === '24' ? '0' : parts.hour),
+    minute: Number(parts.minute),
+    weekday: weekdayMap[parts.weekday] ?? 0,
+  };
+}
+
+function withinServiceWindow(row: LiveStreamConfigRow, now: Date): boolean {
+  const local = nowInTimezone(now, row.timezone);
+  if (local.weekday !== row.service_day) return false;
+
+  const [hStr, mStr] = row.service_start_local.split(':');
+  const startMinutes = Number(hStr) * 60 + Number(mStr);
+  const nowMinutes = local.hour * 60 + local.minute;
+  const offset = nowMinutes - startMinutes;
+  return offset >= -30 && offset <= row.service_duration_minutes + 30;
+}
+
+function nextServiceIso(row: LiveStreamConfigRow, now: Date): string | null {
+  const [hStr, mStr] = row.service_start_local.split(':');
+  const startH = Number(hStr);
+  const startM = Number(mStr);
+
+  // Walk up to 8 days forward, returning the first matching weekday whose start time is still in the future.
+  for (let i = 0; i <= 8; i++) {
+    const probe = new Date(now.getTime() + i * 86400000);
+    const local = nowInTimezone(probe, row.timezone);
+    if (local.weekday !== row.service_day) continue;
+
+    const candidate = new Date(Date.UTC(local.year, local.month - 1, local.day, startH, startM));
+    // candidate is the wall-clock time interpreted as UTC; we need to shift back to the configured timezone.
+    // Compute the offset between the probe's UTC and its localized representation, then subtract.
+    const offsetMinutes = computeTzOffsetMinutes(probe, row.timezone);
+    const trueUtc = candidate.getTime() - offsetMinutes * 60_000;
+    if (trueUtc >= now.getTime() - 5 * 60_000) {
+      return new Date(trueUtc).toISOString();
+    }
+  }
+  return null;
+}
+
+function computeTzOffsetMinutes(at: Date, timezone: string): number {
+  // Returns (local wall-clock minutes since UTC midnight on `at`'s date) - (UTC minutes), accounting for DST.
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts: Record<string, string> = {};
+  for (const part of fmt.formatToParts(at)) {
+    if (part.type !== 'literal') parts[part.type] = part.value;
+  }
+  const localAsUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour === '24' ? '0' : parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return Math.round((localAsUtc - at.getTime()) / 60_000);
+}
+
+async function getLatestSermon(env: Env): Promise<{ id: string; titleEn: string; titleZh: string; videoId: string; date: string } | null> {
+  const row = await env.DB
+    .prepare("SELECT id, title_en, title_zh, youtube_id, date FROM sermons WHERE type = 'sermon' ORDER BY date DESC LIMIT 1")
+    .first<{ id: string; title_en: string; title_zh: string; youtube_id: string; date: string }>();
+  if (!row) return null;
+  return {
+    id: row.id,
+    titleEn: row.title_en,
+    titleZh: row.title_zh,
+    videoId: row.youtube_id,
+    date: row.date,
+  };
+}
+
+async function updateLiveStreamState(
+  env: Env,
+  patch: Partial<{ is_live: number; video_id: string | null; started_at: number | null; checked_at: number; last_error: string | null }>
+): Promise<void> {
+  const current = await getLiveStreamStateRow(env);
+  const next = { ...current, ...patch };
+  await env.DB
+    .prepare(
+      `UPDATE live_stream_state
+       SET is_live = ?, video_id = ?, started_at = ?, checked_at = ?, last_error = ?
+       WHERE id = 1`
+    )
+    .bind(next.is_live, next.video_id, next.started_at, next.checked_at, next.last_error)
+    .run();
+}
+
+type YouTubeSearchResponse = {
+  items?: Array<{ id?: { videoId?: string } }>;
+  error?: { message?: string; code?: number };
+};
+
+async function probeYouTubeLive(row: LiveStreamConfigRow): Promise<{ videoId: string | null; error: string | null }> {
+  if (!row.channel_id || !row.api_key) {
+    return { videoId: null, error: 'channel_id or api_key missing' };
+  }
+  const url = new URL('https://www.googleapis.com/youtube/v3/search');
+  url.searchParams.set('part', 'id');
+  url.searchParams.set('channelId', row.channel_id);
+  url.searchParams.set('eventType', 'live');
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('maxResults', '1');
+  url.searchParams.set('key', row.api_key);
+
+  try {
+    const response = await fetch(url.toString());
+    const data = await response.json<YouTubeSearchResponse>();
+    if (!response.ok || data.error) {
+      return { videoId: null, error: data.error?.message ?? `HTTP ${response.status}` };
+    }
+    const videoId = data.items?.[0]?.id?.videoId ?? null;
+    return { videoId, error: null };
+  } catch (err) {
+    return { videoId: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateRow> {
+  const config = await getLiveStreamConfigRow(env);
+  if (!force) {
+    if (!config.enabled || config.manual_video_id) {
+      return getLiveStreamStateRow(env);
+    }
+    if (!withinServiceWindow(config, new Date())) {
+      return getLiveStreamStateRow(env);
+    }
+  }
+  const result = await probeYouTubeLive(config);
+  const prev = await getLiveStreamStateRow(env);
+  const startedAt = result.videoId
+    ? (prev.video_id === result.videoId && prev.started_at ? prev.started_at : Date.now())
+    : null;
+  await updateLiveStreamState(env, {
+    is_live: result.videoId ? 1 : 0,
+    video_id: result.videoId,
+    started_at: startedAt,
+    checked_at: Date.now(),
+    last_error: result.error,
+  });
+  return getLiveStreamStateRow(env);
+}
+
+async function buildPublicLiveStreamState(env: Env) {
+  const config = await getLiveStreamConfigRow(env);
+  const state = await getLiveStreamStateRow(env);
+  const latest = await getLatestSermon(env);
+  const next = nextServiceIso(config, new Date());
+
+  // Manual override always wins.
+  if (config.manual_video_id) {
+    return {
+      status: 'live' as const,
+      videoId: config.manual_video_id,
+      startedAt: null,
+      nextServiceIso: next,
+      latestSermon: latest,
+      checkedAt: state.checked_at || null,
+    };
+  }
+  if (state.is_live && state.video_id) {
+    return {
+      status: 'live' as const,
+      videoId: state.video_id,
+      startedAt: state.started_at,
+      nextServiceIso: next,
+      latestSermon: latest,
+      checkedAt: state.checked_at || null,
+    };
+  }
+  return {
+    status: 'offline' as const,
+    videoId: null,
+    startedAt: null,
+    nextServiceIso: next,
+    latestSermon: latest,
+    checkedAt: state.checked_at || null,
+  };
+}
+
+async function handleLiveStreamPublic(env: Env): Promise<Response> {
+  try {
+    const data = await buildPublicLiveStreamState(env);
+    return json(data);
+  } catch (err) {
+    // Degrade gracefully: missing tables (pre-migration), DB errors, etc.
+    // Public page shows the offline banner without latest sermon rather than crashing.
+    return json({
+      status: 'offline' as const,
+      videoId: null,
+      startedAt: null,
+      nextServiceIso: null,
+      latestSermon: null,
+      checkedAt: null,
+      degraded: true,
+      degradedReason: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function handleLiveStreamGetConfig(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  try {
+    const config = await getLiveStreamConfigRow(env);
+    const state = await getLiveStreamStateRow(env);
+    return json({ config: configRowToAdmin(config), state: stateRowToAdmin(state) });
+  } catch (err) {
+    return json({ error: 'Live stream tables not initialized. Run `npm run d1:migrate:remote` to apply migration 0005.', detail: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleLiveStreamPutConfig(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'owner');
+  if (auth instanceof Response) return auth;
+  const payload = await readJson<{
+    channelId?: string;
+    apiKey?: string;
+    serviceDay?: number;
+    serviceStartLocal?: string;
+    serviceDurationMinutes?: number;
+    timezone?: string;
+    manualVideoId?: string;
+    enabled?: boolean;
+  }>(request);
+
+  const current = await getLiveStreamConfigRow(env);
+  const apiKey =
+    payload.apiKey === undefined || payload.apiKey === UNCHANGED_API_KEY
+      ? current.api_key
+      : payload.apiKey.trim() || null;
+
+  const next = {
+    channel_id: (payload.channelId ?? current.channel_id ?? '').trim() || null,
+    api_key: apiKey,
+    service_day: clampInt(payload.serviceDay ?? current.service_day, 0, 6),
+    service_start_local: validateTimeOrDefault(payload.serviceStartLocal, current.service_start_local),
+    service_duration_minutes: clampInt(payload.serviceDurationMinutes ?? current.service_duration_minutes, 5, 720),
+    timezone: (payload.timezone ?? current.timezone).trim() || 'America/Los_Angeles',
+    manual_video_id: (payload.manualVideoId ?? current.manual_video_id ?? '').trim() || null,
+    enabled: payload.enabled === undefined ? current.enabled : payload.enabled ? 1 : 0,
+    updated_at: Date.now(),
+  };
+
+  await env.DB
+    .prepare(
+      `UPDATE live_stream_config
+       SET channel_id = ?, api_key = ?, service_day = ?, service_start_local = ?,
+           service_duration_minutes = ?, timezone = ?, manual_video_id = ?, enabled = ?, updated_at = ?
+       WHERE id = 1`
+    )
+    .bind(
+      next.channel_id,
+      next.api_key,
+      next.service_day,
+      next.service_start_local,
+      next.service_duration_minutes,
+      next.timezone,
+      next.manual_video_id,
+      next.enabled,
+      next.updated_at
+    )
+    .run();
+
+  const config = await getLiveStreamConfigRow(env);
+  return json({ config: configRowToAdmin(config) });
+}
+
+async function handleLiveStreamTest(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const payload = await readJson<{ channelId?: string; apiKey?: string }>(request);
+  const current = await getLiveStreamConfigRow(env);
+
+  const channelId = (payload.channelId ?? current.channel_id ?? '').trim();
+  const apiKey =
+    payload.apiKey && payload.apiKey !== UNCHANGED_API_KEY
+      ? payload.apiKey.trim()
+      : current.api_key ?? '';
+
+  if (!channelId || !apiKey) {
+    return json({ ok: false, error: 'channelId and apiKey are required' }, 400);
+  }
+
+  const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('id', channelId);
+  url.searchParams.set('key', apiKey);
+
+  try {
+    const response = await fetch(url.toString());
+    const data = await response.json<{
+      items?: Array<{ snippet?: { title?: string } }>;
+      error?: { message?: string };
+    }>();
+    if (!response.ok || data.error) {
+      return json({ ok: false, error: data.error?.message ?? `HTTP ${response.status}` });
+    }
+    const title = data.items?.[0]?.snippet?.title;
+    if (!title) {
+      return json({ ok: false, error: 'Channel not found' });
+    }
+    return json({ ok: true, channelName: title });
+  } catch (err) {
+    return json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleLiveStreamProbe(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const state = await runProbeIfDue(env, true);
+  return json({ state: stateRowToAdmin(state) });
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  const n = Math.trunc(Number(value));
+  if (Number.isNaN(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function validateTimeOrDefault(value: string | undefined, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback;
+}
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
@@ -1655,6 +2104,26 @@ const worker: ExportedHandler<Env> = {
       return json(mapDonation(row as DonationRow), 201);
     }
 
+    if (url.pathname === '/api/live-stream' && request.method === 'GET') {
+      return handleLiveStreamPublic(env);
+    }
+
+    if (url.pathname === '/api/admin/live-stream/config' && request.method === 'GET') {
+      return handleLiveStreamGetConfig(request, env);
+    }
+
+    if (url.pathname === '/api/admin/live-stream/config' && request.method === 'PUT') {
+      return handleLiveStreamPutConfig(request, env);
+    }
+
+    if (url.pathname === '/api/admin/live-stream/test' && request.method === 'POST') {
+      return handleLiveStreamTest(request, env);
+    }
+
+    if (url.pathname === '/api/admin/live-stream/probe' && request.method === 'POST') {
+      return handleLiveStreamProbe(request, env);
+    }
+
     if (url.pathname.startsWith('/api/')) {
       return notFound();
     }
@@ -1666,6 +2135,10 @@ const worker: ExportedHandler<Env> = {
     }
 
     return assetResponse;
+  },
+
+  async scheduled(_event, env, ctx): Promise<void> {
+    ctx.waitUntil(runProbeIfDue(env, false).then(() => undefined).catch(() => undefined));
   },
 };
 

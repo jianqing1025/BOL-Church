@@ -172,10 +172,10 @@ function buildChangeSummary(fields: Array<{ label: string; from: any; to: any }>
 
 // 審計「對象」欄統一格式：日期 | 類型 金額 | 主體
 function offeringSummary(o: any): string {
-  return `${o?.date ?? ''} | 奉獻 ${o?.amount ?? ''} | ${o?.memberName || '匿名'}`.trim();
+  return `${o?.date ?? ''} | 奉獻 $${o?.amount ?? ''} | ${o?.memberName || '匿名'}`.trim();
 }
 function expenseSummary(e: any): string {
-  return `${e?.date ?? ''} | 支出 ${e?.amount ?? ''} | ${e?.description || ''}`.trim();
+  return `${e?.date ?? ''} | 支出 $${e?.amount ?? ''} | ${e?.description || ''}`.trim();
 }
 
 function mapAuditLog(row: any) {

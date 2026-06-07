@@ -23,7 +23,7 @@ textarea {
 button {
   border: 0;
   border-radius: 8px;
-  background: #edf1f7;
+  background: #e8f1ff;
   color: #172033;
   cursor: pointer;
   font-weight: 700;
@@ -31,7 +31,7 @@ button {
 }
 
 button:hover {
-  background: #dfe7f2;
+  background: #d6e6ff;
 }
 
 button.primary {
@@ -53,6 +53,13 @@ textarea {
 textarea {
   min-height: 92px;
   resize: vertical;
+}
+
+/* 日期框在手機端 (iOS Safari) 不會自動撐滿，強制與其它輸入框右側對齊 */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 100%;
 }
 
 table {
@@ -1180,7 +1187,16 @@ td small {
   .members-table th.col-star { padding-left: 0.4rem !important; padding-right: 0.25rem !important; }
   .members-table .col-name { width: 180px !important; }
   .members-table .col-year { width: 100px !important; }
-  .members-table .col-actions { width: 70px !important; }
+  .members-table .col-actions {
+    width: 70px !important;
+    padding-left: 0.3rem !important;
+    padding-right: 0.3rem !important;
+  }
+  /* 編輯按鈕文字強制橫排，不逐字竖排 */
+  .members-table .col-actions button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1200,6 +1216,14 @@ td small {
   .toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  /* 手機端：支出管理「新增支出」縮小體積、靠最右側 */
+  .toolbar .expense-add-btn {
+    align-self: flex-end;
+    width: auto;
+    padding: 0.46rem 0.8rem;
+    font-size: 0.88rem;
   }
 
   /* 手機端：彈窗 header / footer 維持橫排 —— 關閉按鈕在右上角，底部按鈕排成一行 */
@@ -1235,13 +1259,40 @@ td small {
     overflow: hidden;
   }
 
-  /* 姓名 1/2、年度合計 1/4、操作 1/4（第 2、3 欄手機端隱藏） */
+  /* 收窄單元格內邊距，騰出空間給操作按鈕 */
+  .tax-report-table th,
+  .tax-report-table td {
+    padding: 0.5rem 0.35rem;
+  }
+
+  /* 操作欄再收窄 30%（17.6% → 12.32%），省下的寬度平均分給姓名與年度合計 */
   .tax-report-table th:nth-child(1),
-  .tax-report-table td:nth-child(1) { width: 50%; }
+  .tax-report-table td:nth-child(1) { width: 47.5%; }
 
   .tax-report-table th:nth-child(4),
-  .tax-report-table td:nth-child(4) { width: 25%; }
+  .tax-report-table td:nth-child(4) { width: 32.5%; }
 
   .tax-report-table th:nth-child(5),
-  .tax-report-table td:nth-child(5) { width: 25%; }
+  .tax-report-table td:nth-child(5) {
+    width: 20%;
+    text-align: center;
+    padding-left: 0.1rem;
+    padding-right: 0.1rem;
+  }
+
+  /* 操作欄改回普通儲存格：flex 的 td 在 fixed 表格裡不吃欄寬、justify-content 失效，
+     導致按鈕無法靠右。改用 block + margin-left:auto 逐個靠右堆疊，文字強制橫排 */
+  .tax-report-table td.actions {
+    display: table-cell;
+  }
+
+  .tax-report-table td.actions button {
+    display: block;
+    width: fit-content;
+    margin: 0 auto 0.35rem;
+    white-space: nowrap;
+    padding: 0.48rem 0.62rem;
+    font-size: 1rem;
+    border: 1px solid rgba(23, 32, 51, 0.2);
+  }
 }

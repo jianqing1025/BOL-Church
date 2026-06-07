@@ -1,4 +1,16 @@
 import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState } from './types';
+
+export interface LiveStreamSavePayload {
+  channelId?: string;
+  apiKey?: string;
+  serviceDay?: number;
+  serviceStartLocal?: string;
+  serviceDurationMinutes?: number;
+  timezone?: string;
+  manualVideoId?: string;
+  enabled?: boolean;
+}
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -90,4 +102,14 @@ export const api = {
     request<AnalyticsSummary>('/api/analytics/summary'),
   webAnalytics: (range: WebAnalyticsRange, excludeBots = true) =>
     request<WebAnalyticsSummary>(`/api/analytics/web?range=${encodeURIComponent(range)}&excludeBots=${excludeBots ? '1' : '0'}`),
+  liveStreamPublic: () =>
+    request<LiveStreamPublicState>('/api/live-stream'),
+  liveStreamAdminGet: () =>
+    request<{ config: LiveStreamConfig; state: LiveStreamAdminState }>('/api/admin/live-stream/config'),
+  liveStreamAdminSave: (payload: LiveStreamSavePayload) =>
+    request<{ config: LiveStreamConfig }>('/api/admin/live-stream/config', { method: 'PUT', body: JSON.stringify(payload) }),
+  liveStreamAdminTest: (payload: { channelId?: string; apiKey?: string }) =>
+    request<{ ok: boolean; channelName?: string; error?: string }>('/api/admin/live-stream/test', { method: 'POST', body: JSON.stringify(payload) }),
+  liveStreamAdminProbe: () =>
+    request<{ state: LiveStreamAdminState }>('/api/admin/live-stream/probe', { method: 'POST' }),
 };

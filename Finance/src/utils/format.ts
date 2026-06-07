@@ -1,5 +1,5 @@
 export function currency(value: number): string {
-  return new Intl.NumberFormat('zh-Hant-US', {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 2

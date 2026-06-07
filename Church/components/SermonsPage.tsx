@@ -4,6 +4,7 @@ import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { SermonSubPage, Language } from '../types';
 import Editable from './Editable';
+import LiveStreamSection from './LiveStreamSection';
 import { useAdmin } from '../hooks/useAdmin';
 import type { Sermon } from '../data';
 import { navigateTo as navigateToRoute } from '../utils/routes';
@@ -354,16 +355,12 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
           <RecentSermonsContent />
         ) : activeTab === 'live-stream' ? (
           <div className="prose prose-lg max-w-none">
-             <Editable
-                as="h2"
-                contentKey="sermonsPage.liveStreamTitle"
-                className="text-3xl font-extrabold text-gray-900 mb-6"
-              />
-              <Editable
-                as="div"
-                contentKey="sermonsPage.liveStreamContent"
-                isTextarea={true}
-              />
+            <Editable
+              as="h2"
+              contentKey="sermonsPage.liveStreamTitle"
+              className="text-3xl font-extrabold text-gray-900 mb-6"
+            />
+            <LiveStreamSection />
           </div>
         ) : null}
       </div>
