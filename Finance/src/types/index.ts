@@ -97,6 +97,17 @@ export interface Expense {
   paidByName?: string;
   approvedBy: string | null;
   approvedByName?: string;
+  approvedAt?: string | null;
+  invoicedBy?: string | null;
+  invoicedByName?: string;
+  invoicedAt?: string | null;
+  invoiceNote?: string | null;
+  invoiceAmount?: number | null;
+  invoiceReceiptUrl?: string | null;
+  accountedBy?: string | null;
+  accountedByName?: string;
+  accountedAt?: string | null;
+  accountReceiptUrl?: string | null;
   paymentMethod: string;
   status: ExpenseStatus;
   notes: string;
@@ -169,6 +180,17 @@ export interface TaxStatementSettings {
   htmlTemplate: string;
 }
 
+export interface ExpenseNotifySettings {
+  enabled: boolean;
+  recipients: string[];
+  mailFrom: string;
+  replyTo: string;
+  subjectTemplate?: string;
+  bodyTemplate?: string;
+  includeActionButtons?: boolean;
+}
+
 export interface AppSettings {
   taxStatement: TaxStatementSettings;
+  expenseNotify?: ExpenseNotifySettings;
 }

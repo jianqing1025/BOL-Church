@@ -16,6 +16,34 @@ import {
 } from './shared/taxStatement';
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
+type AccountTab = 'profile' | 'password';
+
+const PAGE_PATHS: Record<Page, string> = {
+  dashboard: '/',
+  members: '/members',
+  offerings: '/offerings',
+  expenses: '/expense',
+  reports: '/reports',
+  users: '/users',
+  account: '/account'
+};
+
+function routeFromLocation(): { page: Page; accountTab: AccountTab } {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (path === '/members') return { page: 'members', accountTab: 'profile' };
+  if (path === '/offerings' || path === '/offering') return { page: 'offerings', accountTab: 'profile' };
+  if (path === '/expense' || path === '/expenses') return { page: 'expenses', accountTab: 'profile' };
+  if (path === '/reports' || path === '/report') return { page: 'reports', accountTab: 'profile' };
+  if (path === '/users') return { page: 'users', accountTab: 'profile' };
+  if (path === '/account/password') return { page: 'account', accountTab: 'password' };
+  if (path === '/account') return { page: 'account', accountTab: 'profile' };
+  return { page: 'dashboard', accountTab: 'profile' };
+}
+
+function pathForPage(page: Page, accountTab: AccountTab = 'profile') {
+  if (page === 'account' && accountTab === 'password') return '/account/password';
+  return PAGE_PATHS[page];
+}
 
 const roleLabels: Record<Role, string> = {
   super_admin: 'Super Admin',
@@ -69,6 +97,30 @@ const expenseStatusLabels: Record<ExpenseStatus, string> = {
   rejected: '已拒絕'
 };
 
+const DEFAULT_EXPENSE_NOTIFY_SUBJECT = '[新增支出] {{description}} · {{amount}}';
+const DEFAULT_EXPENSE_NOTIFY_BODY = `<p>有新的支出記錄已提交，請審核。</p>
+<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #ddd;font-family:Arial,sans-serif;font-size:14px;">
+<tr><td style="background:#f5f5f5;font-weight:bold;">描述</td><td>{{description}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">金額</td><td>{{amount}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">分類</td><td>{{category}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">日期</td><td>{{date}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">付款人</td><td>{{paidBy}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">提交人</td><td>{{submittedBy}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">備註</td><td>{{notes}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">附件</td><td>{{receiptLink}}</td></tr>
+</table>
+{{actionButtons}}
+<p style="color:#888;font-size:12px;margin-top:16px;">此郵件由 BOLCCOP 財務系統自動發送。</p>`;
+
+function expenseOperatorDisplay(memberById: Map<string, Member>, id: string | null | undefined, name: string | undefined, at: string | null | undefined): { name: string; at: string } | null {
+  if (!id && !name && !at) return null;
+  const member = id ? memberById.get(id) : null;
+  const display = member ? memberDisplayName(member) : (name || '');
+  const formattedAt = at ? shortDate(at.slice(0, 10)) : '';
+  if (!display && !formattedAt) return null;
+  return { name: display, at: formattedAt };
+}
+
 // 成員顯示格式：First Name Last Name (中文名)
 function memberDisplayName(member?: Member | null): string {
   if (!member) return '';
@@ -80,8 +132,8 @@ function memberDisplayName(member?: Member | null): string {
 
 function LoginPage() {
   const { login, error, loading } = useAuth();
-  const [email, setEmail] = useState('BOLCCOP@Gmail.com');
-  const [password, setPassword] = useState('Bolccop110550');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [focusField, setFocusField] = useState<'none' | 'email' | 'password'>('none');
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -160,7 +212,7 @@ function LoginPage() {
 function Shell({ page, setPage, onOpenAccount }: {
   page: Page;
   setPage: (page: Page) => void;
-  onOpenAccount: (tab: 'profile' | 'password') => void;
+  onOpenAccount: (tab: AccountTab) => void;
 }) {
   const { user, logout } = useAuth();
   const items: Array<[Page, string]> = [
@@ -790,22 +842,39 @@ function MembersPage() {
   );
 }
 
-function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+function isImageAttachment(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url);
+}
+
+function AttachmentPreviewModal({ url, title = '查看附件', onClose }: { url: string; title?: string; onClose: () => void }) {
+  const isImage = isImageAttachment(url);
+
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      className="attachment-modal-backdrop"
       onClick={onClose}
     >
-      <div style={{ position: 'relative' }} onClick={event => event.stopPropagation()}>
-        <img src={url} alt="憑證" style={{ maxWidth: '80vw', maxHeight: '75vh', borderRadius: 8, display: 'block', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
-        <button
-          onClick={onClose}
-          style={{ position: 'absolute', top: -14, right: -14, width: 28, height: 28, borderRadius: '50%', border: 'none', background: '#fde8e8', color: '#c0392b', cursor: 'pointer', fontWeight: 'bold', fontSize: 14, lineHeight: '28px', textAlign: 'center', padding: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
-        >✕</button>
+      <div className="attachment-modal" onClick={event => event.stopPropagation()}>
+        <header>
+          <h2>{title}</h2>
+          <button type="button" onClick={onClose} aria-label="關閉">✕</button>
+        </header>
+        <div className="attachment-modal-body">
+          {isImage ? (
+            <img src={url} alt={title} />
+          ) : (
+            <iframe src={url} title={title} />
+          )}
+        </div>
+        <footer>
+          <a href={url} download>下載附件</a>
+        </footer>
       </div>
     </div>
   );
 }
+
+const Lightbox = AttachmentPreviewModal;
 
 function OfferingsPage() {
   const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
@@ -912,11 +981,16 @@ function OfferingsPage() {
 }
 
 function ExpensesPage() {
-  const { members, expenses, lookups, saveExpense, deleteExpense, approveExpense, rejectExpense } = useFinance();
+  const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveSettings } = useFinance();
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
+  const canManageNotify = hasPermission('super_admin', 'finance_admin');
   const [editing, setEditing] = useState<Expense | null>(null);
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
+  const [invoicingExpense, setInvoicingExpense] = useState<Expense | null>(null);
+  const [accountingExpense, setAccountingExpense] = useState<Expense | null>(null);
+  const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const pending = expenses.filter(item => item.status === 'pending');
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
@@ -931,7 +1005,12 @@ function ExpensesPage() {
       <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
       <Toolbar>
         <strong>待審核：{pending.length}</strong>
-        {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
+        <div className="toolbar-actions">
+          {canManageNotify && (
+            <button onClick={() => setNotifyOpen(true)} title="通知設置">⚙ 通知設置</button>
+          )}
+          {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
+        </div>
       </Toolbar>
       {editing && (
         <ExpenseForm
@@ -953,30 +1032,428 @@ function ExpensesPage() {
           onConfirm={async reason => { await deleteExpense(deletingExpense.id, reason); setDeletingExpense(null); }}
         />
       )}
+      {invoicingExpense && (
+        <ExpenseInvoiceModal
+          expense={invoicingExpense}
+          onClose={() => setInvoicingExpense(null)}
+          onSave={async payload => {
+            await invoiceExpense(invoicingExpense.id, payload);
+            setInvoicingExpense(null);
+          }}
+        />
+      )}
+      {accountingExpense && (
+        <ExpenseAccountModal
+          expense={accountingExpense}
+          onClose={() => setAccountingExpense(null)}
+          onSave={async payload => {
+            await accountExpense(accountingExpense.id, payload);
+            setAccountingExpense(null);
+          }}
+        />
+      )}
+      {detailExpense && (
+        <ExpenseDetailModal
+          expense={detailExpense}
+          memberById={memberById}
+          onClose={() => setDetailExpense(null)}
+        />
+      )}
+      {notifyOpen && settings && (
+        <ExpenseNotifySettingsModal
+          settings={settings}
+          onClose={() => setNotifyOpen(false)}
+          onSave={async next => {
+            await saveSettings(next);
+            setNotifyOpen(false);
+          }}
+        />
+      )}
       <table>
         <thead>
-          <tr><th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th>金額</th><th>狀態</th><th></th></tr>
+          <tr>
+            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th>金額</th>
+            <th>狀態</th><th>開票</th><th>入賬</th><th></th>
+          </tr>
         </thead>
         <tbody>
-          {expenses.map(item => (
-            <tr key={item.id}>
-              <td>{shortDate(item.date)}</td>
-              <td>{item.description}</td>
-              <td>{item.categoryName || '-'}</td>
-              <td>{paidByLabel(item)}</td>
-              <td>{currency(item.amount)}</td>
-              <td><Badge>{expenseStatusLabels[item.status]}</Badge></td>
-              <td className="actions">
-                {canEdit && item.status === 'pending' && <button onClick={() => approveExpense(item.id)}>批准</button>}
-                {canEdit && item.status === 'pending' && <button onClick={() => rejectExpense(item.id)}>拒絕</button>}
-                {canEdit && <button onClick={() => setEditing(item)}>編輯</button>}
-                {canEdit && <button onClick={() => setDeletingExpense(item)}>刪除</button>}
-              </td>
-            </tr>
-          ))}
+          {expenses.map(item => {
+            const approvalOp = (item.status === 'approved' || item.status === 'rejected')
+              ? expenseOperatorDisplay(memberById, item.approvedBy, item.approvedByName, item.approvedAt) : null;
+            const invoiceOp = item.invoicedAt ? expenseOperatorDisplay(memberById, item.invoicedBy, item.invoicedByName, item.invoicedAt) : null;
+            const accountOp = item.accountedAt ? expenseOperatorDisplay(memberById, item.accountedBy, item.accountedByName, item.accountedAt) : null;
+
+            const showInvoiceBtn = canEdit && item.status === 'approved' && !item.invoicedAt;
+            const showAccountBtn = canEdit && !!item.invoicedAt && !item.accountedAt;
+            const invoiceBadge = item.invoicedAt ? '已開票' : (item.status === 'approved' ? '待開票' : '—');
+            const accountBadge = item.accountedAt ? '已入賬' : (item.invoicedAt ? '待入賬' : '—');
+
+            return (
+              <tr key={item.id}>
+                <td>{shortDate(item.date)}</td>
+                <td>{item.description}</td>
+                <td>{item.categoryName || '-'}</td>
+                <td>{paidByLabel(item)}</td>
+                <td>{currency(item.amount)}</td>
+                <td>
+                  <div className="expense-status-cell">
+                    <Badge>{expenseStatusLabels[item.status]}</Badge>
+                    {approvalOp && (
+                      <span className="expense-status-op">{approvalOp.name && approvalOp.at ? `${approvalOp.name} · ${approvalOp.at}` : (approvalOp.name || approvalOp.at)}</span>
+                    )}
+                    {canEdit && item.status === 'pending' && (
+                      <div className="expense-status-actions">
+                        <button className="primary" onClick={() => approveExpense(item.id)}>批准</button>
+                        <button onClick={() => rejectExpense(item.id)}>拒絕</button>
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div className="expense-status-cell">
+                    <Badge>{invoiceBadge}</Badge>
+                    {invoiceOp && (
+                      <span className="expense-status-op">{invoiceOp.name && invoiceOp.at ? `${invoiceOp.name} · ${invoiceOp.at}` : (invoiceOp.name || invoiceOp.at)}</span>
+                    )}
+                    {showInvoiceBtn && (
+                      <div className="expense-status-actions">
+                        <button className="primary" onClick={() => setInvoicingExpense(item)}>開票</button>
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div className="expense-status-cell">
+                    <Badge>{accountBadge}</Badge>
+                    {accountOp && (
+                      <span className="expense-status-op">{accountOp.name && accountOp.at ? `${accountOp.name} · ${accountOp.at}` : (accountOp.name || accountOp.at)}</span>
+                    )}
+                    {showAccountBtn && (
+                      <div className="expense-status-actions">
+                        <button className="primary" onClick={() => setAccountingExpense(item)}>入賬</button>
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="actions">
+                  {canEdit && <button onClick={() => setEditing(item)}>編輯</button>}
+                  <button onClick={() => setDetailExpense(item)}>詳細</button>
+                  {canEdit && <button onClick={() => setDeletingExpense(item)}>刪除</button>}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>
+  );
+}
+
+function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
+  settings: AppSettings;
+  onClose: () => void;
+  onSave: (next: AppSettings) => Promise<void>;
+}) {
+  const current = settings.expenseNotify;
+  const [enabled, setEnabled] = useState(current?.enabled ?? false);
+  const [recipientsText, setRecipientsText] = useState((current?.recipients ?? []).join('\n'));
+  const [mailFrom, setMailFrom] = useState(current?.mailFrom ?? 'Seattle Bread of Life Christian Church <finance@bolccop.org>');
+  const [replyTo, setReplyTo] = useState(current?.replyTo ?? 'finance@bolccop.org');
+  const [subjectTemplate, setSubjectTemplate] = useState(current?.subjectTemplate ?? DEFAULT_EXPENSE_NOTIFY_SUBJECT);
+  const [bodyTemplate, setBodyTemplate] = useState(current?.bodyTemplate ?? DEFAULT_EXPENSE_NOTIFY_BODY);
+  const [includeActionButtons, setIncludeActionButtons] = useState(current?.includeActionButtons ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    const recipients = recipientsText.split(/[\n,;]/).map(s => s.trim()).filter(Boolean);
+    setBusy(true); setError(null);
+    try {
+      await onSave({
+        ...settings,
+        expenseNotify: {
+          enabled,
+          recipients,
+          mailFrom: mailFrom.trim(),
+          replyTo: replyTo.trim(),
+          subjectTemplate,
+          bodyTemplate,
+          includeActionButtons
+        }
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <header>
+          <h2>支出通知設置</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <div className="modal-body" style={{ display: 'grid', gap: '0.85rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+            <span>啟用新增支出郵件通知</span>
+          </label>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>收件人（每行一個郵箱，或用逗號分隔）</span>
+            <textarea
+              value={recipientsText}
+              onChange={e => setRecipientsText(e.target.value)}
+              placeholder="andy@bolccop.org&#10;accounting@bolccop.org"
+              rows={4}
+              style={{ width: '100%', marginTop: '0.4rem' }}
+            />
+          </label>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件郵箱（bolccop.org）</span>
+            <input
+              value={mailFrom}
+              onChange={e => setMailFrom(e.target.value)}
+              style={{ width: '100%', marginTop: '0.4rem' }}
+            />
+          </label>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>回信地址（Reply-To）</span>
+            <input
+              value={replyTo}
+              onChange={e => setReplyTo(e.target.value)}
+              style={{ width: '100%', marginTop: '0.4rem' }}
+            />
+          </label>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件主旨模板</span>
+            <input
+              value={subjectTemplate}
+              onChange={e => setSubjectTemplate(e.target.value)}
+              placeholder={DEFAULT_EXPENSE_NOTIFY_SUBJECT}
+              style={{ width: '100%', marginTop: '0.4rem' }}
+            />
+          </label>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件 HTML 模板</span>
+            <textarea
+              value={bodyTemplate}
+              onChange={e => setBodyTemplate(e.target.value)}
+              rows={10}
+              style={{ width: '100%', marginTop: '0.4rem', fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' }}
+            />
+          </label>
+          <div className="template-help">
+            可用占位符：{'{{description}}'} {'{{amount}}'} {'{{category}}'} {'{{paidBy}}'} {'{{date}}'} {'{{notes}}'} {'{{submittedBy}}'} {'{{receiptUrl}}'} {'{{receiptLink}}'} {'{{actionButtons}}'}
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input type="checkbox" checked={includeActionButtons} onChange={e => setIncludeActionButtons(e.target.checked)} />
+            <span>在郵件中加入批准 / 拒絕按鈕</span>
+          </label>
+          {error && <div style={{ color: '#c0392b', fontSize: '0.9rem' }}>{error}</div>}
+        </div>
+        <footer>
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="primary" onClick={handleSave} disabled={busy}>{busy ? '保存中...' : '保存'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+async function uploadWorkflowAttachment(file: File, type: string, entityId: string) {
+  if (file.type.startsWith('image/')) {
+    const blob = await compressImage(file);
+    const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+    return api.upload(compressed, type, entityId);
+  }
+  return api.upload(file, type, entityId);
+}
+
+function ExpenseInvoiceModal({ expense, onClose, onSave }: {
+  expense: Expense;
+  onClose: () => void;
+  onSave: (payload: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) => Promise<void>;
+}) {
+  const [note, setNote] = useState(expense.invoiceNote || '');
+  const [amount, setAmount] = useState(expense.invoiceAmount ?? expense.amount);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.invoiceReceiptUrl || null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await uploadWorkflowAttachment(file, 'expense-invoices', expense.id);
+      setReceiptUrl(url);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const footer = (
+    <>
+      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? '上傳中…' : receiptUrl ? '重新上傳附件' : '上傳附件'}
+      </button>
+      <button type="button" onClick={onClose}>取消</button>
+      <button className="primary">保存開票</button>
+    </>
+  );
+
+  return (
+    <FormModal title="開票" onClose={onClose} onSubmit={() => onSave({ invoiceNote: note, invoiceAmount: amount, invoiceReceiptUrl: receiptUrl })} footer={footer}>
+      <textarea value={note} onChange={event => setNote(event.target.value)} placeholder="開票描述" />
+      <input type="number" min="0" step="0.01" value={amount || ''} onChange={event => setAmount(Number(event.target.value))} placeholder="開票金額" required />
+      {receiptUrl && (
+        <div className="attachment-preview">
+          <button type="button" className="link-button" onClick={() => setPreviewUrl(receiptUrl)}>查看附件</button>
+          {isImageAttachment(receiptUrl) && <img src={receiptUrl} alt="開票附件" />}
+          <button type="button" onClick={() => setReceiptUrl(null)}>移除附件</button>
+        </div>
+      )}
+      {previewUrl && <AttachmentPreviewModal url={previewUrl} title="開票附件" onClose={() => setPreviewUrl(null)} />}
+    </FormModal>
+  );
+}
+
+function ExpenseAccountModal({ expense, onClose, onSave }: {
+  expense: Expense;
+  onClose: () => void;
+  onSave: (payload: { accountReceiptUrl?: string | null }) => Promise<void>;
+}) {
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.accountReceiptUrl || null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await uploadWorkflowAttachment(file, 'expense-accounts', expense.id);
+      setReceiptUrl(url);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const footer = (
+    <>
+      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? '上傳中…' : receiptUrl ? '重新上傳附件' : '上傳附件'}
+      </button>
+      <button type="button" onClick={onClose}>取消</button>
+      <button className="primary">保存入賬</button>
+    </>
+  );
+
+  return (
+    <FormModal title="入賬" onClose={onClose} onSubmit={() => onSave({ accountReceiptUrl: receiptUrl })} footer={footer}>
+      <div className="detail-field">
+        <small>支出</small>
+        <span>{expense.description || '—'} · {currency(expense.amount)}</span>
+      </div>
+      {receiptUrl && (
+        <div className="attachment-preview">
+          <button type="button" className="link-button" onClick={() => setPreviewUrl(receiptUrl)}>查看附件</button>
+          {isImageAttachment(receiptUrl) && <img src={receiptUrl} alt="入賬附件" />}
+          <button type="button" onClick={() => setReceiptUrl(null)}>移除附件</button>
+        </div>
+      )}
+      {previewUrl && <AttachmentPreviewModal url={previewUrl} title="入賬附件" onClose={() => setPreviewUrl(null)} />}
+    </FormModal>
+  );
+}
+
+function ExpenseDetailModal({ expense, memberById, onClose }: {
+  expense: Expense;
+  memberById: Map<string, Member>;
+  onClose: () => void;
+}) {
+  const paidBy = expense.paidBy
+    ? (memberDisplayName(memberById.get(expense.paidBy)) || expense.paidByName || '未知')
+    : '—';
+  const approvalOp = expense.status === 'approved' || expense.status === 'rejected'
+    ? expenseOperatorDisplay(memberById, expense.approvedBy, expense.approvedByName, expense.approvedAt)
+    : null;
+  const invoiceOp = expense.invoicedAt ? expenseOperatorDisplay(memberById, expense.invoicedBy, expense.invoicedByName, expense.invoicedAt) : null;
+  const accountOp = expense.accountedAt ? expenseOperatorDisplay(memberById, expense.accountedBy, expense.accountedByName, expense.accountedAt) : null;
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+
+  const steps = [
+    {
+      title: '提交',
+      meta: `${shortDate(expense.date)} · 付款人 ${paidBy}`,
+      detail: `${expense.description || '—'} · ${currency(expense.amount)}`,
+      url: expense.receiptUrl || null,
+      done: true
+    },
+    {
+      title: expense.status === 'rejected' ? '已拒絕' : '已批准',
+      meta: approvalOp ? [approvalOp.name, approvalOp.at].filter(Boolean).join(' · ') : '待審核',
+      detail: expense.status === 'pending' ? '尚未審核' : expenseStatusLabels[expense.status],
+      url: null,
+      done: expense.status !== 'pending'
+    },
+    {
+      title: '已開票',
+      meta: invoiceOp ? [invoiceOp.name, invoiceOp.at].filter(Boolean).join(' · ') : '待開票',
+      detail: expense.invoicedAt ? `${currency(expense.invoiceAmount ?? expense.amount)}${expense.invoiceNote ? ` · ${expense.invoiceNote}` : ''}` : '尚未開票',
+      url: expense.invoiceReceiptUrl || null,
+      done: Boolean(expense.invoicedAt)
+    },
+    {
+      title: '已入賬',
+      meta: accountOp ? [accountOp.name, accountOp.at].filter(Boolean).join(' · ') : '待入賬',
+      detail: expense.accountedAt ? '入賬完成' : '尚未入賬',
+      url: expense.accountReceiptUrl || null,
+      done: Boolean(expense.accountedAt)
+    }
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={event => event.stopPropagation()}>
+        <header>
+          <h2>支出詳情</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <div className="detail-grid">
+          <div className="detail-field"><small>描述</small><span>{expense.description || '—'}</span></div>
+          <div className="detail-field"><small>分類</small><span>{expense.categoryName || '—'}</span></div>
+          <div className="detail-field"><small>付款方式</small><span>{expense.paymentMethod || '—'}</span></div>
+          <div className="detail-field"><small>備註</small><span>{expense.notes || '—'}</span></div>
+        </div>
+        <div className="workflow-timeline">
+          {steps.map(step => (
+            <div key={step.title} className={`workflow-step ${step.done ? 'done' : ''}`}>
+              <span className="workflow-dot" />
+              <div>
+                <strong>{step.title}</strong>
+                <p>{step.meta}</p>
+                <small>{step.detail}</small>
+                {step.url && (
+                  <button type="button" className="link-button workflow-attachment-button" onClick={() => setPreview({ url: step.url!, title: `${step.title}附件` })}>
+                    查看附件
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {preview && <AttachmentPreviewModal url={preview.url} title={preview.title} onClose={() => setPreview(null)} />}
+      </div>
+    </div>
   );
 }
 
@@ -2225,7 +2702,7 @@ function AccountPassword() {
   );
 }
 
-function AccountPage({ tab, setTab }: { tab: 'profile' | 'password'; setTab: (tab: 'profile' | 'password') => void }) {
+function AccountPage({ tab, setTab }: { tab: AccountTab; setTab: (tab: AccountTab) => void }) {
   const { user } = useAuth();
   if (!user) return null;
   return (
@@ -2343,13 +2820,33 @@ function ResetPasswordView({ token }: { token: string }) {
 export default function App() {
   const { user, loading } = useAuth();
   const finance = useFinance();
-  const [page, setPage] = useState<Page>('dashboard');
-  const [accountTab, setAccountTab] = useState<'profile' | 'password'>('profile');
+  const initialRoute = useMemo(() => routeFromLocation(), []);
+  const [page, setPage] = useState<Page>(initialRoute.page);
+  const [accountTab, setAccountTab] = useState<AccountTab>(initialRoute.accountTab);
   const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
 
   useEffect(() => {
     if (user) finance.refreshAll();
   }, [user]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = routeFromLocation();
+      setPage(route.page);
+      setAccountTab(route.accountTab);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigateToPage = (nextPage: Page, nextAccountTab: AccountTab = 'profile') => {
+    setPage(nextPage);
+    setAccountTab(nextPage === 'account' ? nextAccountTab : 'profile');
+    const nextPath = pathForPage(nextPage, nextAccountTab);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+  };
 
   const content = useMemo(() => {
     if (finance.loading) return <Empty title="正在載入資料" />;
@@ -2359,7 +2856,7 @@ export default function App() {
     if (page === 'expenses') return <ExpensesPage />;
     if (page === 'reports') return <ReportsPage />;
     if (page === 'users') return <UsersPage />;
-    if (page === 'account') return <AccountPage tab={accountTab} setTab={setAccountTab} />;
+    if (page === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;
     return <DashboardPage />;
   }, [page, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
@@ -2371,8 +2868,8 @@ export default function App() {
     <div className="app-shell">
       <Shell
         page={page}
-        setPage={setPage}
-        onOpenAccount={tab => { setAccountTab(tab); setPage('account'); }}
+        setPage={navigateToPage}
+        onOpenAccount={tab => navigateToPage('account', tab)}
       />
       <main className="content">{content}</main>
     </div>

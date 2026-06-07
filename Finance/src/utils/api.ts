@@ -64,6 +64,10 @@ export const api = {
     request<{ ok: true }>(`/api/expenses/${id}`, { method: 'DELETE', body: JSON.stringify({ reason }) }),
   approveExpense: (id: string) => request<Expense>(`/api/expenses/${id}/approve`, { method: 'POST' }),
   rejectExpense: (id: string) => request<Expense>(`/api/expenses/${id}/reject`, { method: 'POST' }),
+  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) =>
+    request<Expense>(`/api/expenses/${id}/invoice`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  accountExpense: (id: string, payload?: { accountReceiptUrl?: string | null }) =>
+    request<Expense>(`/api/expenses/${id}/account`, { method: 'POST', body: JSON.stringify(payload || {}) }),
   expenseCategories: () => request<ExpenseCategory[]>('/api/expenses/categories'),
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
   sendTaxStatement: (memberId: string, year: number, pdf?: string) =>

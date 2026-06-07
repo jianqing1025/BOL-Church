@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { AppSettings, ExpenseStatus, MemberStatus, Role, TaxStatementSettings } from '../types';
+import type { AppSettings, ExpenseNotifySettings, ExpenseStatus, MemberStatus, Role, TaxStatementSettings } from '../types';
 import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml, normalizeTaxStatementSettings } from '../shared/taxStatement';
 
 type Env = {
@@ -245,8 +245,67 @@ async function readTaxStatementSettings(env: Env): Promise<TaxStatementSettings>
   }
 }
 
+const DEFAULT_EXPENSE_NOTIFY_SUBJECT = '[新增支出] {{description}} · {{amount}}';
+const DEFAULT_EXPENSE_NOTIFY_BODY = `<p>有新的支出記錄已提交，請審閱。</p>
+<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #ddd;font-family:Arial,sans-serif;font-size:14px;">
+<tr><td style="background:#f5f5f5;font-weight:bold;">描述</td><td>{{description}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">金額</td><td>{{amount}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">分類</td><td>{{category}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">日期</td><td>{{date}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">付款人</td><td>{{paidBy}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">提交人</td><td>{{submittedBy}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">備註</td><td>{{notes}}</td></tr>
+<tr><td style="background:#f5f5f5;font-weight:bold;">附件</td><td>{{receiptLink}}</td></tr>
+</table>
+{{actionButtons}}
+<p style="color:#888;font-size:12px;margin-top:16px;">此郵件由 BOLCCOP 財務系統自動發送。</p>`;
+
+function defaultExpenseNotifySettings(): ExpenseNotifySettings {
+  return {
+    enabled: false,
+    recipients: [],
+    mailFrom: 'Seattle Bread of Life Christian Church <finance@bolccop.org>',
+    replyTo: 'finance@bolccop.org',
+    subjectTemplate: DEFAULT_EXPENSE_NOTIFY_SUBJECT,
+    bodyTemplate: DEFAULT_EXPENSE_NOTIFY_BODY,
+    includeActionButtons: true
+  };
+}
+
+function normalizeExpenseNotifySettings(raw?: Partial<ExpenseNotifySettings>): ExpenseNotifySettings {
+  const base = defaultExpenseNotifySettings();
+  if (!raw) return base;
+  const recipients = Array.isArray(raw.recipients)
+    ? raw.recipients.map(r => String(r || '').trim()).filter(Boolean)
+    : base.recipients;
+  return {
+    enabled: Boolean(raw.enabled),
+    recipients,
+    mailFrom: typeof raw.mailFrom === 'string' && raw.mailFrom.trim() ? raw.mailFrom.trim() : base.mailFrom,
+    replyTo: typeof raw.replyTo === 'string' && raw.replyTo.trim() ? raw.replyTo.trim() : base.replyTo,
+    subjectTemplate: typeof raw.subjectTemplate === 'string' && raw.subjectTemplate.trim() ? raw.subjectTemplate : base.subjectTemplate,
+    bodyTemplate: typeof raw.bodyTemplate === 'string' && raw.bodyTemplate.trim() ? raw.bodyTemplate : base.bodyTemplate,
+    includeActionButtons: raw.includeActionButtons === undefined ? base.includeActionButtons : Boolean(raw.includeActionButtons)
+  };
+}
+
+async function readExpenseNotifySettings(env: Env): Promise<ExpenseNotifySettings> {
+  try {
+    await ensureAppSettingsTable(env);
+    const row = await env.DB.prepare('SELECT value_json FROM app_settings WHERE key = ?').bind('expenseNotify').first<{ value_json: string }>();
+    if (!row?.value_json) return defaultExpenseNotifySettings();
+    return normalizeExpenseNotifySettings(JSON.parse(row.value_json));
+  } catch {
+    return defaultExpenseNotifySettings();
+  }
+}
+
 async function readAppSettings(env: Env): Promise<AppSettings> {
-  return { taxStatement: await readTaxStatementSettings(env) };
+  const [taxStatement, expenseNotify] = await Promise.all([
+    readTaxStatementSettings(env),
+    readExpenseNotifySettings(env)
+  ]);
+  return { taxStatement, expenseNotify };
 }
 
 async function saveAppSettings(env: Env, user: SessionUser, payload: AppSettings): Promise<AppSettings> {
@@ -260,6 +319,10 @@ async function saveAppSettings(env: Env, user: SessionUser, payload: AppSettings
         ...current.taxStatement.textFields,
         ...(payload?.taxStatement?.textFields || {})
       }
+    }),
+    expenseNotify: normalizeExpenseNotifySettings({
+      ...current.expenseNotify,
+      ...(payload?.expenseNotify || {})
     })
   };
   await env.DB.prepare(
@@ -270,7 +333,165 @@ async function saveAppSettings(env: Env, user: SessionUser, payload: AppSettings
        updated_by = excluded.updated_by,
        updated_at = excluded.updated_at`
   ).bind('taxStatement', JSON.stringify(next.taxStatement), user.id, now()).run();
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key, value_json, updated_by, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value_json = excluded.value_json,
+       updated_by = excluded.updated_by,
+       updated_at = excluded.updated_at`
+  ).bind('expenseNotify', JSON.stringify(next.expenseNotify), user.id, now()).run();
   return next;
+}
+
+function escapeHtml(value: string): string {
+  return String(value || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
+}
+
+async function createActionToken(env: Env, expenseId: string, action: 'approve' | 'reject'): Promise<string> {
+  const raw = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const hash = await sha256(raw);
+  const expires = new Date();
+  expires.setDate(expires.getDate() + 7);
+  await env.DB.prepare(
+    'INSERT INTO expense_action_tokens (token_hash, expense_id, action, expires_at, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).bind(hash, expenseId, action, expires.toISOString(), now()).run();
+  return raw;
+}
+
+function renderActionButtons(baseUrl: string, expenseId: string, approveToken: string, rejectToken: string): string {
+  const approveUrl = `${baseUrl}/expense-action?id=${encodeURIComponent(expenseId)}&action=approve&token=${approveToken}`;
+  const rejectUrl = `${baseUrl}/expense-action?id=${encodeURIComponent(expenseId)}&action=reject&token=${rejectToken}`;
+  return `<div style="margin-top:18px;">
+  <a href="${approveUrl}" style="display:inline-block;background:#1f6feb;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:700;margin-right:8px;">批准</a>
+  <a href="${rejectUrl}" style="display:inline-block;background:#fff;color:#c0392b;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:700;border:1px solid #c0392b;">拒絕</a>
+</div>`;
+}
+
+function applyTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => (key in vars ? vars[key] : ''));
+}
+
+function currencyFormatForEmail(amount: number): string {
+  return `$${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function inferOriginFromRequest(request: Request | null, env: Env): string {
+  if (request) {
+    const url = new URL(request.url);
+    return `${url.protocol}//${url.host}`;
+  }
+  return 'https://finance.bolccop.org';
+}
+
+function actionResultHtml(title: string, message: string, ok = true) {
+  return new Response(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title></head>
+<body style="margin:0;background:#f4f6fb;font-family:Arial,'Helvetica Neue',sans-serif;color:#172033;">
+  <main style="max-width:520px;margin:8vh auto;padding:28px 24px;background:#fff;border-radius:12px;box-shadow:0 18px 48px rgba(25,41,70,.12);">
+    <div style="font-size:38px;line-height:1;">${ok ? '✓' : '!'}</div>
+    <h1 style="margin:16px 0 8px;font-size:24px;">${escapeHtml(title)}</h1>
+    <p style="margin:0;color:#536179;line-height:1.65;">${escapeHtml(message)}</p>
+  </main>
+</body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' }, status: ok ? 200 : 400 });
+}
+
+async function handleExpenseActionLink(env: Env, url: URL) {
+  const expenseId = url.searchParams.get('id') || '';
+  const action = url.searchParams.get('action') as 'approve' | 'reject' | null;
+  const token = url.searchParams.get('token') || '';
+  if (!expenseId || !token || (action !== 'approve' && action !== 'reject')) {
+    return actionResultHtml('連結無效', '缺少必要的批准或拒絕資訊。', false);
+  }
+
+  const tokenHash = await sha256(token);
+  const tokenRow = await env.DB.prepare('SELECT * FROM expense_action_tokens WHERE token_hash = ?')
+    .bind(tokenHash).first<any>();
+  if (!tokenRow || tokenRow.expense_id !== expenseId || tokenRow.action !== action) {
+    return actionResultHtml('連結無效', '這個操作連結不存在或不匹配。', false);
+  }
+  if (tokenRow.used_at) {
+    return actionResultHtml('連結已使用', '這個操作連結已經被使用過。', false);
+  }
+  if (String(tokenRow.expires_at) < now()) {
+    return actionResultHtml('連結已過期', '這個操作連結已超過 7 天有效期。', false);
+  }
+
+  const before = await getExpense(env, expenseId);
+  if (!before) return actionResultHtml('支出不存在', '找不到這筆支出記錄。', false);
+  if (before.status !== 'pending') {
+    return actionResultHtml('無法操作', '這筆支出目前不是待審核狀態。', false);
+  }
+
+  const stamp = now();
+  const opLabel = 'Email Action';
+  await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = NULL, approved_by_text = ?, approved_at = ?, updated_at = ? WHERE id = ?')
+    .bind(action === 'approve' ? 'approved' : 'rejected', opLabel, stamp, stamp, expenseId).run();
+  await env.DB.prepare('UPDATE expense_action_tokens SET used_at = ?, used_by = ? WHERE token_hash = ?')
+    .bind(stamp, opLabel, tokenHash).run();
+
+  const after = await getExpense(env, expenseId);
+  await recordAudit(env, { id: 'email-action', name: opLabel, email: '', role: 'finance_admin', memberId: null }, {
+    action,
+    entityType: 'expense',
+    entityId: expenseId,
+    entitySummary: expenseSummary(after),
+    before,
+    after
+  });
+
+  return actionResultHtml(action === 'approve' ? '已批准' : '已拒絕', `支出「${after?.description || expenseId}」已完成${action === 'approve' ? '批准' : '拒絕'}。`);
+}
+
+async function sendExpenseNotification(env: Env, user: SessionUser, expense: any, request: Request | null): Promise<void> {
+  if (!env.RESEND_API_KEY) return;
+  const settings = await readExpenseNotifySettings(env);
+  if (!settings.enabled || settings.recipients.length === 0) return;
+
+  let actionButtonsHtml = '';
+  if (settings.includeActionButtons) {
+    try {
+      const approveToken = await createActionToken(env, expense.id, 'approve');
+      const rejectToken = await createActionToken(env, expense.id, 'reject');
+      actionButtonsHtml = renderActionButtons(inferOriginFromRequest(request, env), expense.id, approveToken, rejectToken);
+    } catch {
+      actionButtonsHtml = '';
+    }
+  }
+
+  const vars: Record<string, string> = {
+    description: escapeHtml(expense.description || '無描述'),
+    amount: currencyFormatForEmail(expense.amount),
+    category: escapeHtml(expense.categoryName || '未分類'),
+    date: escapeHtml(expense.date || ''),
+    paidBy: escapeHtml(expense.paidByName || '—'),
+    submittedBy: escapeHtml(user.name || user.email || ''),
+    paymentMethod: escapeHtml(expense.paymentMethod || ''),
+    notes: escapeHtml(expense.notes || ''),
+    receiptUrl: escapeHtml(expense.receiptUrl || ''),
+    receiptLink: expense.receiptUrl ? `<a href="${escapeHtml(expense.receiptUrl)}">查看憑證</a>` : '—',
+    actionButtons: actionButtonsHtml
+  };
+
+  const subject = applyTemplate(settings.subjectTemplate || DEFAULT_EXPENSE_NOTIFY_SUBJECT, vars);
+  const html = applyTemplate(settings.bodyTemplate || DEFAULT_EXPENSE_NOTIFY_BODY, vars);
+
+  const body = {
+    from: settings.mailFrom,
+    to: settings.recipients,
+    reply_to: settings.replyTo,
+    subject,
+    html
+  };
+
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    // Email failure must never block the expense creation.
+  }
 }
 
 async function readDeleteReason(request: Request): Promise<string> {
@@ -341,6 +562,17 @@ function mapExpense(row: any) {
     paidByName: row.paid_by_name || undefined,
     approvedBy: row.approved_by || null,
     approvedByName: row.approved_by_name || undefined,
+    approvedAt: row.approved_at || null,
+    invoicedBy: row.invoiced_by || null,
+    invoicedByName: row.invoiced_by_name || undefined,
+    invoicedAt: row.invoiced_at || null,
+    invoiceNote: row.invoice_note || null,
+    invoiceAmount: row.invoice_amount != null ? Number(row.invoice_amount) : null,
+    invoiceReceiptUrl: row.invoice_receipt_url || null,
+    accountedBy: row.accounted_by || null,
+    accountedByName: row.accounted_by_name || undefined,
+    accountedAt: row.accounted_at || null,
+    accountReceiptUrl: row.account_receipt_url || null,
     paymentMethod: row.payment_method || '',
     status: row.status as ExpenseStatus,
     notes: row.notes || '',
@@ -405,11 +637,16 @@ async function getOffering(env: Env, offeringId: string) {
 
 async function listExpenses(env: Env, testFlag: number) {
   const result = await env.DB.prepare(
-    `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name, approved.name AS approved_by_name
+    `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name,
+            COALESCE(e.approved_by_text, approved.name) AS approved_by_name,
+            COALESCE(e.invoiced_by_text, invoiced.name) AS invoiced_by_name,
+            COALESCE(e.accounted_by_text, accounted.name) AS accounted_by_name
      FROM expenses e
      LEFT JOIN expense_categories c ON c.id = e.category_id
      LEFT JOIN members paid ON paid.id = e.paid_by
      LEFT JOIN members approved ON approved.id = e.approved_by
+     LEFT JOIN members invoiced ON invoiced.id = e.invoiced_by
+     LEFT JOIN members accounted ON accounted.id = e.accounted_by
      WHERE e.is_test = ?
      ORDER BY e.date DESC, e.created_at DESC`
   ).bind(testFlag).all();
@@ -418,11 +655,16 @@ async function listExpenses(env: Env, testFlag: number) {
 
 async function getExpense(env: Env, expenseId: string) {
   const row = await env.DB.prepare(
-    `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name, approved.name AS approved_by_name
+    `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name,
+            COALESCE(e.approved_by_text, approved.name) AS approved_by_name,
+            COALESCE(e.invoiced_by_text, invoiced.name) AS invoiced_by_name,
+            COALESCE(e.accounted_by_text, accounted.name) AS accounted_by_name
      FROM expenses e
      LEFT JOIN expense_categories c ON c.id = e.category_id
      LEFT JOIN members paid ON paid.id = e.paid_by
      LEFT JOIN members approved ON approved.id = e.approved_by
+     LEFT JOIN members invoiced ON invoiced.id = e.invoiced_by
+     LEFT JOIN members accounted ON accounted.id = e.accounted_by
      WHERE e.id = ?`
   ).bind(expenseId).first();
   return row ? mapExpense(row) : null;
@@ -494,6 +736,10 @@ const worker: ExportedHandler<Env> = {
 
       if (url.pathname === '/api/auth/me' && request.method === 'GET') {
         return json({ user: await currentUser(request, env) });
+      }
+
+      if (url.pathname === '/expense-action' && request.method === 'GET') {
+        return handleExpenseActionLink(env, url);
       }
 
       if (url.pathname === '/api/auth/forgot-password' && request.method === 'POST') {
@@ -859,6 +1105,10 @@ const worker: ExportedHandler<Env> = {
             entitySummary: expenseSummary(created),
             after: created
           });
+          // 邮件通知（如已配置）；失败不影响主流程
+          if (created && !created.isTest) {
+            await sendExpenseNotification(env, user, created, request);
+          }
           return json(created, 201);
         }
 
@@ -1001,14 +1251,47 @@ const worker: ExportedHandler<Env> = {
           }
         }
 
-        if (url.pathname.match(/^\/api\/expenses\/[^/]+\/(approve|reject)$/) && request.method === 'POST') {
+        if (url.pathname.match(/^\/api\/expenses\/[^/]+\/(approve|reject|invoice|account)$/) && request.method === 'POST') {
           if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const [, , , itemId, action] = url.pathname.split('/');
+          const payload = await readJson<any>(request).catch(() => ({}));
           const reviewTarget = await getExpense(env, itemId);
           if (!reviewTarget) return error('Expense not found', 404);
           if (!sameTestScope(user.role, reviewTarget.isTest)) return error('Forbidden', 403);
-          const status = action === 'approve' ? 'approved' : 'rejected';
-          await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?').bind(status, user.memberId, now(), itemId).run();
+
+          // 校验：approve/reject 需要 pending；invoice 需要已批准且未开票；account 需要已开票且未入账
+          if (action === 'approve' || action === 'reject') {
+            if (reviewTarget.status !== 'pending') return error('當前狀態無法執行此操作', 400);
+          } else if (action === 'invoice') {
+            if (reviewTarget.status !== 'approved') return error('需先批准才能開票', 400);
+            if (reviewTarget.invoicedAt) return error('已開票', 400);
+            const invoiceAmount = payload.invoiceAmount === undefined || payload.invoiceAmount === null || payload.invoiceAmount === ''
+              ? reviewTarget.amount
+              : Number(payload.invoiceAmount);
+            if (!Number.isFinite(invoiceAmount) || invoiceAmount < 0) return error('開票金額不正確', 400);
+          } else if (action === 'account') {
+            if (!reviewTarget.invoicedAt) return error('需先開票才能入賬', 400);
+            if (reviewTarget.accountedAt) return error('已入賬', 400);
+          }
+
+          const stamp = now();
+          const opLabel = user.name || user.email || '';
+          if (action === 'approve') {
+            await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, approved_by_text = ?, approved_at = ?, updated_at = ? WHERE id = ?')
+              .bind('approved', user.memberId, opLabel, stamp, stamp, itemId).run();
+          } else if (action === 'reject') {
+            await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, approved_by_text = ?, approved_at = ?, updated_at = ? WHERE id = ?')
+              .bind('rejected', user.memberId, opLabel, stamp, stamp, itemId).run();
+          } else if (action === 'invoice') {
+            const invoiceAmount = payload.invoiceAmount === undefined || payload.invoiceAmount === null || payload.invoiceAmount === ''
+              ? reviewTarget.amount
+              : Number(payload.invoiceAmount);
+            await env.DB.prepare('UPDATE expenses SET invoiced_by = ?, invoiced_by_text = ?, invoiced_at = ?, invoice_note = ?, invoice_amount = ?, invoice_receipt_url = ?, updated_at = ? WHERE id = ?')
+              .bind(user.memberId, opLabel, stamp, String(payload.invoiceNote || '').trim(), invoiceAmount, payload.invoiceReceiptUrl || null, stamp, itemId).run();
+          } else if (action === 'account') {
+            await env.DB.prepare('UPDATE expenses SET accounted_by = ?, accounted_by_text = ?, accounted_at = ?, account_receipt_url = ?, updated_at = ? WHERE id = ?')
+              .bind(user.memberId, opLabel, stamp, payload.accountReceiptUrl || null, stamp, itemId).run();
+          }
           const reviewed = await getExpense(env, itemId);
           await recordAudit(env, user, {
             action,

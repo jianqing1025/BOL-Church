@@ -62,6 +62,16 @@ input[type="date"] {
   min-width: 100%;
 }
 
+/* 勾選框不繼承文字輸入框的 width:100% / padding / border，使用原生大小 */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  vertical-align: middle;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1000,6 +1010,56 @@ td small {
   padding: 1rem;
 }
 
+/* 支出狀態單元格：上方 Badge + 下方小字操作人 + 內聯動作按鈕 */
+.expense-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.22rem;
+  min-width: 5.5rem;
+}
+
+.expense-status-op {
+  font-size: 0.74rem;
+  color: #68758a;
+  line-height: 1.1;
+}
+
+.expense-status-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  flex-wrap: wrap;
+}
+
+.expense-status-actions button {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* 通知設置 + 新增支出 按鈕始終同一行（含手機端） */
+.toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .toolbar-actions {
+    align-self: flex-end;
+    flex-direction: row;
+    flex-wrap: nowrap;
+  }
+  /* 取消 expense-add-btn 在手機端的 block 行為，讓它跟通知設置同一行 */
+  .toolbar .expense-add-btn {
+    align-self: auto;
+    width: auto;
+  }
+}
+
 .modal {
   display: grid;
   width: min(720px, 100%);
@@ -1059,7 +1119,10 @@ td small {
     display: none;
   }
 
-  .stats-grid,
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .two-col {
     grid-template-columns: 1fr;
   }
@@ -1175,6 +1238,190 @@ td small {
 
 .col-settings-popover label.disabled input[type="checkbox"] {
   cursor: not-allowed;
+}
+
+.template-help {
+  border: 1px dashed rgba(23, 32, 51, 0.22);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  color: #536179;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.attachment-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.55rem;
+  justify-items: start;
+  padding: 0.75rem;
+  border: 1px solid rgba(23, 32, 51, 0.14);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.attachment-preview img {
+  max-width: 400px;
+  max-height: 320px;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  color: var(--accent, #4f7df3);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.attachment-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(12, 18, 32, 0.62);
+}
+
+.attachment-modal {
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  display: grid;
+  grid-template-rows: auto minmax(220px, 1fr) auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.28);
+}
+
+.attachment-modal header,
+.attachment-modal footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid rgba(23, 32, 51, 0.1);
+}
+
+.attachment-modal footer {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(23, 32, 51, 0.1);
+  border-bottom: 0;
+}
+
+.attachment-modal h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.attachment-modal header button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.attachment-modal-body {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+
+.attachment-modal-body img,
+.attachment-modal-body iframe {
+  width: 100%;
+  max-height: 68vh;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.attachment-modal-body img {
+  height: auto;
+  object-fit: contain;
+}
+
+.attachment-modal-body iframe {
+  height: 68vh;
+}
+
+.workflow-timeline {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.workflow-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 0.75rem;
+  color: #68758a;
+}
+
+.workflow-step::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 20px;
+  bottom: -12px;
+  width: 2px;
+  background: #d8dee9;
+}
+
+.workflow-step:last-child::before {
+  display: none;
+}
+
+.workflow-step.done {
+  color: #172033;
+}
+
+.workflow-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid #b7c0d0;
+  background: #fff;
+  margin-top: 2px;
+  z-index: 1;
+}
+
+.workflow-step.done .workflow-dot {
+  border-color: #1d8a4a;
+  background: #1d8a4a;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.workflow-step strong {
+  display: block;
+  margin-bottom: 0.18rem;
+}
+
+.workflow-step p,
+.workflow-step small {
+  display: block;
+  margin: 0.12rem 0;
+  line-height: 1.45;
+}
+
+.workflow-step a,
+.workflow-attachment-button {
+  display: inline-block;
+  margin-top: 0.35rem;
+  color: var(--accent, #4f7df3);
 }
 
 @media (max-width: 920px) {

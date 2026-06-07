@@ -26,6 +26,8 @@ type FinanceContextValue = FinanceState & {
   deleteExpense: (id: string, reason: string) => Promise<void>;
   approveExpense: (id: string) => Promise<void>;
   rejectExpense: (id: string) => Promise<void>;
+  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) => Promise<void>;
+  accountExpense: (id: string, payload?: { accountReceiptUrl?: string | null }) => Promise<void>;
   saveSettings: (payload: AppSettings) => Promise<void>;
 };
 
@@ -151,6 +153,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     },
     rejectExpense: async id => {
       await api.rejectExpense(id);
+      await refreshAfterWrite();
+    },
+    invoiceExpense: async (id, payload) => {
+      await api.invoiceExpense(id, payload);
+      await refreshAfterWrite();
+    },
+    accountExpense: async (id, payload) => {
+      await api.accountExpense(id, payload);
       await refreshAfterWrite();
     },
     saveSettings: async payload => {
