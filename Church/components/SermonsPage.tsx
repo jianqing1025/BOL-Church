@@ -4,7 +4,7 @@ import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { SermonSubPage, Language } from '../types';
 import Editable from './Editable';
-import LiveStreamSection from './LiveStreamSection';
+import SermonsSecondaryNav from './SermonsSecondaryNav';
 import { useAdmin } from '../hooks/useAdmin';
 import type { Sermon } from '../data';
 import { navigateTo as navigateToRoute } from '../utils/routes';
@@ -296,23 +296,10 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
     setActiveTab(initialSubPage);
   }, [initialSubPage]);
 
-  const handleTabClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
-    event.preventDefault();
-    navigateToRoute(path);
-  };
-  
-  const navItems: { key: SermonSubPage; textKey: string }[] = [
-    { key: 'sunday-worship', textKey: 'sermonsPage.navSundayWorship' },
-    { key: 'daily-manna', textKey: 'sermonsPage.navDailyManna' },
-    { key: 'recent-sermons', textKey: 'sermonsPage.navRecentSermons' },
-    { key: 'live-stream', textKey: 'sermonsPage.navLiveStream' },
-  ];
-
   const headerContent: Record<SermonSubPage, { titleKey: string; subtitleKey: string }> = {
     'daily-manna': { titleKey: 'sermonsPage.navDailyManna', subtitleKey: 'sermonsPage.dailyMannaSubtitle' },
     'sunday-worship': { titleKey: 'sermonsPage.navSundayWorship', subtitleKey: 'sermonsPage.sundayWorshipContent' },
     'recent-sermons': { titleKey: 'sermonArchive.title', subtitleKey: 'sermonsPage.pageSubtitle' },
-    'live-stream': { titleKey: 'sermonsPage.navLiveStream', subtitleKey: 'sermonsPage.liveStreamContent' },
   };
 
   const currentHeader = headerContent[activeTab];
@@ -323,29 +310,9 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
         title={t(currentHeader.titleKey)}
         subtitle={t(currentHeader.subtitleKey)}
       />
-      
-      <div className="sticky top-[88px] bg-gray-800 text-white z-40 shadow-md">
-        <nav className="container mx-auto px-6">
-          <ul className="flex justify-center items-center -mb-px space-x-4 sm:space-x-8 overflow-x-auto">
-            {navItems.map((item) => (
-              <li key={item.key}>
-                <a
-                  href={`/sermons/${item.key}`}
-                  onClick={event => handleTabClick(event, `/sermons/${item.key}`)}
-                  className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
-                    activeTab === item.key
-                      ? 'border-white text-white'
-                      : 'border-transparent text-gray-400 hover:text-white hover:border-gray-300'
-                  }`}
-                >
-                  {t(item.textKey)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-      
+
+      <SermonsSecondaryNav active={activeTab} />
+
       <div className="container mx-auto max-w-7xl px-6 py-16">
         {activeTab === 'daily-manna' ? (
             <SermonVideoCollection entryType="daily-manna" />
@@ -353,15 +320,6 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
             <SermonVideoCollection entryType="sermon" />
         ) : activeTab === 'recent-sermons' ? (
           <RecentSermonsContent />
-        ) : activeTab === 'live-stream' ? (
-          <div className="prose prose-lg max-w-none">
-            <Editable
-              as="h2"
-              contentKey="sermonsPage.liveStreamTitle"
-              className="text-3xl font-extrabold text-gray-900 mb-6"
-            />
-            <LiveStreamSection />
-          </div>
         ) : null}
       </div>
     </div>

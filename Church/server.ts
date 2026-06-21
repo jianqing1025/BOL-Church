@@ -14,6 +14,7 @@ type Env = {
   ADMIN_BOOTSTRAP_EMAIL?: string;
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   ADMIN_BOOTSTRAP_NAME?: string;
+  RESEND_API_KEY?: string;
 };
 
 type LocalizedText = { en: string; zh: string };
@@ -1307,6 +1308,7 @@ type LiveStreamStateRow = {
   started_at: number | null;
   checked_at: number;
   last_error: string | null;
+  youtube_viewers?: number | null;
 };
 
 const UNCHANGED_API_KEY = '__unchanged__';
@@ -1464,33 +1466,35 @@ function computeTzOffsetMinutes(at: Date, timezone: string): number {
   return Math.round((localAsUtc - at.getTime()) / 60_000);
 }
 
-async function getLatestSermon(env: Env): Promise<{ id: string; titleEn: string; titleZh: string; videoId: string; date: string } | null> {
-  const row = await env.DB
-    .prepare("SELECT id, title_en, title_zh, youtube_id, date FROM sermons WHERE type = 'sermon' ORDER BY date DESC LIMIT 1")
-    .first<{ id: string; title_en: string; title_zh: string; youtube_id: string; date: string }>();
-  if (!row) return null;
-  return {
+type LatestSermon = { id: string; titleEn: string; titleZh: string; videoId: string; date: string };
+
+async function getLatestSermons(env: Env, limit = 4): Promise<LatestSermon[]> {
+  const result = await env.DB
+    .prepare("SELECT id, title_en, title_zh, youtube_id, date FROM sermons WHERE type = 'sermon' ORDER BY date DESC LIMIT ?")
+    .bind(limit)
+    .all<{ id: string; title_en: string; title_zh: string; youtube_id: string; date: string }>();
+  return (result.results || []).map(row => ({
     id: row.id,
     titleEn: row.title_en,
     titleZh: row.title_zh,
     videoId: row.youtube_id,
     date: row.date,
-  };
+  }));
 }
 
 async function updateLiveStreamState(
   env: Env,
-  patch: Partial<{ is_live: number; video_id: string | null; started_at: number | null; checked_at: number; last_error: string | null }>
+  patch: Partial<{ is_live: number; video_id: string | null; started_at: number | null; checked_at: number; last_error: string | null; youtube_viewers: number | null }>
 ): Promise<void> {
   const current = await getLiveStreamStateRow(env);
   const next = { ...current, ...patch };
   await env.DB
     .prepare(
       `UPDATE live_stream_state
-       SET is_live = ?, video_id = ?, started_at = ?, checked_at = ?, last_error = ?
+       SET is_live = ?, video_id = ?, started_at = ?, checked_at = ?, last_error = ?, youtube_viewers = ?
        WHERE id = 1`
     )
-    .bind(next.is_live, next.video_id, next.started_at, next.checked_at, next.last_error)
+    .bind(next.is_live, next.video_id, next.started_at, next.checked_at, next.last_error, (next as any).youtube_viewers ?? null)
     .run();
 }
 
@@ -1531,29 +1535,353 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
       return getLiveStreamStateRow(env);
     }
     if (!withinServiceWindow(config, new Date())) {
+      // 即使在窗口外，仍然檢查是否有待歸檔的視頻（直播窗口剛結束、VOD 還在處理中）
+      const prev = await getLiveStreamStateRow(env);
+      if (prev.video_id && !prev.is_live) {
+        await tryArchiveAndNotify(env, config, prev.video_id);
+      }
       return getLiveStreamStateRow(env);
     }
   }
   const result = await probeYouTubeLive(config);
   const prev = await getLiveStreamStateRow(env);
+
+  // 邊沿檢測：上次 live、這次不 live → 直播剛結束，嘗試歸檔
+  const justEnded = prev.is_live === 1 && prev.video_id && !result.videoId;
+  const pendingArchive = !prev.is_live && prev.video_id && !result.videoId;
+  const videoIdToArchive = justEnded || pendingArchive ? prev.video_id : null;
+
+  // 寫狀態：is_live 跟最新探測；如果 videoIdToArchive 還在處理中，video_id 保留它直到歸檔成功
+  const newVideoId = result.videoId ?? videoIdToArchive ?? null;
   const startedAt = result.videoId
     ? (prev.video_id === result.videoId && prev.started_at ? prev.started_at : Date.now())
     : null;
   await updateLiveStreamState(env, {
     is_live: result.videoId ? 1 : 0,
-    video_id: result.videoId,
+    video_id: newVideoId,
     started_at: startedAt,
     checked_at: Date.now(),
     last_error: result.error,
   });
+
+  if (videoIdToArchive) {
+    await tryArchiveAndNotify(env, config, videoIdToArchive);
+  }
+
+  // 直播中時順手拉一次 YouTube concurrentViewers，寫進 state（不影響主流程）
+  if (result.videoId && config.api_key) {
+    try {
+      const yt = await fetchYouTubeConcurrentViewers(config.api_key, result.videoId);
+      await updateLiveStreamState(env, { youtube_viewers: yt });
+    } catch { /* ignore */ }
+  } else if (!result.videoId) {
+    // 非直播狀態：清零，避免顯示陳舊數字
+    try { await updateLiveStreamState(env, { youtube_viewers: null }); } catch { /* ignore */ }
+  }
+
+  // 順手清理過期 viewer / 老舊 chat
+  await cleanupLiveData(env);
+
   return getLiveStreamStateRow(env);
 }
+
+type YouTubeVideoSnippet = {
+  items?: Array<{
+    id?: string;
+    snippet?: {
+      title?: string;
+      publishedAt?: string;
+      thumbnails?: { high?: { url?: string }; maxres?: { url?: string } };
+      liveBroadcastContent?: 'none' | 'live' | 'upcoming';
+    };
+  }>;
+  error?: { message?: string };
+};
+
+async function fetchYouTubeVideoSnippet(apiKey: string, videoId: string): Promise<{ snippet: YouTubeVideoSnippet['items'][number]['snippet'] | null; error: string | null }> {
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('id', videoId);
+    url.searchParams.set('key', apiKey);
+    const response = await fetch(url.toString());
+    const data = await response.json<YouTubeVideoSnippet>();
+    if (!response.ok || data.error) {
+      return { snippet: null, error: data.error?.message ?? `HTTP ${response.status}` };
+    }
+    return { snippet: data.items?.[0]?.snippet ?? null, error: null };
+  } catch (err) {
+    return { snippet: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
+  try {
+    // 已存在 → 直接清除 pending 狀態
+    const exists = await env.DB.prepare("SELECT id FROM sermons WHERE youtube_id = ? LIMIT 1").bind(videoId).first<{ id: string }>();
+    if (exists) {
+      await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
+      return;
+    }
+
+    if (!config.api_key) return;
+    const { snippet, error } = await fetchYouTubeVideoSnippet(config.api_key, videoId);
+    if (error || !snippet) return;
+
+    // VOD 還沒處理完 → 下次 cron 再試
+    if (snippet.liveBroadcastContent && snippet.liveBroadcastContent !== 'none') return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const sermonId = crypto.randomUUID();
+    const titleZh = `${today} 主日直播`;
+    const titleEn = `Sunday Live - ${today}`;
+    const speakerEn = 'Pastor Andy Yu';
+    const speakerZh = '余大器 牧師';
+    const imageUrl = snippet.thumbnails?.maxres?.url || snippet.thumbnails?.high?.url || null;
+    const nowIso = new Date().toISOString();
+
+    await env.DB
+      .prepare(
+        `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?)`
+      )
+      .bind(sermonId, titleEn, titleZh, speakerEn, speakerZh, today, '', '', '', '', videoId, imageUrl, nowIso, nowIso)
+      .run();
+
+    // 歸檔成功 → 清除 pending video_id
+    await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
+
+    // 通知 admin
+    await sendLiveStreamArchiveNotification(env, { sermonId, titleZh, titleEn, videoId, date: today });
+  } catch (err) {
+    // 不影響 cron 主流程
+    console.error('Archive sermon failed', err);
+  }
+}
+
+async function sendLiveStreamArchiveNotification(env: Env, sermon: { sermonId: string; titleZh: string; titleEn: string; videoId: string; date: string }): Promise<void> {
+  if (!env.RESEND_API_KEY) return;
+  const adminEmail = 'Admin@Bolccop.org';
+  const from = 'Bread of Life Christian Church <admin@bolccop.org>';
+  const subject = `[BOLCCOP] 主日直播已自動歸檔: ${sermon.date}`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#172033;max-width:520px;">
+  <h2 style="margin:0 0 12px 0;">主日直播自動歸檔</h2>
+  <p style="margin:0 0 8px;">系統剛偵測到一場主日直播結束，已自動建立 sermon 條目並列在「主日崇拜」頁面。</p>
+  <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #ddd;margin:8px 0 16px;">
+    <tr><td style="background:#f5f5f5;font-weight:bold;">標題（中）</td><td>${escapeHtmlForChurch(sermon.titleZh)}</td></tr>
+    <tr><td style="background:#f5f5f5;font-weight:bold;">Title (EN)</td><td>${escapeHtmlForChurch(sermon.titleEn)}</td></tr>
+    <tr><td style="background:#f5f5f5;font-weight:bold;">日期</td><td>${escapeHtmlForChurch(sermon.date)}</td></tr>
+    <tr><td style="background:#f5f5f5;font-weight:bold;">講員</td><td>Pastor Andy Yu / 余大器 牧師</td></tr>
+    <tr><td style="background:#f5f5f5;font-weight:bold;">YouTube</td><td><a href="https://youtu.be/${sermon.videoId}">https://youtu.be/${sermon.videoId}</a></td></tr>
+  </table>
+  <p style="margin:0 0 8px;">如需修改標題、講員或經文，請到 <a href="https://www.bolccop.org/admin">後台管理 → Sermons</a> 編輯。</p>
+  <p style="margin:14px 0 0;color:#888;font-size:12px;">此郵件由 BOLCCOP 系統自動發送。</p>
+</div>`;
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: adminEmail, subject, html })
+    });
+    if (!response.ok) {
+      console.error('Archive notification email failed', response.status, await response.text());
+    }
+  } catch (err) {
+    console.error('Archive notification email threw', err);
+  }
+}
+
+function escapeHtmlForChurch(value: string): string {
+  return String(value || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
+}
+
+// ============================================================================
+// Live chat & viewers helpers
+// ============================================================================
+
+const VIEWER_ACTIVE_MS = 60_000;
+const CHAT_RATE_LIMIT_MS = 2_000;
+const CHAT_MAX_LENGTH = 500;
+const CHAT_HISTORY_LIMIT = 100;
+const CHAT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+async function ensureLiveChatTables(env: Env): Promise<void> {
+  // Runtime fallback if migration not applied yet — keeps endpoints from crashing
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS live_viewers (
+      session_id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      guest_number INTEGER,
+      last_ping_at INTEGER NOT NULL,
+      video_id TEXT NOT NULL,
+      joined_at INTEGER NOT NULL,
+      is_admin INTEGER NOT NULL DEFAULT 0
+    )`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS live_chat_messages (
+      id TEXT PRIMARY KEY,
+      video_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      is_admin INTEGER NOT NULL DEFAULT 0,
+      message TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      ip_hash TEXT,
+      deleted_at INTEGER
+    )`
+  ).run();
+}
+
+function resolveActiveVideoId(config: LiveStreamConfigRow, state: LiveStreamStateRow): string | null {
+  if (config.manual_video_id) return config.manual_video_id;
+  if (state.is_live && state.video_id) return state.video_id;
+  return null;
+}
+
+async function joinViewer(
+  env: Env,
+  params: { sessionId: string; videoId: string; name?: string; asGuest?: boolean; existingDisplayName?: string; isAdmin?: boolean }
+): Promise<{ displayName: string; guestNumber: number | null; isAdmin: boolean }> {
+  const now = Date.now();
+  const existing = await env.DB
+    .prepare('SELECT display_name, guest_number, is_admin, video_id FROM live_viewers WHERE session_id = ?')
+    .bind(params.sessionId)
+    .first<{ display_name: string; guest_number: number | null; is_admin: number; video_id: string }>();
+  if (existing && existing.video_id === params.videoId) {
+    await env.DB.prepare('UPDATE live_viewers SET last_ping_at = ? WHERE session_id = ?').bind(now, params.sessionId).run();
+    return {
+      displayName: existing.display_name,
+      guestNumber: existing.guest_number,
+      isAdmin: Boolean(existing.is_admin) || Boolean(params.isAdmin),
+    };
+  }
+  // Either no row yet, or sessionId belonged to an older videoId → re-issue identity for current video
+  let displayName: string;
+  let guestNumber: number | null = null;
+  const cleanName = (params.name ?? '').trim().slice(0, 30);
+  const cleanExisting = (params.existingDisplayName ?? '').trim().slice(0, 30);
+  if (cleanName) {
+    displayName = cleanName;
+  } else if (cleanExisting) {
+    // Returning visitor whose localStorage retains previous identity (could be guest# or real name)
+    displayName = cleanExisting;
+    const m = cleanExisting.match(/^游客(\d+)$/);
+    if (m) guestNumber = Number(m[1]);
+  } else if (params.asGuest) {
+    const row = await env.DB
+      .prepare('SELECT COALESCE(MAX(guest_number), 0) AS m FROM live_viewers WHERE video_id = ?')
+      .bind(params.videoId)
+      .first<{ m: number }>();
+    const next = Number(row?.m || 0) + 1;
+    guestNumber = next;
+    displayName = `游客${next}`;
+  } else {
+    // No name and not explicit guest — treat as guest
+    const row = await env.DB
+      .prepare('SELECT COALESCE(MAX(guest_number), 0) AS m FROM live_viewers WHERE video_id = ?')
+      .bind(params.videoId)
+      .first<{ m: number }>();
+    const next = Number(row?.m || 0) + 1;
+    guestNumber = next;
+    displayName = `游客${next}`;
+  }
+  if (existing) {
+    await env.DB
+      .prepare('UPDATE live_viewers SET display_name = ?, guest_number = ?, last_ping_at = ?, video_id = ?, joined_at = ?, is_admin = ? WHERE session_id = ?')
+      .bind(displayName, guestNumber, now, params.videoId, now, params.isAdmin ? 1 : 0, params.sessionId)
+      .run();
+  } else {
+    await env.DB
+      .prepare('INSERT INTO live_viewers (session_id, display_name, guest_number, last_ping_at, video_id, joined_at, is_admin) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(params.sessionId, displayName, guestNumber, now, params.videoId, now, params.isAdmin ? 1 : 0)
+      .run();
+  }
+  return { displayName, guestNumber, isAdmin: Boolean(params.isAdmin) };
+}
+
+async function getViewerList(env: Env, videoId: string) {
+  const result = await env.DB
+    .prepare(
+      `SELECT display_name, guest_number, is_admin FROM live_viewers
+       WHERE video_id = ? AND last_ping_at > ?
+       ORDER BY is_admin DESC, joined_at ASC`
+    )
+    .bind(videoId, Date.now() - VIEWER_ACTIVE_MS)
+    .all<{ display_name: string; guest_number: number | null; is_admin: number }>();
+  return (result.results || []).map(row => ({
+    displayName: row.display_name,
+    isAdmin: Boolean(row.is_admin),
+    isGuest: row.guest_number != null,
+    guestNumber: row.guest_number,
+  }));
+}
+
+async function countViewersOnline(env: Env, videoId: string): Promise<number> {
+  const row = await env.DB
+    .prepare('SELECT COUNT(*) AS c FROM live_viewers WHERE video_id = ? AND last_ping_at > ?')
+    .bind(videoId, Date.now() - VIEWER_ACTIVE_MS)
+    .first<{ c: number }>();
+  return Number(row?.c || 0);
+}
+
+async function fetchYouTubeConcurrentViewers(apiKey: string, videoId: string): Promise<number | null> {
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'liveStreamingDetails');
+    url.searchParams.set('id', videoId);
+    url.searchParams.set('key', apiKey);
+    const response = await fetch(url.toString());
+    if (!response.ok) return null;
+    const data = await response.json<{ items?: Array<{ liveStreamingDetails?: { concurrentViewers?: string } }> }>();
+    const raw = data.items?.[0]?.liveStreamingDetails?.concurrentViewers;
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cleanupLiveData(env: Env): Promise<void> {
+  const viewerCutoff = Date.now() - 5 * 60_000; // 5 min
+  const chatCutoff = Date.now() - CHAT_RETENTION_MS;
+  try {
+    await env.DB.prepare('DELETE FROM live_viewers WHERE last_ping_at < ?').bind(viewerCutoff).run();
+  } catch { /* table may not exist yet */ }
+  try {
+    await env.DB.prepare('DELETE FROM live_chat_messages WHERE created_at < ?').bind(chatCutoff).run();
+  } catch { /* table may not exist yet */ }
+}
+
+async function hashIp(ip: string): Promise<string> {
+  return sha256(ip || 'unknown');
+}
+
+// ============================================================================
+// Public live-stream state builder (extended with viewers + chat counts)
+// ============================================================================
 
 async function buildPublicLiveStreamState(env: Env) {
   const config = await getLiveStreamConfigRow(env);
   const state = await getLiveStreamStateRow(env);
-  const latest = await getLatestSermon(env);
+  const latestSermons = await getLatestSermons(env, 4);
+  const latest = latestSermons[0] || null;
   const next = nextServiceIso(config, new Date());
+  const activeVideoId = resolveActiveVideoId(config, state);
+
+  let viewersOnline = 0;
+  let viewerList: Array<{ displayName: string; isAdmin: boolean; isGuest: boolean; guestNumber: number | null }> = [];
+  if (activeVideoId) {
+    try {
+      viewersOnline = await countViewersOnline(env, activeVideoId);
+      viewerList = await getViewerList(env, activeVideoId);
+    } catch { /* tables may be missing */ }
+  }
+  const youtubeViewers = (state as any).youtube_viewers != null ? Number((state as any).youtube_viewers) : null;
+
+  const baseExtras = { viewersOnline, youtubeViewers, viewerList };
 
   // Manual override always wins.
   if (config.manual_video_id) {
@@ -1563,7 +1891,9 @@ async function buildPublicLiveStreamState(env: Env) {
       startedAt: null,
       nextServiceIso: next,
       latestSermon: latest,
+      latestSermons,
       checkedAt: state.checked_at || null,
+      ...baseExtras,
     };
   }
   if (state.is_live && state.video_id) {
@@ -1573,7 +1903,9 @@ async function buildPublicLiveStreamState(env: Env) {
       startedAt: state.started_at,
       nextServiceIso: next,
       latestSermon: latest,
+      latestSermons,
       checkedAt: state.checked_at || null,
+      ...baseExtras,
     };
   }
   return {
@@ -1582,7 +1914,9 @@ async function buildPublicLiveStreamState(env: Env) {
     startedAt: null,
     nextServiceIso: next,
     latestSermon: latest,
+    latestSermons,
     checkedAt: state.checked_at || null,
+    ...baseExtras,
   };
 }
 
@@ -1599,7 +1933,11 @@ async function handleLiveStreamPublic(env: Env): Promise<Response> {
       startedAt: null,
       nextServiceIso: null,
       latestSermon: null,
+      latestSermons: [],
       checkedAt: null,
+      viewersOnline: 0,
+      youtubeViewers: null,
+      viewerList: [],
       degraded: true,
       degradedReason: err instanceof Error ? err.message : String(err),
     });
@@ -1719,6 +2057,160 @@ async function handleLiveStreamProbe(request: Request, env: Env): Promise<Respon
   if (auth instanceof Response) return auth;
   const state = await runProbeIfDue(env, true);
   return json({ state: stateRowToAdmin(state) });
+}
+
+// ============================================================================
+// Live chat & viewers endpoints
+// ============================================================================
+
+async function handleLiveJoin(request: Request, env: Env): Promise<Response> {
+  try {
+    await ensureLiveChatTables(env);
+    const payload = await readJson<{ sessionId?: string; name?: string; asGuest?: boolean; displayName?: string }>(request);
+    const sessionId = String(payload.sessionId || '').trim();
+    if (!sessionId) return badRequest('Missing sessionId');
+
+    const config = await getLiveStreamConfigRow(env);
+    const state = await getLiveStreamStateRow(env);
+    const videoId = resolveActiveVideoId(config, state);
+    if (!videoId) return badRequest('當前無進行中的直播');
+
+    const auth = await getCurrentUser(request, env);
+    const adminName = auth?.name || '';
+    const result = await joinViewer(env, {
+      sessionId,
+      videoId,
+      name: auth ? adminName : payload.name,
+      asGuest: !auth && payload.asGuest,
+      existingDisplayName: !auth ? payload.displayName : undefined,
+      isAdmin: !!auth,
+    });
+    return json({ displayName: result.displayName, guestNumber: result.guestNumber, isAdmin: result.isAdmin, videoId });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleLivePing(request: Request, env: Env): Promise<Response> {
+  try {
+    await ensureLiveChatTables(env);
+    const payload = await readJson<{ sessionId?: string }>(request);
+    const sessionId = String(payload.sessionId || '').trim();
+    if (!sessionId) return json({ ok: false }, 400);
+    await env.DB.prepare('UPDATE live_viewers SET last_ping_at = ? WHERE session_id = ?').bind(Date.now(), sessionId).run();
+    return json({ ok: true });
+  } catch {
+    return json({ ok: false });
+  }
+}
+
+async function handleLiveChatGet(request: Request, env: Env): Promise<Response> {
+  try {
+    await ensureLiveChatTables(env);
+    const url = new URL(request.url);
+    const videoId = url.searchParams.get('videoId') || '';
+    const sinceParam = url.searchParams.get('since') || '0';
+    const since = Number(sinceParam) || 0;
+    if (!videoId) return json({ messages: [] });
+    const result = await env.DB
+      .prepare(
+        `SELECT id, display_name, is_admin, message, created_at
+         FROM live_chat_messages
+         WHERE video_id = ? AND deleted_at IS NULL AND created_at > ?
+         ORDER BY created_at ASC
+         LIMIT ?`
+      )
+      .bind(videoId, since, CHAT_HISTORY_LIMIT)
+      .all<{ id: string; display_name: string; is_admin: number; message: string; created_at: number }>();
+    const messages = (result.results || []).map(r => ({
+      id: r.id,
+      displayName: r.display_name,
+      isAdmin: Boolean(r.is_admin),
+      message: r.message,
+      createdAt: Number(r.created_at),
+    }));
+    return json({ messages });
+  } catch (err) {
+    return json({ messages: [], error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleLiveChatPost(request: Request, env: Env): Promise<Response> {
+  try {
+    await ensureLiveChatTables(env);
+    const payload = await readJson<{ sessionId?: string; message?: string }>(request);
+    const sessionId = String(payload.sessionId || '').trim();
+    const text = String(payload.message || '').trim().slice(0, CHAT_MAX_LENGTH);
+    if (!sessionId || !text) return badRequest('Missing sessionId or message');
+
+    const viewer = await env.DB
+      .prepare('SELECT display_name, is_admin, video_id, last_ping_at FROM live_viewers WHERE session_id = ?')
+      .bind(sessionId)
+      .first<{ display_name: string; is_admin: number; video_id: string; last_ping_at: number }>();
+    if (!viewer) return json({ error: '請先加入聊天' }, 401);
+
+    const ip = request.headers.get('CF-Connecting-IP') || '';
+    const ipHash = await hashIp(ip);
+
+    // Rate limit per IP
+    const recent = await env.DB
+      .prepare('SELECT created_at FROM live_chat_messages WHERE ip_hash = ? ORDER BY created_at DESC LIMIT 1')
+      .bind(ipHash)
+      .first<{ created_at: number }>();
+    if (recent && Date.now() - Number(recent.created_at) < CHAT_RATE_LIMIT_MS) {
+      return json({ error: '訊息發送太快，請稍等' }, 429);
+    }
+
+    const messageId = crypto.randomUUID();
+    const createdAt = Date.now();
+    await env.DB
+      .prepare(
+        'INSERT INTO live_chat_messages (id, video_id, session_id, display_name, is_admin, message, created_at, ip_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(messageId, viewer.video_id, sessionId, viewer.display_name, viewer.is_admin, text, createdAt, ipHash)
+      .run();
+
+    // Bump viewer last_ping_at so sender stays in list
+    await env.DB.prepare('UPDATE live_viewers SET last_ping_at = ? WHERE session_id = ?').bind(createdAt, sessionId).run();
+
+    return json({
+      ok: true,
+      message: {
+        id: messageId,
+        displayName: viewer.display_name,
+        isAdmin: Boolean(viewer.is_admin),
+        message: text,
+        createdAt,
+      }
+    });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleLivePublicRefresh(env: Env): Promise<Response> {
+  // 公開刷新：等同管理員「立即重新檢查」，但加 30 秒冷卻避免有人狂點刷光 YouTube API quota
+  try {
+    const state = await getLiveStreamStateRow(env);
+    const config = await getLiveStreamConfigRow(env);
+    const PUBLIC_REFRESH_COOLDOWN_MS = 30_000;
+    const sinceLastCheck = Date.now() - (state.checked_at || 0);
+    if (config.enabled && !config.manual_video_id && sinceLastCheck > PUBLIC_REFRESH_COOLDOWN_MS) {
+      await runProbeIfDue(env, true);
+    }
+    const data = await buildPublicLiveStreamState(env);
+    return json(data);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleLiveChatDelete(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureLiveChatTables(env);
+  await env.DB.prepare('UPDATE live_chat_messages SET deleted_at = ? WHERE id = ?').bind(Date.now(), id).run();
+  return json({ ok: true });
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -2122,6 +2614,27 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === '/api/admin/live-stream/probe' && request.method === 'POST') {
       return handleLiveStreamProbe(request, env);
+    }
+
+    if (url.pathname === '/api/live/join' && request.method === 'POST') {
+      return handleLiveJoin(request, env);
+    }
+    if (url.pathname === '/api/live/ping' && request.method === 'POST') {
+      return handleLivePing(request, env);
+    }
+    if (url.pathname === '/api/live/refresh' && request.method === 'POST') {
+      return handleLivePublicRefresh(env);
+    }
+    if (url.pathname === '/api/live/chat' && request.method === 'GET') {
+      return handleLiveChatGet(request, env);
+    }
+    if (url.pathname === '/api/live/chat' && request.method === 'POST') {
+      return handleLiveChatPost(request, env);
+    }
+    if (url.pathname.startsWith('/api/live/chat/') && request.method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      if (!id) return badRequest('Missing message id');
+      return handleLiveChatDelete(request, env, id);
     }
 
     if (url.pathname.startsWith('/api/')) {

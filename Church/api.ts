@@ -1,5 +1,5 @@
 import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
-import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState } from './types';
+import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
 
 export interface LiveStreamSavePayload {
   channelId?: string;
@@ -112,4 +112,16 @@ export const api = {
     request<{ ok: boolean; channelName?: string; error?: string }>('/api/admin/live-stream/test', { method: 'POST', body: JSON.stringify(payload) }),
   liveStreamAdminProbe: () =>
     request<{ state: LiveStreamAdminState }>('/api/admin/live-stream/probe', { method: 'POST' }),
+  liveJoin: (payload: { sessionId: string; name?: string; asGuest?: boolean; displayName?: string }) =>
+    request<{ displayName: string; guestNumber: number | null; isAdmin: boolean; videoId: string }>('/api/live/join', { method: 'POST', body: JSON.stringify(payload) }),
+  liveRefresh: () =>
+    request<LiveStreamPublicState>('/api/live/refresh', { method: 'POST' }),
+  livePing: (sessionId: string) =>
+    request<{ ok: boolean }>('/api/live/ping', { method: 'POST', body: JSON.stringify({ sessionId }) }),
+  liveChatGet: (videoId: string, since = 0) =>
+    request<{ messages: LiveChatMessage[] }>(`/api/live/chat?videoId=${encodeURIComponent(videoId)}&since=${since}`),
+  liveChatPost: (payload: { sessionId: string; message: string }) =>
+    request<{ ok: boolean; message?: LiveChatMessage; error?: string }>('/api/live/chat', { method: 'POST', body: JSON.stringify(payload) }),
+  liveChatDelete: (id: string) =>
+    request<{ ok: true }>(`/api/live/chat/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

@@ -17,6 +17,11 @@ import {
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
 type AccountTab = 'profile' | 'password';
+type ExpenseEmailAction = {
+  expenseId: string;
+  action: 'approve' | 'reject';
+  token: string;
+};
 
 const PAGE_PATHS: Record<Page, string> = {
   dashboard: '/',
@@ -32,7 +37,7 @@ function routeFromLocation(): { page: Page; accountTab: AccountTab } {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (path === '/members') return { page: 'members', accountTab: 'profile' };
   if (path === '/offerings' || path === '/offering') return { page: 'offerings', accountTab: 'profile' };
-  if (path === '/expense' || path === '/expenses') return { page: 'expenses', accountTab: 'profile' };
+  if (path === '/expense' || path === '/expenses' || path === '/expense-action') return { page: 'expenses', accountTab: 'profile' };
   if (path === '/reports' || path === '/report') return { page: 'reports', accountTab: 'profile' };
   if (path === '/users') return { page: 'users', accountTab: 'profile' };
   if (path === '/account/password') return { page: 'account', accountTab: 'password' };
@@ -43,6 +48,22 @@ function routeFromLocation(): { page: Page; accountTab: AccountTab } {
 function pathForPage(page: Page, accountTab: AccountTab = 'profile') {
   if (page === 'account' && accountTab === 'password') return '/account/password';
   return PAGE_PATHS[page];
+}
+
+function expenseEmailActionFromLocation(): ExpenseEmailAction | null {
+  const params = new URLSearchParams(window.location.search);
+  const expenseId = params.get('expenseId') || params.get('id') || '';
+  const action = params.get('expenseAction') || params.get('action') || '';
+  const token = params.get('token') || '';
+  if (!expenseId || !token || (action !== 'approve' && action !== 'reject')) return null;
+  return { expenseId, action, token };
+}
+
+function clearExpenseEmailActionFromUrl() {
+  const url = new URL(window.location.href);
+  ['expenseId', 'expenseAction', 'id', 'action', 'token'].forEach(key => url.searchParams.delete(key));
+  const pathname = url.pathname === '/expense-action' ? '/expense' : url.pathname;
+  window.history.replaceState({}, '', `${pathname}${url.search}${url.hash}`);
 }
 
 const roleLabels: Record<Role, string> = {
@@ -205,6 +226,167 @@ function LoginPage() {
         </div>
       </section>
       {forgotOpen && <ForgotPasswordModal onClose={() => setForgotOpen(false)} />}
+    </main>
+  );
+}
+
+function ClaimPage() {
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [claimants, setClaimants] = useState<Array<{ id: string; name: string }>>([]);
+  const [paymentMethods, setPaymentMethods] = useState<string[]>(['現金', '銀行轉帳', '支票', '信用卡']);
+  const [form, setForm] = useState({
+    claimantMemberId: '',
+    claimantName: '',
+    claimantEmail: '',
+    description: '',
+    amount: '',
+    date: new Date().toISOString().slice(0, 10),
+    categoryId: '',
+    paymentMethod: '現金',
+    notes: '',
+    receiptUrl: ''
+  });
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.publicClaimOptions()
+      .then(result => {
+        setCategories(result.expenseCategories);
+        setClaimants(result.claimants);
+        if (result.paymentMethods.length) {
+          setPaymentMethods(result.paymentMethods);
+          setForm(current => current.paymentMethod ? current : { ...current, paymentMethod: result.paymentMethods[0] });
+        }
+      })
+      .catch(caught => setError(caught instanceof Error ? caught.message : '載入資料失敗'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const blob = file.type.startsWith('image/') ? await compressImage(file) : file;
+      const uploadFile = blob instanceof File ? blob : new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+      const uploaded = await api.uploadClaimAttachment(uploadFile);
+      update('receiptUrl', uploaded.url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '上傳附件失敗');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.createPublicClaim({
+        claimantName: form.claimantName,
+        claimantEmail: form.claimantEmail,
+        claimantMemberId: form.claimantMemberId || null,
+        description: form.description,
+        amount: Number(form.amount),
+        date: form.date,
+        categoryId: form.categoryId || null,
+        paymentMethod: form.paymentMethod,
+        notes: form.notes,
+        receiptUrl: form.receiptUrl || null
+      });
+      setDone(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '提交失敗');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="claim-page">
+      <section className="claim-panel">
+        <div className="claim-brand">
+          <div className="brand-mark">財</div>
+          <div>
+            <strong>信望愛靈糧堂</strong>
+            <span>请款申请</span>
+          </div>
+        </div>
+        {done ? (
+          <div className="claim-success">
+            <h1>已提交请款单</h1>
+            <p>謝謝，財務同工已收到申請通知。</p>
+            <button className="primary" onClick={() => { setDone(false); setForm(current => ({ ...current, description: '', amount: '', notes: '', receiptUrl: '' })); }}>
+              提交另一張
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="claim-form">
+            <div>
+              <h1>请款申请</h1>
+              <p>請填寫支出資料並上傳憑證。</p>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <div className="claim-grid">
+              <label>
+                姓名
+                <input
+                  list="claim-claimants"
+                  value={form.claimantName}
+                  onChange={event => {
+                    const name = event.target.value;
+                    const matched = claimants.find(item => item.name === name);
+                    setForm(current => ({
+                      ...current,
+                      claimantName: name,
+                      claimantMemberId: matched?.id || ''
+                    }));
+                  }}
+                  placeholder="可從下拉選擇，也可手動輸入"
+                  required
+                />
+                <datalist id="claim-claimants">
+                  {claimants.map(item => <option key={item.id} value={item.name} />)}
+                </datalist>
+              </label>
+              <label>Email<input type="email" value={form.claimantEmail} onChange={event => update('claimantEmail', event.target.value)} /></label>
+              <label className="wide">请款内容<input value={form.description} onChange={event => update('description', event.target.value)} required /></label>
+              <label>金額<input type="number" min="0.01" step="0.01" value={form.amount} onChange={event => update('amount', event.target.value)} required /></label>
+              <label>日期<input type="date" value={form.date} onChange={event => update('date', event.target.value)} required /></label>
+              <label>
+                分類
+                <select value={form.categoryId} onChange={event => update('categoryId', event.target.value)} disabled={loading}>
+                  <option value="">未分類</option>
+                  {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+              </label>
+              <label>
+                付款方式
+                <select value={form.paymentMethod} onChange={event => update('paymentMethod', event.target.value)}>
+                  {paymentMethods.map(method => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </label>
+              <label className="wide">備註<textarea value={form.notes} onChange={event => update('notes', event.target.value)} /></label>
+            </div>
+            <div className="claim-actions">
+              <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? '上傳中...' : form.receiptUrl ? '重新上傳憑證' : '上傳憑證'}</button>
+              {form.receiptUrl && <a href={form.receiptUrl} target="_blank" rel="noreferrer">查看憑證</a>}
+              <button className="primary" disabled={saving}>{saving ? '提交中...' : '提交请款单'}</button>
+            </div>
+          </form>
+        )}
+      </section>
     </main>
   );
 }
@@ -981,8 +1163,8 @@ function OfferingsPage() {
 }
 
 function ExpensesPage() {
-  const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveSettings } = useFinance();
-  const { hasPermission } = useAuth();
+  const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveSettings, refreshAll } = useFinance();
+  const { hasPermission, user } = useAuth();
   const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
   const canManageNotify = hasPermission('super_admin', 'finance_admin');
   const [editing, setEditing] = useState<Expense | null>(null);
@@ -991,9 +1173,30 @@ function ExpensesPage() {
   const [accountingExpense, setAccountingExpense] = useState<Expense | null>(null);
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
+  const [emailAction, setEmailAction] = useState<ExpenseEmailAction | null>(() => expenseEmailActionFromLocation());
   const pending = expenses.filter(item => item.status === 'pending');
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+  const emailActionExpense = emailAction ? expenses.find(item => item.id === emailAction.expenseId) : null;
+  const closeEmailAction = () => {
+    setEmailAction(null);
+    clearExpenseEmailActionFromUrl();
+  };
+  const confirmEmailAction = async () => {
+    if (!emailAction) return;
+    const params = new URLSearchParams({
+      id: emailAction.expenseId,
+      action: emailAction.action,
+      token: emailAction.token
+    });
+    const response = await fetch(`/expense-action?${params.toString()}`, { credentials: 'same-origin' });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '操作失敗');
+    }
+    await refreshAll();
+    closeEmailAction();
+  };
   // 付款人顯示：First Name Last Name (中文名)
   const paidByLabel = (item: Expense): string => {
     if (!item.paidBy) return '—';
@@ -1069,6 +1272,22 @@ function ExpensesPage() {
           }}
         />
       )}
+      {emailAction && (
+        <ConfirmModal
+          title={emailAction.action === 'approve' ? '批准支出' : '拒絕支出'}
+          message={
+            <>
+              確定要{emailAction.action === 'approve' ? '批准' : '拒絕'}這筆支出嗎？
+              <br />
+              <strong>{emailActionExpense ? `${shortDate(emailActionExpense.date)} ${emailActionExpense.description || ''} ${currency(emailActionExpense.amount)}`.trim() : emailAction.expenseId}</strong>
+            </>
+          }
+          confirmText={emailAction.action === 'approve' ? '批准' : '拒絕'}
+          danger={emailAction.action === 'reject'}
+          onClose={closeEmailAction}
+          onConfirm={confirmEmailAction}
+        />
+      )}
       <table>
         <thead>
           <tr>
@@ -1083,6 +1302,11 @@ function ExpensesPage() {
             const invoiceOp = item.invoicedAt ? expenseOperatorDisplay(memberById, item.invoicedBy, item.invoicedByName, item.invoicedAt) : null;
             const accountOp = item.accountedAt ? expenseOperatorDisplay(memberById, item.accountedBy, item.accountedByName, item.accountedAt) : null;
 
+            const currentOperatorLabel = (user?.name || user?.email || '').trim().toLowerCase();
+            const isCurrentApprover = Boolean(
+              (user?.memberId && item.approvedBy && user.memberId === item.approvedBy) ||
+              (currentOperatorLabel && item.approvedByName && item.approvedByName.trim().toLowerCase() === currentOperatorLabel)
+            );
             const showInvoiceBtn = canEdit && item.status === 'approved' && !item.invoicedAt;
             const showAccountBtn = canEdit && !!item.invoicedAt && !item.accountedAt;
             const invoiceBadge = item.invoicedAt ? '已開票' : (item.status === 'approved' ? '待開票' : '—');
@@ -1116,8 +1340,17 @@ function ExpensesPage() {
                       <span className="expense-status-op">{invoiceOp.name && invoiceOp.at ? `${invoiceOp.name} · ${invoiceOp.at}` : (invoiceOp.name || invoiceOp.at)}</span>
                     )}
                     {showInvoiceBtn && (
-                      <div className="expense-status-actions">
-                        <button className="primary" onClick={() => setInvoicingExpense(item)}>開票</button>
+                      <div
+                        className="expense-status-actions"
+                        title={isCurrentApprover ? '需另一位同工開票' : undefined}
+                      >
+                        <button
+                          className="primary"
+                          disabled={isCurrentApprover}
+                          onClick={() => setInvoicingExpense(item)}
+                        >
+                          開票
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1155,6 +1388,7 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
   onSave: (next: AppSettings) => Promise<void>;
 }) {
   const current = settings.expenseNotify;
+  const [tab, setTab] = useState<'notify' | 'template'>('notify');
   const [enabled, setEnabled] = useState(current?.enabled ?? false);
   const [recipientsText, setRecipientsText] = useState((current?.recipients ?? []).join('\n'));
   const [mailFrom, setMailFrom] = useState(current?.mailFrom ?? 'Seattle Bread of Life Christian Church <finance@bolccop.org>');
@@ -1164,9 +1398,19 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
   const [includeActionButtons, setIncludeActionButtons] = useState(current?.includeActionButtons ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<Array<{ recipient: string; ok: boolean; status?: number; error?: string }> | null>(null);
 
   const handleSave = async () => {
-    const recipients = recipientsText.split(/[\n,;]/).map(s => s.trim()).filter(Boolean);
+    const recipients = recipientsText
+      .split(/[\n,;]/)
+      .map(s => s.trim())
+      .filter(item => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item));
+    if (enabled && recipients.length === 0) {
+      setError('請至少填寫一個有效收件人郵箱');
+      setTab('notify');
+      return;
+    }
     setBusy(true); setError(null);
     try {
       await onSave({
@@ -1188,6 +1432,20 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
     }
   };
 
+  const handleSendTest = async () => {
+    setTesting(true);
+    setTestResults(null);
+    setError(null);
+    try {
+      const res = await api.testExpenseNotify();
+      setTestResults(res.results);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '測試發送失敗');
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -1195,64 +1453,106 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
           <h2>支出通知設置</h2>
           <button type="button" onClick={onClose}>關閉</button>
         </header>
-        <div className="modal-body" style={{ display: 'grid', gap: '0.85rem' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
-            <span>啟用新增支出郵件通知</span>
-          </label>
-          <label>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>收件人（每行一個郵箱，或用逗號分隔）</span>
-            <textarea
-              value={recipientsText}
-              onChange={e => setRecipientsText(e.target.value)}
-              placeholder="andy@bolccop.org&#10;accounting@bolccop.org"
-              rows={4}
-              style={{ width: '100%', marginTop: '0.4rem' }}
-            />
-          </label>
-          <label>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件郵箱（bolccop.org）</span>
-            <input
-              value={mailFrom}
-              onChange={e => setMailFrom(e.target.value)}
-              style={{ width: '100%', marginTop: '0.4rem' }}
-            />
-          </label>
-          <label>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>回信地址（Reply-To）</span>
-            <input
-              value={replyTo}
-              onChange={e => setReplyTo(e.target.value)}
-              style={{ width: '100%', marginTop: '0.4rem' }}
-            />
-          </label>
-          <label>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件主旨模板</span>
-            <input
-              value={subjectTemplate}
-              onChange={e => setSubjectTemplate(e.target.value)}
-              placeholder={DEFAULT_EXPENSE_NOTIFY_SUBJECT}
-              style={{ width: '100%', marginTop: '0.4rem' }}
-            />
-          </label>
-          <label>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件 HTML 模板</span>
-            <textarea
-              value={bodyTemplate}
-              onChange={e => setBodyTemplate(e.target.value)}
-              rows={10}
-              style={{ width: '100%', marginTop: '0.4rem', fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' }}
-            />
-          </label>
-          <div className="template-help">
-            可用占位符：{'{{description}}'} {'{{amount}}'} {'{{category}}'} {'{{paidBy}}'} {'{{date}}'} {'{{notes}}'} {'{{submittedBy}}'} {'{{receiptUrl}}'} {'{{receiptLink}}'} {'{{actionButtons}}'}
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" checked={includeActionButtons} onChange={e => setIncludeActionButtons(e.target.checked)} />
-            <span>在郵件中加入批准 / 拒絕按鈕</span>
-          </label>
-          {error && <div style={{ color: '#c0392b', fontSize: '0.9rem' }}>{error}</div>}
+
+        <div className="settings-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'notify'} className={tab === 'notify' ? 'active' : ''} onClick={() => setTab('notify')}>通知設置</button>
+          <button type="button" role="tab" aria-selected={tab === 'template'} className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>郵件模板</button>
         </div>
+
+        {tab === 'notify' && (
+          <div className="modal-body" style={{ display: 'grid', gap: '0.85rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+              <span>啟用新增支出郵件通知</span>
+            </label>
+            <label>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>收件人（每行一個郵箱，或用逗號分隔）</span>
+              <textarea
+                value={recipientsText}
+                onChange={e => setRecipientsText(e.target.value)}
+                placeholder="andy@bolccop.org&#10;accounting@bolccop.org"
+                rows={4}
+                style={{ width: '100%', marginTop: '0.4rem' }}
+              />
+            </label>
+            <label>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件郵箱（bolccop.org）</span>
+              <input
+                value={mailFrom}
+                onChange={e => setMailFrom(e.target.value)}
+                style={{ width: '100%', marginTop: '0.4rem' }}
+              />
+            </label>
+            <label>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>回信地址（Reply-To）</span>
+              <input
+                value={replyTo}
+                onChange={e => setReplyTo(e.target.value)}
+                style={{ width: '100%', marginTop: '0.4rem' }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input type="checkbox" checked={includeActionButtons} onChange={e => setIncludeActionButtons(e.target.checked)} />
+              <span>在郵件中加入批准 / 拒絕按鈕</span>
+            </label>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
+              <button type="button" onClick={handleSendTest} disabled={testing}>
+                {testing ? '發送中…' : '發送測試郵件'}
+              </button>
+              <span style={{ fontSize: '0.8rem', color: '#68758a' }}>
+                會把 [TEST] 樣板郵件發到上方每個收件人，失敗會顯示 Resend 的具體錯誤
+              </span>
+            </div>
+            {testResults && (
+              <div className="notify-test-results">
+                {testResults.length === 0 && <div style={{ color: '#68758a', fontSize: '0.85rem' }}>沒有有效收件人。</div>}
+                {testResults.map(r => (
+                  <div key={r.recipient} className={r.ok ? 'notify-test-row ok' : 'notify-test-row fail'}>
+                    <span className="notify-test-dot">{r.ok ? '✓' : '✗'}</span>
+                    <span className="notify-test-email">{r.recipient}</span>
+                    {r.status != null && <span className="notify-test-status">HTTP {r.status}</span>}
+                    {r.error && <span className="notify-test-error">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'template' && (
+          <div className="modal-body" style={{ display: 'grid', gap: '0.85rem' }}>
+            <label>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件主旨模板</span>
+              <input
+                value={subjectTemplate}
+                onChange={e => setSubjectTemplate(e.target.value)}
+                placeholder={DEFAULT_EXPENSE_NOTIFY_SUBJECT}
+                style={{ width: '100%', marginTop: '0.4rem' }}
+              />
+            </label>
+            <label>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>郵件 HTML 模板</span>
+              <textarea
+                value={bodyTemplate}
+                onChange={e => setBodyTemplate(e.target.value)}
+                rows={12}
+                style={{ width: '100%', marginTop: '0.4rem', fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' }}
+              />
+            </label>
+            <div className="template-help">
+              可用占位符：{'{{description}}'} {'{{amount}}'} {'{{category}}'} {'{{paidBy}}'} {'{{date}}'} {'{{notes}}'} {'{{submittedBy}}'} {'{{receiptUrl}}'} {'{{receiptLink}}'} {'{{actionButtons}}'}
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#68758a', margin: 0 }}>
+              {'{{actionButtons}}'} 會在啟用「在郵件中加入批准 / 拒絕按鈕」（通知設置 tab）時，被替換成兩個帶簽名 token 的按鈕；否則為空字串。
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ color: '#c0392b', fontSize: '0.9rem', padding: '0 0.5rem' }}>{error}</div>
+        )}
+
         <footer>
           <button type="button" onClick={onClose} disabled={busy}>取消</button>
           <button type="button" className="primary" onClick={handleSave} disabled={busy}>{busy ? '保存中...' : '保存'}</button>
@@ -2168,17 +2468,17 @@ function MemberForm({
   const [form, setForm] = useState(member);
   return (
     <FormModal title="成員資料" onClose={onClose} onSubmit={() => onSave(form)}>
-      <input value={form.firstName ?? ''} onChange={event => setForm({ ...form, firstName: event.target.value })} placeholder="First Name *" required />
-      <input value={form.lastName ?? ''} onChange={event => setForm({ ...form, lastName: event.target.value })} placeholder="Last Name" />
-      <input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="姓名(中文）" />
-      <input value={form.partner ?? ''} onChange={event => setForm({ ...form, partner: event.target.value })} placeholder="Partner" />
-      <input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="電話" />
-      <input value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="Email" />
-      <input value={form.address ?? ''} onChange={event => setForm({ ...form, address: event.target.value })} placeholder="地址" />
-      <input value={form.city ?? ''} onChange={event => setForm({ ...form, city: event.target.value })} placeholder="城市" />
-      <input value={form.stateRegion ?? ''} onChange={event => setForm({ ...form, stateRegion: event.target.value })} placeholder="州/省" />
-      <input value={form.postalCode ?? ''} onChange={event => setForm({ ...form, postalCode: event.target.value })} placeholder="郵編" />
-      <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
+      <label>First Name *<input value={form.firstName ?? ''} onChange={event => setForm({ ...form, firstName: event.target.value })} required /></label>
+      <label>Last Name<input value={form.lastName ?? ''} onChange={event => setForm({ ...form, lastName: event.target.value })} /></label>
+      <label>姓名（中文）<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
+      <label>Partner<input value={form.partner ?? ''} onChange={event => setForm({ ...form, partner: event.target.value })} /></label>
+      <label>電話<input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></label>
+      <label>Email<input value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></label>
+      <label>地址<input value={form.address ?? ''} onChange={event => setForm({ ...form, address: event.target.value })} /></label>
+      <label>城市<input value={form.city ?? ''} onChange={event => setForm({ ...form, city: event.target.value })} /></label>
+      <label>州/省<input value={form.stateRegion ?? ''} onChange={event => setForm({ ...form, stateRegion: event.target.value })} /></label>
+      <label>郵編<input value={form.postalCode ?? ''} onChange={event => setForm({ ...form, postalCode: event.target.value })} /></label>
+      <label className="form-wide">備註<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>
     </FormModal>
   );
 }
@@ -2248,29 +2548,37 @@ function OfferingForm({
 
   return (
     <FormModal title="奉獻記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
-      <select
-        value={form.memberId ?? ''}
-        onChange={event => setForm({ ...form, memberId: event.target.value || null })}
-        style={{ color: form.memberId ? '#172033' : '#94a3b8' }}
-      >
-        <option value="" style={{ color: '#94a3b8' }}>奉献人</option>
-        {[...members]
-          .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
-          .map(item => (
-            <option key={item.id} value={item.id} style={{ color: '#172033' }}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
-          ))}
-      </select>
-      <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="奉献金额" required />
-      <select value={form.methodId ?? ''} onChange={event => setForm({ ...form, methodId: event.target.value || null })}>
-        <option value="">支付方式</option>
-        {methods.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
-      <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
-        <option value="">選擇分類</option>
-        {categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
-      <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
-      <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
+      <label>
+        奉獻人
+        <select
+          value={form.memberId ?? ''}
+          onChange={event => setForm({ ...form, memberId: event.target.value || null })}
+        >
+          <option value="">匿名</option>
+          {[...members]
+            .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
+            .map(item => (
+              <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
+            ))}
+        </select>
+      </label>
+      <label>奉獻金額<input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} required /></label>
+      <label>
+        支付方式
+        <select value={form.methodId ?? ''} onChange={event => setForm({ ...form, methodId: event.target.value || null })}>
+          <option value="">未選擇</option>
+          {methods.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      <label>
+        分類
+        <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
+          <option value="">未選擇</option>
+          {categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      <label>日期<input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required /></label>
+      <label className="form-wide">備註<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>
       {form.receiptUrl && (
         <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center' }}>
           <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 400, maxHeight: 400, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
@@ -2824,6 +3132,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(initialRoute.page);
   const [accountTab, setAccountTab] = useState<AccountTab>(initialRoute.accountTab);
   const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
+  const isClaimRoute = window.location.pathname.replace(/\/+$/, '') === '/claim';
 
   useEffect(() => {
     if (user) finance.refreshAll();
@@ -2861,6 +3170,7 @@ export default function App() {
   }, [page, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
   if (loading) return <Empty title="正在檢查登入狀態" />;
+  if (isClaimRoute) return <ClaimPage />;
   if (resetToken && !user) return <ResetPasswordView token={resetToken} />;
   if (!user) return <LoginPage />;
 

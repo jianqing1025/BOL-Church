@@ -39,6 +39,8 @@ export const api = {
   settings: () => request<AppSettings>('/api/settings'),
   updateSettings: (payload: AppSettings) =>
     request<AppSettings>('/api/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+  testExpenseNotify: () =>
+    request<{ results: Array<{ recipient: string; ok: boolean; status?: number; error?: string }> }>('/api/settings/expense-notify/test', { method: 'POST' }),
   lookups: () => request<LookupData>('/api/lookups'),
   members: (query = '') => request<{ items: Member[]; total: number }>(`/api/members${query}`),
   createMember: (payload: Partial<Member>) =>
@@ -69,6 +71,28 @@ export const api = {
   accountExpense: (id: string, payload?: { accountReceiptUrl?: string | null }) =>
     request<Expense>(`/api/expenses/${id}/account`, { method: 'POST', body: JSON.stringify(payload || {}) }),
   expenseCategories: () => request<ExpenseCategory[]>('/api/expenses/categories'),
+  publicClaimOptions: () => request<{
+    expenseCategories: ExpenseCategory[];
+    claimants: Array<{ id: string; name: string }>;
+    paymentMethods: string[];
+  }>('/api/public/claim-options'),
+  createPublicClaim: (payload: {
+    claimantName: string;
+    claimantEmail?: string;
+    claimantMemberId?: string | null;
+    description: string;
+    amount: number;
+    date: string;
+    categoryId?: string | null;
+    paymentMethod?: string;
+    notes?: string;
+    receiptUrl?: string | null;
+  }) => request<{ ok: true; expense: Expense }>('/api/public/claims', { method: 'POST', body: JSON.stringify(payload) }),
+  uploadClaimAttachment: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ key: string; url: string }>('/api/public/claim-upload', { method: 'POST', body: form });
+  },
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
   sendTaxStatement: (memberId: string, year: number, pdf?: string) =>
     request<{ ok: true }>('/api/reports/tax-statement/send', { method: 'POST', body: JSON.stringify({ memberId, year, pdf }) }),

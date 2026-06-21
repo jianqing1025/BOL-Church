@@ -12,6 +12,7 @@ import SermonDetailPage from './components/SermonDetailPage';
 import AboutPage from './components/AboutPage';
 import EventsPage from './components/EventsPage';
 import SermonsPage from './components/SermonsPage';
+import LiveStreamPage from './components/LiveStreamPage';
 import GivingPage from './components/GivingPage';
 import ContactPage from './components/ContactPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -75,17 +76,28 @@ function App() {
   }
 
   const renderPage = () => {
+    // 主日直播獨立路由
+    if (route === '/live' || route === '/live/' || route.startsWith('/live/')) {
+      return <LiveStreamPage />;
+    }
+    // 舊鏈接 /sermons/live-stream → 自動 redirect 到 /live（URL 同步更新，不刷新）
+    if (route === '/sermons/live-stream' || route.startsWith('/sermons/live-stream/')) {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/live') {
+        window.history.replaceState(null, '', '/live');
+      }
+      return <LiveStreamPage />;
+    }
     if (route.startsWith('/sermons/')) {
       const parts = route.split('/');
-      const segment = (parts[2] || 'sunday-worship').split('?')[0]; 
-      
-      const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'recent-sermons', 'live-stream'];
-      
+      const segment = (parts[2] || 'sunday-worship').split('?')[0];
+
+      const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'recent-sermons'];
+
       // If the segment is NOT one of the known sub-pages, treat it as a Sermon ID
       if (segment && !validSubPages.includes(segment as any)) {
         return <SermonDetailPage sermonId={segment} />;
       }
-      
+
       const subPage = (validSubPages.find(p => p === segment) ?? 'sunday-worship') as SermonSubPage;
       return <SermonsPage activeSubPage={subPage} />;
     }

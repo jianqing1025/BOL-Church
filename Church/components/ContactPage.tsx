@@ -169,10 +169,8 @@ const LocationInfo = () => {
                     <p>{t('contact.chineseService')}</p>
                     </ContactInfoItem>
                     <ContactInfoItem title={t('contact.onlineServiceTitle')}>
-                        <a 
-                            href="https://www.youtube.com/@信望愛網路教會BreadofLi" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
+                        <a
+                            href="http://www.bolccop.org/live"
                             className="hover:text-blue-600 transition-colors"
                         >
                             {t('contact.onlineServiceLinkText')}

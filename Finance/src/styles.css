@@ -39,6 +39,124 @@ button.primary {
   color: #fff;
 }
 
+button:disabled,
+button:disabled:hover,
+button.primary:disabled,
+button.primary:disabled:hover {
+  background: #d8dee8;
+  color: #7a8699;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.claim-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(31, 111, 235, 0.16), transparent 32%),
+    radial-gradient(circle at 88% 18%, rgba(247, 201, 72, 0.24), transparent 28%),
+    linear-gradient(135deg, #f7faff 0%, #eef4fb 52%, #f8fafc 100%);
+}
+
+.claim-panel {
+  width: min(920px, 100%);
+  border: 1px solid rgba(216, 224, 236, 0.9);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 24px 70px rgba(25, 41, 70, 0.14);
+  overflow: hidden;
+}
+
+.claim-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 28px;
+  border-bottom: 1px solid #edf1f7;
+  background: linear-gradient(90deg, #ffffff, #f8fbff);
+}
+
+.claim-brand strong,
+.claim-brand span {
+  display: block;
+}
+
+.claim-brand strong {
+  font-size: 1.15rem;
+}
+
+.claim-brand span {
+  color: #68758a;
+  font-size: 0.9rem;
+}
+
+.claim-form,
+.claim-success {
+  padding: 28px;
+}
+
+.claim-form h1,
+.claim-success h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.05;
+}
+
+.claim-form p,
+.claim-success p {
+  margin: 8px 0 0;
+  color: #68758a;
+}
+
+.claim-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.claim-grid label {
+  display: grid;
+  gap: 8px;
+  color: #364258;
+  font-weight: 800;
+}
+
+.claim-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #edf1f7;
+}
+
+.claim-actions a {
+  color: #1f6feb;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.claim-actions .primary {
+  margin-left: auto;
+}
+
+.claim-success {
+  display: grid;
+  gap: 16px;
+}
+
+.claim-success .primary {
+  justify-self: start;
+}
+
 input,
 select,
 textarea {
@@ -70,6 +188,69 @@ input[type="radio"] {
   border: 0;
   background: transparent;
   vertical-align: middle;
+}
+
+/* 通知設置 測試發送結果 */
+.notify-test-results {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.notify-test-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.notify-test-row.ok {
+  border-color: #c6f0d2;
+  background: #f1faf4;
+}
+
+.notify-test-row.fail {
+  border-color: #f5c2c2;
+  background: #fdf3f3;
+}
+
+.notify-test-dot {
+  font-weight: 800;
+  width: 1.2rem;
+  text-align: center;
+}
+
+.notify-test-row.ok .notify-test-dot { color: #1d8a4a; }
+.notify-test-row.fail .notify-test-dot { color: #c0392b; }
+
+.notify-test-email {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notify-test-status {
+  font-size: 0.78rem;
+  color: #68758a;
+  white-space: nowrap;
+}
+
+.notify-test-error {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: #c0392b;
+  word-break: break-word;
 }
 
 table {
@@ -1048,6 +1229,30 @@ td small {
 }
 
 @media (max-width: 640px) {
+  .claim-page {
+    padding: 16px;
+  }
+
+  .claim-brand,
+  .claim-form,
+  .claim-success {
+    padding: 20px;
+  }
+
+  .claim-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .claim-actions .primary {
+    width: 100%;
+    margin-left: 0;
+  }
+
   .toolbar-actions {
     align-self: flex-end;
     flex-direction: row;
@@ -1090,9 +1295,22 @@ td small {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+  padding: 0 0.4rem;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 0.4rem;
+  color: #364258;
+  font-size: 0.9rem;
+  font-weight: 800;
 }
 
 .form-grid textarea {
+  grid-column: 1 / -1;
+}
+
+.form-grid .form-wide {
   grid-column: 1 / -1;
 }
 
@@ -1489,6 +1707,7 @@ td small {
 
   .form-grid {
     grid-template-columns: 1fr;
+    padding: 0 0.15rem;
   }
 
   table {

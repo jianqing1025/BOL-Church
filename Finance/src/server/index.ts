@@ -53,6 +53,19 @@ function sameTestScope(role: Role, isTest: unknown): boolean {
   return role !== 'dev' || Boolean(isTest);
 }
 
+function normalizeOperatorLabel(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isSameExpenseOperator(user: SessionUser, expense: any, operatorLabel: string): boolean {
+  if (user.memberId && expense.approvedBy && user.memberId === expense.approvedBy) {
+    return true;
+  }
+
+  const approvedLabel = normalizeOperatorLabel(expense.approvedByName);
+  return Boolean(approvedLabel && approvedLabel === normalizeOperatorLabel(operatorLabel));
+}
+
 function json(data: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -276,7 +289,7 @@ function normalizeExpenseNotifySettings(raw?: Partial<ExpenseNotifySettings>): E
   const base = defaultExpenseNotifySettings();
   if (!raw) return base;
   const recipients = Array.isArray(raw.recipients)
-    ? raw.recipients.map(r => String(r || '').trim()).filter(Boolean)
+    ? raw.recipients.map(r => String(r || '').trim()).filter(isEmailAddress)
     : base.recipients;
   return {
     enabled: Boolean(raw.enabled),
@@ -286,6 +299,44 @@ function normalizeExpenseNotifySettings(raw?: Partial<ExpenseNotifySettings>): E
     subjectTemplate: typeof raw.subjectTemplate === 'string' && raw.subjectTemplate.trim() ? raw.subjectTemplate : base.subjectTemplate,
     bodyTemplate: typeof raw.bodyTemplate === 'string' && raw.bodyTemplate.trim() ? raw.bodyTemplate : base.bodyTemplate,
     includeActionButtons: raw.includeActionButtons === undefined ? base.includeActionButtons : Boolean(raw.includeActionButtons)
+  };
+}
+
+function isEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function settingsAuditTarget(before: AppSettings, after: AppSettings): { id: string; summary: string; before: unknown; after: unknown } {
+  const taxChanged = stableJson(before.taxStatement) !== stableJson(after.taxStatement);
+  const expenseNotifyChanged = stableJson(before.expenseNotify) !== stableJson(after.expenseNotify);
+
+  if (expenseNotifyChanged && !taxChanged) {
+    return {
+      id: 'expenseNotify',
+      summary: '支出通知設定已更新',
+      before: before.expenseNotify,
+      after: after.expenseNotify
+    };
+  }
+
+  if (taxChanged && !expenseNotifyChanged) {
+    return {
+      id: 'taxStatement',
+      summary: '報稅設定已更新',
+      before: before.taxStatement,
+      after: after.taxStatement
+    };
+  }
+
+  return {
+    id: 'appSettings',
+    summary: '系統設定已更新',
+    before,
+    after
   };
 }
 
@@ -360,8 +411,8 @@ async function createActionToken(env: Env, expenseId: string, action: 'approve' 
 }
 
 function renderActionButtons(baseUrl: string, expenseId: string, approveToken: string, rejectToken: string): string {
-  const approveUrl = `${baseUrl}/expense-action?id=${encodeURIComponent(expenseId)}&action=approve&token=${approveToken}`;
-  const rejectUrl = `${baseUrl}/expense-action?id=${encodeURIComponent(expenseId)}&action=reject&token=${rejectToken}`;
+  const approveUrl = `${baseUrl}/expense?expenseId=${encodeURIComponent(expenseId)}&expenseAction=approve&token=${encodeURIComponent(approveToken)}`;
+  const rejectUrl = `${baseUrl}/expense?expenseId=${encodeURIComponent(expenseId)}&expenseAction=reject&token=${encodeURIComponent(rejectToken)}`;
   return `<div style="margin-top:18px;">
   <a href="${approveUrl}" style="display:inline-block;background:#1f6feb;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:700;margin-right:8px;">批准</a>
   <a href="${rejectUrl}" style="display:inline-block;background:#fff;color:#c0392b;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:700;border:1px solid #c0392b;">拒絕</a>
@@ -384,6 +435,101 @@ function inferOriginFromRequest(request: Request | null, env: Env): string {
   return 'https://finance.bolccop.org';
 }
 
+const publicClaimUser: SessionUser = {
+  id: 'public-claim',
+  name: 'Public Claim',
+  email: '',
+  role: 'finance_admin',
+  memberId: null
+};
+
+function cleanPublicText(value: unknown, maxLength = 500): string {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+async function publicClaimOptions(env: Env) {
+  const [categories, members, usedMethods] = await Promise.all([
+    env.DB.prepare('SELECT * FROM expense_categories ORDER BY name').all<any>(),
+    env.DB.prepare(
+      `SELECT id, name, first_name, last_name
+       FROM members
+       WHERE status = 'active' AND COALESCE(is_test, 0) = 0
+       ORDER BY COALESCE(first_name, ''), COALESCE(last_name, ''), name`
+    ).all<any>(),
+    env.DB.prepare(
+      `SELECT DISTINCT payment_method AS name
+       FROM expenses
+       WHERE payment_method IS NOT NULL AND trim(payment_method) <> ''
+       ORDER BY payment_method`
+    ).all<any>()
+  ]);
+  const standardPaymentMethods = ['現金', '銀行轉帳', '支票', '信用卡'];
+  const paymentMethods = Array.from(new Set([
+    ...standardPaymentMethods,
+    ...(usedMethods.results || []).map(row => String(row.name || '').trim()).filter(Boolean)
+  ]));
+  return json({
+    expenseCategories: (categories.results || []).map(row => ({
+      id: row.id,
+      name: row.name,
+      budgetMonthly: Number(row.budget_monthly || 0),
+      description: row.description || '',
+      createdAt: row.created_at
+    })),
+    claimants: (members.results || []).map(row => {
+      const english = [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
+      const localName = String(row.name || '').trim();
+      return {
+        id: row.id,
+        name: english && localName && english !== localName ? `${english} (${localName})` : (english || localName || row.id)
+      };
+    }),
+    paymentMethods
+  });
+}
+
+async function createPublicClaim(env: Env, request: Request) {
+  const payload = await readJson<any>(request);
+  const claimantName = cleanPublicText(payload.claimantName, 120);
+  const claimantEmail = cleanPublicText(payload.claimantEmail, 160);
+  const claimantMemberId = cleanPublicText(payload.claimantMemberId, 80) || null;
+  const description = cleanPublicText(payload.description, 240);
+  const amount = Number(payload.amount);
+  const date = cleanPublicText(payload.date, 20) || now().slice(0, 10);
+  const categoryId = cleanPublicText(payload.categoryId, 80) || null;
+  const paymentMethod = cleanPublicText(payload.paymentMethod, 80) || 'Reimbursement';
+  const notes = cleanPublicText(payload.notes, 1000);
+  const receiptUrl = cleanPublicText(payload.receiptUrl, 1000) || null;
+
+  if (!claimantName) return error('請填寫姓名', 400);
+  if (!description) return error('請填寫報銷內容', 400);
+  if (!Number.isFinite(amount) || amount <= 0) return error('請填寫正確金額', 400);
+
+  const itemId = id();
+  const claimNotes = [
+    `Claimant: ${claimantName}`,
+    claimantEmail ? `Email: ${claimantEmail}` : '',
+    notes ? `Notes: ${notes}` : ''
+  ].filter(Boolean).join('\n');
+
+  await env.DB.prepare(
+    'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(itemId, categoryId, amount, date, description, claimantMemberId, null, paymentMethod, 'pending', claimNotes, receiptUrl, 0, now(), now()).run();
+
+  const created = await getExpense(env, itemId);
+  await recordAudit(env, publicClaimUser, {
+    action: 'create',
+    entityType: 'expense',
+    entityId: itemId,
+    entitySummary: expenseSummary(created),
+    after: created
+  });
+  if (created) {
+    await sendExpenseNotification(env, { ...publicClaimUser, name: claimantName, email: claimantEmail }, created, request);
+  }
+  return json({ ok: true, expense: created }, 201);
+}
+
 function actionResultHtml(title: string, message: string, ok = true) {
   return new Response(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title></head>
 <body style="margin:0;background:#f4f6fb;font-family:Arial,'Helvetica Neue',sans-serif;color:#172033;">
@@ -395,7 +541,7 @@ function actionResultHtml(title: string, message: string, ok = true) {
 </body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' }, status: ok ? 200 : 400 });
 }
 
-async function handleExpenseActionLink(env: Env, url: URL) {
+async function handleExpenseActionLink(env: Env, url: URL, request: Request) {
   const expenseId = url.searchParams.get('id') || '';
   const action = url.searchParams.get('action') as 'approve' | 'reject' | null;
   const token = url.searchParams.get('token') || '';
@@ -423,14 +569,15 @@ async function handleExpenseActionLink(env: Env, url: URL) {
   }
 
   const stamp = now();
-  const opLabel = 'Email Action';
-  await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = NULL, approved_by_text = ?, approved_at = ?, updated_at = ? WHERE id = ?')
-    .bind(action === 'approve' ? 'approved' : 'rejected', opLabel, stamp, stamp, expenseId).run();
+  const actionUser = await currentUser(request, env);
+  const opLabel = actionUser ? (actionUser.name || actionUser.email || 'Email Action') : 'Email Action';
+  await env.DB.prepare('UPDATE expenses SET status = ?, approved_by = ?, approved_by_text = ?, approved_at = ?, updated_at = ? WHERE id = ?')
+    .bind(action === 'approve' ? 'approved' : 'rejected', actionUser?.memberId || null, opLabel, stamp, stamp, expenseId).run();
   await env.DB.prepare('UPDATE expense_action_tokens SET used_at = ?, used_by = ? WHERE token_hash = ?')
     .bind(stamp, opLabel, tokenHash).run();
 
   const after = await getExpense(env, expenseId);
-  await recordAudit(env, { id: 'email-action', name: opLabel, email: '', role: 'finance_admin', memberId: null }, {
+  await recordAudit(env, actionUser ?? { id: 'email-action', name: opLabel, email: '', role: 'finance_admin', memberId: null }, {
     action,
     entityType: 'expense',
     entityId: expenseId,
@@ -442,11 +589,35 @@ async function handleExpenseActionLink(env: Env, url: URL) {
   return actionResultHtml(action === 'approve' ? '已批准' : '已拒絕', `支出「${after?.description || expenseId}」已完成${action === 'approve' ? '批准' : '拒絕'}。`);
 }
 
-async function sendExpenseNotification(env: Env, user: SessionUser, expense: any, request: Request | null): Promise<void> {
-  if (!env.RESEND_API_KEY) return;
-  const settings = await readExpenseNotifySettings(env);
-  if (!settings.enabled || settings.recipients.length === 0) return;
+type RecipientSendResult = { recipient: string; ok: boolean; status?: number; error?: string };
 
+async function sendOneNotification(env: Env, from: string, replyTo: string, subject: string, html: string, recipient: string): Promise<RecipientSendResult> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: recipient, reply_to: replyTo, subject, html })
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.error('Resend send failed', recipient, response.status, text);
+      return { recipient, ok: false, status: response.status, error: text || `HTTP ${response.status}` };
+    }
+    return { recipient, ok: true, status: response.status };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Resend send threw', recipient, message);
+    return { recipient, ok: false, error: message };
+  }
+}
+
+async function buildExpenseNotificationContent(
+  env: Env,
+  user: SessionUser,
+  expense: any,
+  request: Request | null,
+  settings: ExpenseNotifySettings
+): Promise<{ subject: string; html: string }> {
   let actionButtonsHtml = '';
   if (settings.includeActionButtons) {
     try {
@@ -457,7 +628,6 @@ async function sendExpenseNotification(env: Env, user: SessionUser, expense: any
       actionButtonsHtml = '';
     }
   }
-
   const vars: Record<string, string> = {
     description: escapeHtml(expense.description || '無描述'),
     amount: currencyFormatForEmail(expense.amount),
@@ -471,27 +641,54 @@ async function sendExpenseNotification(env: Env, user: SessionUser, expense: any
     receiptLink: expense.receiptUrl ? `<a href="${escapeHtml(expense.receiptUrl)}">查看憑證</a>` : '—',
     actionButtons: actionButtonsHtml
   };
-
   const subject = applyTemplate(settings.subjectTemplate || DEFAULT_EXPENSE_NOTIFY_SUBJECT, vars);
   const html = applyTemplate(settings.bodyTemplate || DEFAULT_EXPENSE_NOTIFY_BODY, vars);
+  return { subject, html };
+}
 
-  const body = {
-    from: settings.mailFrom,
-    to: settings.recipients,
-    reply_to: settings.replyTo,
-    subject,
-    html
+async function sendExpenseNotification(env: Env, user: SessionUser, expense: any, request: Request | null): Promise<RecipientSendResult[]> {
+  if (!env.RESEND_API_KEY) return [];
+  const settings = await readExpenseNotifySettings(env);
+  const recipients = settings.recipients.filter(isEmailAddress);
+  if (!settings.enabled || recipients.length === 0) return [];
+
+  const { subject, html } = await buildExpenseNotificationContent(env, user, expense, request, settings);
+
+  // 每收件人一次 API 調用：避免共享 To header 觸發 Gmail/Outlook 多收件人 spam 啟發；
+  // 個別失敗不連帶其他人；可追蹤每地址的送達狀態。
+  const results = await Promise.allSettled(
+    recipients.map(r => sendOneNotification(env, settings.mailFrom, settings.replyTo, subject, html, r))
+  );
+  return results.map((r, i) =>
+    r.status === 'fulfilled' ? r.value : { recipient: recipients[i], ok: false, error: String((r as PromiseRejectedResult).reason) }
+  );
+}
+
+async function sendExpenseNotificationTest(env: Env, user: SessionUser, request: Request): Promise<RecipientSendResult[]> {
+  if (!env.RESEND_API_KEY) return [];
+  const settings = await readExpenseNotifySettings(env);
+  const recipients = settings.recipients.filter(isEmailAddress);
+  if (recipients.length === 0) return [];
+
+  const sampleExpense = {
+    id: 'test-' + Date.now(),
+    description: '[測試] 範例支出',
+    amount: 123.45,
+    categoryName: '測試分類',
+    date: new Date().toISOString().slice(0, 10),
+    paidByName: user.name || user.email || '測試付款人',
+    paymentMethod: '現金',
+    notes: '這是一封來自「支出通知設置」的測試郵件。',
+    receiptUrl: ''
   };
-
-  try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-  } catch {
-    // Email failure must never block the expense creation.
-  }
+  const { subject, html } = await buildExpenseNotificationContent(env, user, sampleExpense, request, settings);
+  const testSubject = `[TEST] ${subject}`;
+  const results = await Promise.allSettled(
+    recipients.map(r => sendOneNotification(env, settings.mailFrom, settings.replyTo, testSubject, html, r))
+  );
+  return results.map((r, i) =>
+    r.status === 'fulfilled' ? r.value : { recipient: recipients[i], ok: false, error: String((r as PromiseRejectedResult).reason) }
+  );
 }
 
 async function readDeleteReason(request: Request): Promise<string> {
@@ -738,8 +935,34 @@ const worker: ExportedHandler<Env> = {
         return json({ user: await currentUser(request, env) });
       }
 
+      if (url.pathname === '/api/public/claim-options' && request.method === 'GET') {
+        return publicClaimOptions(env);
+      }
+
+      if (url.pathname === '/api/public/claims' && request.method === 'POST') {
+        return createPublicClaim(env, request);
+      }
+
+      if (url.pathname === '/api/public/claim-upload' && request.method === 'POST') {
+        const form = await request.formData();
+        const file = form.get('file');
+        if (!(file instanceof File)) return error('No file uploaded', 400);
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const key = `claim/${Date.now()}-${safeName}`;
+        await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+        const fileUrl = env.FILES_URL ? `${env.FILES_URL.replace(/\/$/, '')}/${key}` : `/api/files/${encodeURIComponent(key)}`;
+        return json({ key, url: fileUrl });
+      }
+
+      if (url.pathname.startsWith('/api/files/') && request.method === 'GET') {
+        const key = decodeURIComponent(url.pathname.replace('/api/files/', ''));
+        const object = await env.FILES.get(key);
+        if (!object) return error('File not found', 404);
+        return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream' } });
+      }
+
       if (url.pathname === '/expense-action' && request.method === 'GET') {
-        return handleExpenseActionLink(env, url);
+        return handleExpenseActionLink(env, url, request);
       }
 
       if (url.pathname === '/api/auth/forgot-password' && request.method === 'POST') {
@@ -836,15 +1059,23 @@ const worker: ExportedHandler<Env> = {
           const payload = await readJson<AppSettings>(request);
           const beforeSettings = await readAppSettings(env);
           const saved = await saveAppSettings(env, user, payload);
+          const auditTarget = settingsAuditTarget(beforeSettings, saved);
           await recordAudit(env, user, {
             action: 'update',
             entityType: 'settings',
-            entityId: 'taxStatement',
-            entitySummary: '報稅設定已更新',
-            before: beforeSettings.taxStatement,
-            after: saved.taxStatement
+            entityId: auditTarget.id,
+            entitySummary: auditTarget.summary,
+            before: auditTarget.before,
+            after: auditTarget.after
           });
           return json(saved);
+        }
+
+        if (url.pathname === '/api/settings/expense-notify/test' && request.method === 'POST') {
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
+          if (!env.RESEND_API_KEY) return error('郵件服務尚未設定（缺少 RESEND_API_KEY）', 500);
+          const results = await sendExpenseNotificationTest(env, user, request);
+          return json({ results });
         }
 
         if (url.pathname === '/api/lookups') {
@@ -1265,6 +1496,8 @@ const worker: ExportedHandler<Env> = {
           } else if (action === 'invoice') {
             if (reviewTarget.status !== 'approved') return error('需先批准才能開票', 400);
             if (reviewTarget.invoicedAt) return error('已開票', 400);
+            const opLabel = user.name || user.email || '';
+            if (isSameExpenseOperator(user, reviewTarget, opLabel)) return error('Approver cannot invoice the same expense', 400);
             const invoiceAmount = payload.invoiceAmount === undefined || payload.invoiceAmount === null || payload.invoiceAmount === ''
               ? reviewTarget.amount
               : Number(payload.invoiceAmount);

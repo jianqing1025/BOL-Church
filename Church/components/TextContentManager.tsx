@@ -26,9 +26,9 @@ type EntryGroup = {
 };
 
 const sections: Section[] = [
-  { id: 'home', label: 'Home Sections', prefixes: ['about.', 'events.', 'sermons.', 'support.', 'contact.'] },
+  { id: 'home', label: 'Home Sections', prefixes: ['about.', 'sermons.', 'support.', 'contact.'] },
   { id: 'about', label: 'About Page', prefixes: ['aboutPage.'] },
-  { id: 'events', label: 'Events Page', prefixes: ['eventsPage.'] },
+  { id: 'events', label: 'Events Page', prefixes: ['events.', 'eventsPage.'] },
   { id: 'sermons', label: 'Sermons Page', prefixes: ['sermonsPage.', 'sermonArchive.', 'sermonDetail.'] },
   { id: 'giving', label: 'Giving Page', prefixes: ['giving.', 'givingPage.'] },
   { id: 'contact', label: 'Contact & Prayer', prefixes: ['contactPage.', 'prayerRequestPage.'] },
@@ -98,6 +98,10 @@ function classifyEntry(path: string): PrimarySection['id'] {
   const lowerPath = path.toLowerCase();
   const pathParts = lowerPath.split('.');
   const lastPart = pathParts[pathParts.length - 1] ?? '';
+
+  if (/^events\.event\d+(title|date)$/.test(lowerPath)) {
+    return 'content';
+  }
 
   if (
     lastPart.startsWith('nav') ||

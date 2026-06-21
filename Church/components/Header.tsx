@@ -77,7 +77,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         { href: '/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
         { href: '/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
         { href: '/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
-        { href: '/sermons/live-stream', key: 'sermonsPage.navLiveStream' },
+        { href: '/live', key: 'sermonsPage.navLiveStream' },
     ]},
     { key: 'header.navGiving', subLinks: [
         { href: '/giving/why-we-give', key: 'givingPage.navWhyWeGive' },

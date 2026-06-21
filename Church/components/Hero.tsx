@@ -91,11 +91,11 @@ const Hero: React.FC = () => {
           className="mx-auto mb-6 max-w-[17rem] text-base leading-relaxed drop-shadow-md min-[380px]:max-w-xs min-[380px]:text-lg sm:mb-8 sm:max-w-2xl sm:text-xl md:text-2xl"
         />
         <div className="flex w-full max-w-xs flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:gap-4">
-            <a href="#about" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
+          <div className="flex w-full flex-row gap-2 sm:w-auto sm:gap-4">
+            <a href="#about" className="w-1/2 whitespace-nowrap bg-white/20 backdrop-blur-sm border border-white text-white px-4 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-5 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.whoWeAre" />
             </a>
-            <a href="/sermons/sunday-worship" className="w-full bg-white/20 backdrop-blur-sm border border-white text-white px-5 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-6 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
+            <a href="/live" className="w-1/2 whitespace-nowrap bg-white/20 backdrop-blur-sm border border-white text-white px-4 py-2.5 rounded-full hover:bg-white/30 transition-all font-semibold text-sm transform hover:scale-105 min-[380px]:px-5 min-[380px]:py-3 min-[380px]:text-base sm:w-auto sm:px-8 sm:text-lg">
               <Editable as="span" contentKey="hero.sundayService" />
             </a>
           </div>

@@ -134,17 +134,9 @@ export const DEFAULT_TAX_STATEMENT_HTML_TEMPLATE = `<!doctype html>
   .sign-label { border-top: 1px solid #8a96a8; padding-top: 6px; margin-top: 2px;
                 font-size: 12px; color: #3b465c; }
 
-  .footer { margin-top: 40px; }
-  .footer a { font-size: 12px; color: #1f3358; text-decoration: none; }
   @media print {
     body { background: #fff; }
     .sheet { margin: 0; }
-    .footer {
-      position: absolute;
-      left: 22mm;
-      bottom: 14mm;
-      margin: 0;
-    }
   }
 </style>
 </head>
@@ -154,7 +146,7 @@ export const DEFAULT_TAX_STATEMENT_HTML_TEMPLATE = `<!doctype html>
       <h1>{{churchNameEn}}</h1>
       <p class="zh">{{churchNameZh}}</p>
       <div class="rule"></div>
-      <p class="meta">{{churchAddress}}</p>
+      <p class="meta">{{churchAddress}} · {{churchWebsiteDisplay}}</p>
     </div>
 
     <p class="title">{{year}} Annual Contribution Statement</p>
@@ -199,10 +191,6 @@ export const DEFAULT_TAX_STATEMENT_HTML_TEMPLATE = `<!doctype html>
         </tr>
       </tbody>
     </table>
-
-    <div class="footer">
-      <a href="{{churchWebsite}}">{{churchWebsite}}</a>
-    </div>
   </div>
   <script>
     (function () {
@@ -318,6 +306,22 @@ function replacePlaceholders(template: string, tokens: Record<string, string>): 
   return template.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, key) => tokens[key] ?? '');
 }
 
+function websiteDisplay(value: string): string {
+  return String(value || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
+function normalizeRenderedTaxStatementHtml(html: string, address: string, website: string): string {
+  const displayWebsite = websiteDisplay(website);
+  let next = html.replace(/\s*<div class="footer">[\s\S]*?<\/div>\s*/g, '\n');
+  if (displayWebsite && address && !next.includes(displayWebsite)) {
+    next = next.replace(
+      `<p class="meta">${address}</p>`,
+      `<p class="meta">${address} · ${displayWebsite}</p>`
+    );
+  }
+  return next;
+}
+
 export function buildTaxStatementHtml(
   data: TaxStatementData,
   statementDateIso?: string,
@@ -362,6 +366,7 @@ export function buildTaxStatementHtml(
     churchAddress: esc(settings.textFields.churchAddress),
     churchPhone: esc(settings.textFields.churchPhone),
     churchWebsite: esc(settings.textFields.churchWebsite),
+    churchWebsiteDisplay: esc(websiteDisplay(settings.textFields.churchWebsite)),
     signerName: esc(settings.textFields.signerName)
   };
 
@@ -379,5 +384,9 @@ export function buildTaxStatementHtml(
       donorRow('Tax Year', baseTokens.taxYear)
   };
 
-  return replacePlaceholders(settings.htmlTemplate, tokens);
+  return normalizeRenderedTaxStatementHtml(
+    replacePlaceholders(settings.htmlTemplate, tokens),
+    textTokens.churchAddress,
+    textTokens.churchWebsite
+  );
 }
