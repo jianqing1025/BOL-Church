@@ -24,3 +24,8 @@ CLOUDFLARE_ZONE_ID = "your-zone-id"
 CLOUDFLARE_ACCOUNT_ID = "your-account-id"
 CLOUDFLARE_WEB_ANALYTICS_SITE_TAG = "your-web-analytics-site-tag"
 CLOUDFLARE_ANALYTICS_API_TOKEN = "your-analytics-read-token"
+
+# Live stream probe — UTC SUN 17:00–22:00 every 5 min covers PT SUN 09:00–14:00 year-round.
+# Multi-channel upload sync — every 4 hours
+[triggers]
+crons = ["*/5 17-22 * * SUN", "0 */4 * * *"]
