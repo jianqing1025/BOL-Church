@@ -1873,6 +1873,45 @@ async function ensureSyncCursorTable(env: Env): Promise<void> {
   ).run();
 }
 
+async function ensureSyncChannelsTable(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS sync_channels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+}
+
+interface SyncChannelRow {
+  id: string;
+  name: string;
+  channel_id: string;
+  api_key: string;
+  enabled: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function syncChannelRowToAdmin(row: SyncChannelRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    channelId: row.channel_id,
+    apiKeyMasked: maskApiKey(row.api_key),
+    apiKeyPresent: Boolean(row.api_key),
+    enabled: Boolean(row.enabled),
+    sortOrder: row.sort_order,
+    updatedAt: row.updated_at,
+  };
+}
+
 async function readSyncCursor(env: Env, category: SyncCategory): Promise<string | null> {
   try {
     await ensureSyncCursorTable(env);
