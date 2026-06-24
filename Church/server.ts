@@ -2,6 +2,15 @@
 
 import { DEFAULT_SERMONS, type AdminRole, type WebAnalyticsRange } from './data';
 import { translations } from './constants/translations';
+import {
+  buildClassifier,
+  classifySermonCategory,
+  inferEntryTypeFromTitle,
+  matchesTarget,
+  type ClassifierModel,
+  type SyncTarget,
+  type TrainingRow,
+} from './sync/classifier';
 
 type Env = {
   DB: D1Database;
@@ -68,17 +77,6 @@ function normalizeCategory(value: unknown): SermonCategoryDb {
     value === 'testimony' ||
     value === 'live-broadcast'
   ) return value;
-  return 'sunday-worship';
-}
-
-// 標題啟發式：把上傳到 YouTube 的視頻按標題自動歸類到 5 個 sermon 分類
-// 注意：live-broadcast 優先級最高（標題顯式含 "Live" 字樣多半就是直播錄影）
-function inferCategoryFromTitle(title: string): SermonCategoryDb {
-  const text = title || '';
-  if (/\blive\b|直播/i.test(text)) return 'live-broadcast';
-  if (/敬拜|讚美|赞美|詩歌|诗歌|praise|worship|hymn/i.test(text)) return 'worship-praise';
-  if (/醫治|医治|禱告會|祷告会|healing|prayer\s*meeting/i.test(text)) return 'healing-prayer';
-  if (/見證|见证|testimony/i.test(text)) return 'testimony';
   return 'sunday-worship';
 }
 
@@ -1830,15 +1828,6 @@ function getUploadsPlaylistId(channelId: string | null | undefined): string | nu
   return 'UU' + channelId.slice(2);
 }
 
-// 標題啟發式：「每日天言 / 每日一句话 / 聖卷 / 圣卷 / Daily Manna」 → daily-manna；其他全部 → sermon
-function inferEntryTypeFromTitle(title: string): 'sermon' | 'daily-manna' {
-  const text = title || '';
-  if (/每日天言|每日一句话|每日一句話|聖卷|圣卷|daily\s*manna/i.test(text)) {
-    return 'daily-manna';
-  }
-  return 'sermon';
-}
-
 // 主日崇拜的標題前面加上 "YYYY-MM-DD " 上傳日期前綴；冪等（如果已經有日期前綴就不重複加）
 function buildFinalTitle(originalTitle: string, dateIso: string, entryType: 'sermon' | 'daily-manna'): string {
   if (entryType !== 'sermon') return originalTitle;
@@ -1860,8 +1849,10 @@ type YouTubePlaylistItemsResponse = {
   error?: { message?: string };
 };
 
-type SyncCategory = 'sermon' | 'daily-manna' | 'all';
-type SyncResult = { inserted: number; updated: number; skipped: number; errors: string[]; pages: number; hasMore: boolean; category: SyncCategory };
+type SyncResult = {
+  inserted: number; updated: number; skipped: number;
+  errors: string[]; pages: number; hasMore: boolean; category: SyncTarget;
+};
 
 async function ensureSyncCursorTable(env: Env): Promise<void> {
   await env.DB.prepare(
@@ -1912,7 +1903,7 @@ function syncChannelRowToAdmin(row: SyncChannelRow) {
   };
 }
 
-async function readSyncCursor(env: Env, category: SyncCategory): Promise<string | null> {
+async function readSyncCursor(env: Env, category: SyncTarget): Promise<string | null> {
   try {
     await ensureSyncCursorTable(env);
     const row = await env.DB.prepare('SELECT page_token FROM sync_cursors WHERE category = ?').bind(category).first<{ page_token: string | null }>();
@@ -1920,7 +1911,7 @@ async function readSyncCursor(env: Env, category: SyncCategory): Promise<string 
   } catch { return null; }
 }
 
-async function writeSyncCursor(env: Env, category: SyncCategory, pageToken: string | null): Promise<void> {
+async function writeSyncCursor(env: Env, category: SyncTarget, pageToken: string | null): Promise<void> {
   try {
     await ensureSyncCursorTable(env);
     const now = new Date().toISOString();
@@ -1935,13 +1926,39 @@ async function writeSyncCursor(env: Env, category: SyncCategory, pageToken: stri
   } catch { /* ignore */ }
 }
 
-async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; resetCursor?: boolean }): Promise<SyncResult> {
-  const category: SyncCategory = opts?.category || 'all';
-  const result: SyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], pages: 0, hasMore: false, category };
+// 从现有 D1 已分类数据构建一次学习模型（供整次同步复用）
+async function buildClassifierFromDb(env: Env): Promise<ClassifierModel> {
+  const rows: TrainingRow[] = [];
+  try {
+    await ensureCategoryColumn(env);
+    const sermonRes = await env.DB
+      .prepare(`SELECT title_zh, title_en, category FROM sermons WHERE hidden = 0`)
+      .all<{ title_zh: string; title_en: string; category: string }>();
+    for (const r of sermonRes.results || []) {
+      const cat = (r.category || 'sunday-worship') as TrainingRow['category'];
+      if (r.title_zh) rows.push({ title: r.title_zh, category: cat });
+      if (r.title_en && r.title_en !== r.title_zh) rows.push({ title: r.title_en, category: cat });
+    }
+  } catch { /* 没有 category 列等情况：模型为空，退回硬编码兜底 */ }
+  try {
+    const mannaRes = await env.DB
+      .prepare(`SELECT title_zh FROM daily_manna WHERE hidden = 0`)
+      .all<{ title_zh: string }>();
+    for (const r of mannaRes.results || []) {
+      if (r.title_zh) rows.push({ title: r.title_zh, category: 'daily-manna' });
+    }
+  } catch { /* ignore */ }
+  return buildClassifier(rows);
+}
 
-  // 一次性清理：早期 sync 把每日天言誤存到 sermons 表（type='daily-manna'），
-  // 但公開頁是從獨立的 daily_manna 表讀的 → 用戶在頁面看不到。
-  // 把這些行搬到正確的 daily_manna 表，並從 sermons 刪掉。冪等：沒錯位行就是 no-op。
+async function syncChannelUploads(
+  env: Env,
+  opts: { channel: { channelId: string; apiKey: string }; target?: SyncTarget; model?: ClassifierModel }
+): Promise<SyncResult> {
+  const target: SyncTarget = opts.target || 'all';
+  const result: SyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], pages: 0, hasMore: false, category: target };
+
+  // 一次性清理：早期 sync 把每日天言误存到 sermons 表（type='daily-manna'）→ 搬回 daily_manna。冪等。
   try {
     await env.DB.batch([
       env.DB.prepare(`INSERT OR IGNORE INTO daily_manna
@@ -1953,21 +1970,22 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
   } catch (err) {
     result.errors.push(`cleanup misplaced: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const config = await getLiveStreamConfigRow(env);
-  if (!config.api_key || !config.channel_id) {
+
+  const channelId = (opts.channel.channelId || '').trim();
+  const apiKey = (opts.channel.apiKey || '').trim();
+  if (!apiKey || !channelId) {
     result.errors.push('channel_id 或 api_key 未設定');
     return result;
   }
-  const playlistId = getUploadsPlaylistId(config.channel_id);
+  const playlistId = getUploadsPlaylistId(channelId);
   if (!playlistId) {
     result.errors.push('channel_id 不是 UC 開頭，無法推斷 Uploads playlist');
     return result;
   }
 
-  // 規則：YouTube uploads playlist 是「最新在前」。從第 1 頁掃，遇到第一條已存在的視頻 → 立即停止整個同步。
-  // 含義：只檢測 NEW 上傳，老內容不再 re-scan。每次手動 / cron 都很快。
+  const model = opts.model || await buildClassifierFromDb(env);
+
   let pageToken: string | undefined = undefined;
-  // 安全上限：如果某次跑超過 5 頁（250 條新視頻）還沒遇到老內容，肯定哪裡不對 → 中斷防止跑飛
   const MAX_PAGES = 5;
   let reachedExistingContent = false;
   for (let i = 0; i < MAX_PAGES; i++) {
@@ -1975,7 +1993,7 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
     url.searchParams.set('part', 'snippet,contentDetails');
     url.searchParams.set('playlistId', playlistId);
     url.searchParams.set('maxResults', '50');
-    url.searchParams.set('key', config.api_key);
+    url.searchParams.set('key', apiKey);
     if (pageToken) url.searchParams.set('pageToken', pageToken);
 
     let data: YouTubePlaylistItemsResponse;
@@ -1992,13 +2010,9 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
     }
     result.pages++;
 
-    // 1) 把這一頁所有 item 預處理成 meta，按 category 過濾
     type ItemMeta = {
-      videoId: string;
-      date: string;
-      entryType: 'sermon' | 'daily-manna';
-      finalTitle: string;
-      imageUrl: string | null;
+      videoId: string; date: string; entryType: 'sermon' | 'daily-manna';
+      finalTitle: string; category: SermonCategoryDb; imageUrl: string | null;
     };
     const metas: ItemMeta[] = [];
     for (const item of data.items || []) {
@@ -2008,12 +2022,13 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
       const publishedAt = item.contentDetails?.videoPublishedAt || item.snippet?.publishedAt || new Date().toISOString();
       const date = publishedAt.slice(0, 10);
       const entryType = inferEntryTypeFromTitle(rawTitle);
-      // 按 category 過濾：只處理當前同步任務關心的類型
-      if (category !== 'all' && entryType !== category) continue;
       const finalTitle = buildFinalTitle(rawTitle, date, entryType);
+      const category = classifySermonCategory(model, finalTitle);
+      // 按目标过滤：只处理命中目标的条目
+      if (!matchesTarget(entryType, category, target)) continue;
       const thumbnails = item.snippet?.thumbnails;
       const imageUrl = thumbnails?.maxres?.url || thumbnails?.high?.url || thumbnails?.default?.url || null;
-      metas.push({ videoId, date, entryType, finalTitle, imageUrl });
+      metas.push({ videoId, date, entryType, finalTitle, category, imageUrl });
     }
 
     if (metas.length === 0) {
@@ -2022,112 +2037,74 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
       continue;
     }
 
-    // 2) 按 entryType 分組：sermon 查 sermons 表、daily-manna 查 daily_manna 表
     const sermonMetas = metas.filter(m => m.entryType === 'sermon');
     const mannaMetas = metas.filter(m => m.entryType === 'daily-manna');
-
-    type ExistingRow = { id: string; title_en: string; title_zh: string };
-    const existingSermons = new Map<string, ExistingRow>();
-    const existingManna = new Map<string, ExistingRow>();
+    const existingSermons = new Set<string>();
+    const existingManna = new Set<string>();
 
     if (sermonMetas.length > 0) {
       const ph = sermonMetas.map(() => '?').join(',');
       try {
-        const res = await env.DB
-          .prepare(`SELECT id, title_en, title_zh, youtube_id FROM sermons WHERE youtube_id IN (${ph})`)
-          .bind(...sermonMetas.map(m => m.videoId))
-          .all<{ id: string; title_en: string; title_zh: string; youtube_id: string }>();
-        for (const r of res.results || []) {
-          existingSermons.set(r.youtube_id, { id: r.id, title_en: r.title_en, title_zh: r.title_zh });
-        }
+        const res = await env.DB.prepare(`SELECT youtube_id FROM sermons WHERE youtube_id IN (${ph})`)
+          .bind(...sermonMetas.map(m => m.videoId)).all<{ youtube_id: string }>();
+        for (const r of res.results || []) existingSermons.add(r.youtube_id);
       } catch (err) {
         result.errors.push(`select sermons page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-
     if (mannaMetas.length > 0) {
       const ph = mannaMetas.map(() => '?').join(',');
       try {
-        const res = await env.DB
-          .prepare(`SELECT id, title_en, title_zh, youtube_id FROM daily_manna WHERE youtube_id IN (${ph})`)
-          .bind(...mannaMetas.map(m => m.videoId))
-          .all<{ id: string; title_en: string; title_zh: string; youtube_id: string }>();
-        for (const r of res.results || []) {
-          existingManna.set(r.youtube_id, { id: r.id, title_en: r.title_en, title_zh: r.title_zh });
-        }
+        const res = await env.DB.prepare(`SELECT youtube_id FROM daily_manna WHERE youtube_id IN (${ph})`)
+          .bind(...mannaMetas.map(m => m.videoId)).all<{ youtube_id: string }>();
+        for (const r of res.results || []) existingManna.add(r.youtube_id);
       } catch (err) {
         result.errors.push(`select daily_manna page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    // 3) 構造 INSERT batch。遇到第一條已存在的 video → 整個同步立即停止（老內容不重掃）
     const nowIso = new Date().toISOString();
-    const stmts: D1PreparedStatement[] = [];
-    let plannedInserts = 0;
+    const newMetas: ItemMeta[] = [];
     let plannedSkips = 0;
-    const newMetas: typeof metas = [];
-
     for (const meta of metas) {
       const isExisting = meta.entryType === 'sermon'
         ? existingSermons.has(meta.videoId)
         : existingManna.has(meta.videoId);
-
-      if (isExisting) {
-        reachedExistingContent = true;
-        plannedSkips++;
-        break;
-      }
+      if (isExisting) { reachedExistingContent = true; plannedSkips++; break; }
       newMetas.push(meta);
     }
 
-    // 對新視頻批量拉 duration + view_count（1 subrequest / 50 個 ID）
-    const videoMetaMap = newMetas.length > 0 && config.api_key
-      ? await fetchVideoMetadata(config.api_key, newMetas.map(m => m.videoId))
+    const videoMetaMap = newMetas.length > 0
+      ? await fetchVideoMetadata(apiKey, newMetas.map(m => m.videoId))
       : new Map<string, VideoMeta>();
 
+    const stmts: D1PreparedStatement[] = [];
+    let plannedInserts = 0;
     for (const meta of newMetas) {
       const vm = videoMetaMap.get(meta.videoId);
       const duration = vm?.durationSeconds ?? null;
       const views = vm?.viewCount ?? null;
       if (meta.entryType === 'sermon') {
-        const cat = inferCategoryFromTitle(meta.finalTitle);
         stmts.push(
-          env.DB
-            .prepare(
-              `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              crypto.randomUUID(),
-              meta.finalTitle, meta.finalTitle,
-              'Pastor Andy Yu', '余大器 牧師',
-              meta.date,
-              '', '', '', '',
-              meta.videoId,
-              meta.imageUrl,
-              cat,
-              duration, views,
-              nowIso, nowIso
-            )
+          env.DB.prepare(
+            `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?, ?, ?, ?)`
+          ).bind(
+            crypto.randomUUID(), meta.finalTitle, meta.finalTitle,
+            'Pastor Andy Yu', '余大器 牧師', meta.date, '', '', '', '',
+            meta.videoId, meta.imageUrl, meta.category, duration, views, nowIso, nowIso
+          )
         );
       } else {
         stmts.push(
-          env.DB
-            .prepare(
-              `INSERT INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, duration_seconds, view_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              crypto.randomUUID(),
-              meta.finalTitle, meta.finalTitle,
-              'Pastor Andy Yu', '余大器 牧師',
-              meta.date,
-              '', '', '', '',
-              meta.videoId,
-              meta.imageUrl,
-              duration, views,
-              nowIso, nowIso
-            )
+          env.DB.prepare(
+            `INSERT INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, duration_seconds, view_count, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            crypto.randomUUID(), meta.finalTitle, meta.finalTitle,
+            'Pastor Andy Yu', '余大器 牧師', meta.date, '', '', '', '',
+            meta.videoId, meta.imageUrl, duration, views, nowIso, nowIso
+          )
         );
       }
       plannedInserts++;
@@ -2146,17 +2123,33 @@ async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; re
       result.skipped += plannedSkips;
     }
 
-    // 遇到老內容 → 整個同步停止
     if (reachedExistingContent) break;
-
     pageToken = data.nextPageToken;
     if (!pageToken) break;
   }
-  // 只有當「沒命中老內容 + 沒掃完 playlist + 達到 MAX_PAGES」才算 hasMore（一次性上傳太多新視頻的罕見情況）
-  if (!reachedExistingContent && pageToken) {
-    result.hasMore = true;
-  }
+  if (!reachedExistingContent && pageToken) result.hasMore = true;
   return result;
+}
+
+// 遍历所有启用频道，逐个同步指定目标，累加结果
+async function syncAllChannels(env: Env, opts?: { target?: SyncTarget }): Promise<SyncResult> {
+  const target: SyncTarget = opts?.target || 'all';
+  const total: SyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], pages: 0, hasMore: false, category: target };
+  await ensureSyncChannelsTable(env);
+  const channels = await env.DB
+    .prepare('SELECT * FROM sync_channels WHERE enabled = 1 ORDER BY sort_order ASC')
+    .all<SyncChannelRow>();
+  const model = await buildClassifierFromDb(env);
+  for (const ch of channels.results || []) {
+    const r = await syncChannelUploads(env, { channel: { channelId: ch.channel_id, apiKey: ch.api_key }, target, model });
+    total.inserted += r.inserted;
+    total.updated += r.updated;
+    total.skipped += r.skipped;
+    total.pages += r.pages;
+    total.hasMore = total.hasMore || r.hasMore;
+    for (const e of r.errors) total.errors.push(`[${ch.name}] ${e}`);
+  }
+  return total;
 }
 
 async function sendUploadsSyncNotification(env: Env, result: SyncResult): Promise<void> {
@@ -2552,14 +2545,125 @@ async function handleLiveStreamProbe(request: Request, env: Env): Promise<Respon
   return json({ state: stateRowToAdmin(state) });
 }
 
+async function handleSyncChannelsList(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  const res = await env.DB.prepare('SELECT * FROM sync_channels ORDER BY sort_order ASC').all<SyncChannelRow>();
+  return json({ channels: (res.results || []).map(syncChannelRowToAdmin) });
+}
+
+async function handleSyncChannelCreate(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  const payload = await readJson<{ name?: string; channelId?: string; apiKey?: string }>(request);
+  const name = (payload.name || '').trim();
+  const channelId = (payload.channelId || '').trim();
+  const apiKey = (payload.apiKey || '').trim();
+  if (!name || !channelId || !apiKey) return badRequest('name、channelId、apiKey 均必填');
+  if (!getUploadsPlaylistId(channelId)) return badRequest('channelId 必須以 UC 開頭');
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const maxRow = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM sync_channels').first<{ m: number }>();
+  const sortOrder = (maxRow?.m ?? -1) + 1;
+  await env.DB.prepare(
+    `INSERT INTO sync_channels (id, name, channel_id, api_key, enabled, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 1, ?, ?, ?)`
+  ).bind(id, name, channelId, apiKey, sortOrder, now, now).run();
+  const row = await env.DB.prepare('SELECT * FROM sync_channels WHERE id = ?').bind(id).first<SyncChannelRow>();
+  return json({ channel: syncChannelRowToAdmin(row as SyncChannelRow) }, 201);
+}
+
+async function handleSyncChannelUpdate(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  const current = await env.DB.prepare('SELECT * FROM sync_channels WHERE id = ?').bind(id).first<SyncChannelRow>();
+  if (!current) return notFound();
+  const payload = await readJson<{ name?: string; channelId?: string; apiKey?: string; enabled?: boolean }>(request);
+  const name = payload.name === undefined ? current.name : (payload.name.trim() || current.name);
+  const channelId = payload.channelId === undefined ? current.channel_id : (payload.channelId.trim() || current.channel_id);
+  if (!getUploadsPlaylistId(channelId)) return badRequest('channelId 必須以 UC 開頭');
+  const apiKey =
+    payload.apiKey === undefined || payload.apiKey === UNCHANGED_API_KEY
+      ? current.api_key
+      : (payload.apiKey.trim() || current.api_key);
+  const enabled = payload.enabled === undefined ? current.enabled : (payload.enabled ? 1 : 0);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE sync_channels SET name = ?, channel_id = ?, api_key = ?, enabled = ?, updated_at = ? WHERE id = ?`
+  ).bind(name, channelId, apiKey, enabled, now, id).run();
+  const row = await env.DB.prepare('SELECT * FROM sync_channels WHERE id = ?').bind(id).first<SyncChannelRow>();
+  return json({ channel: syncChannelRowToAdmin(row as SyncChannelRow) });
+}
+
+async function handleSyncChannelDelete(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  await env.DB.prepare('DELETE FROM sync_channels WHERE id = ?').bind(id).run();
+  return json({ ok: true });
+}
+
+async function handleSyncChannelTest(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  const row = await env.DB.prepare('SELECT * FROM sync_channels WHERE id = ?').bind(id).first<SyncChannelRow>();
+  if (!row) return notFound();
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('id', row.channel_id);
+    url.searchParams.set('key', row.api_key);
+    const response = await fetch(url.toString());
+    const data = await response.json<{ items?: Array<{ snippet?: { title?: string } }>; error?: { message?: string } }>();
+    if (!response.ok || data.error) return json({ ok: false, error: data.error?.message ?? `HTTP ${response.status}` });
+    const channelName = data.items?.[0]?.snippet?.title;
+    if (!channelName) return json({ ok: false, error: '找不到頻道（channelId 或 key 錯誤）' });
+    return json({ ok: true, channelName });
+  } catch (err) {
+    return json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSyncChannelSync(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
+  const row = await env.DB.prepare('SELECT * FROM sync_channels WHERE id = ?').bind(id).first<SyncChannelRow>();
+  if (!row) return notFound();
+  const url = new URL(request.url);
+  const target = normalizeSyncTarget(url.searchParams.get('target'));
+  const result = await syncChannelUploads(env, { channel: { channelId: row.channel_id, apiKey: row.api_key }, target });
+  await sendUploadsSyncNotification(env, result);
+  return json(result);
+}
+
+function normalizeSyncTarget(value: string | null): SyncTarget {
+  const allowed: SyncTarget[] = ['all', 'sermon', 'daily-manna', 'sunday-worship', 'worship-praise', 'healing-prayer', 'testimony'];
+  return (allowed as string[]).includes(value || '') ? (value as SyncTarget) : 'all';
+}
+
 async function handleSermonSyncYoutube(request: Request, env: Env): Promise<Response> {
   const auth = await requireUser(request, env, 'contributor');
   if (auth instanceof Response) return auth;
+  await ensureSyncChannelsTable(env);
   const url = new URL(request.url);
-  const cat = url.searchParams.get('category');
-  const category: SyncCategory = cat === 'sermon' || cat === 'daily-manna' ? cat : 'all';
-  const result = await syncChannelUploads(env, { category });
-  // 首次手動觸發的回填可能很大，發郵件通知 admin 一份摘要
+  const target = normalizeSyncTarget(url.searchParams.get('category'));
+  // 优先用第一个启用频道；没有则回退到 live_stream_config 单频道（向后兼容旧站点）
+  const first = await env.DB
+    .prepare('SELECT * FROM sync_channels WHERE enabled = 1 ORDER BY sort_order ASC LIMIT 1')
+    .first<SyncChannelRow>();
+  let channel: { channelId: string; apiKey: string };
+  if (first) {
+    channel = { channelId: first.channel_id, apiKey: first.api_key };
+  } else {
+    const cfg = await getLiveStreamConfigRow(env);
+    channel = { channelId: cfg.channel_id || '', apiKey: cfg.api_key || '' };
+  }
+  const result = await syncChannelUploads(env, { channel, target });
   await sendUploadsSyncNotification(env, result);
   return json(result);
 }
@@ -3322,6 +3426,23 @@ const worker: ExportedHandler<Env> = {
     if (url.pathname === '/api/admin/sermons/sync-youtube' && request.method === 'POST') {
       return handleSermonSyncYoutube(request, env);
     }
+    if (url.pathname === '/api/admin/sync-channels' && request.method === 'GET') {
+      return handleSyncChannelsList(request, env);
+    }
+    if (url.pathname === '/api/admin/sync-channels' && request.method === 'POST') {
+      return handleSyncChannelCreate(request, env);
+    }
+    {
+      const channelMatch = url.pathname.match(/^\/api\/admin\/sync-channels\/([^/]+)(\/test|\/sync)?$/);
+      if (channelMatch) {
+        const channelRouteId = decodeURIComponent(channelMatch[1]);
+        const suffix = channelMatch[2];
+        if (!suffix && request.method === 'PUT') return handleSyncChannelUpdate(request, env, channelRouteId);
+        if (!suffix && request.method === 'DELETE') return handleSyncChannelDelete(request, env, channelRouteId);
+        if (suffix === '/test' && request.method === 'POST') return handleSyncChannelTest(request, env, channelRouteId);
+        if (suffix === '/sync' && request.method === 'POST') return handleSyncChannelSync(request, env, channelRouteId);
+      }
+    }
     {
       const moveSermonMatch = url.pathname.match(/^\/api\/admin\/sermons\/([^/]+)\/move$/);
       if (moveSermonMatch && request.method === 'POST') return handleMoveSermon(request, env, decodeURIComponent(moveSermonMatch[1]));
@@ -3372,11 +3493,11 @@ const worker: ExportedHandler<Env> = {
 
   async scheduled(event, env, ctx): Promise<void> {
     // 多個 cron trigger 分派：
-    //  - "0 14 * * *"   每日同步 YouTube uploads
+    //  - "0 */4 * * *"  每 4 小時從所有頻道同步 YouTube uploads
     //  - 其它（"*/5 17-22 * * SUN"） live 偵測
-    if (event.cron === '0 14 * * *') {
+    if (event.cron === '0 */4 * * *') {
       ctx.waitUntil(
-        syncChannelUploads(env)
+        syncAllChannels(env, { target: 'all' })
           .then(result => sendUploadsSyncNotification(env, result))
           .catch(() => undefined)
       );
