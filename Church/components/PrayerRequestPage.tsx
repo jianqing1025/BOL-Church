@@ -6,6 +6,7 @@ import { PrayerRequestSubPage } from '../types';
 import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
+import SecondaryNavBar from './SecondaryNavBar';
 
 const PrayerRequestForm = () => {
   const { t } = useLocalization();
@@ -123,7 +124,7 @@ const PrayerRequestPage: React.FC<PrayerRequestPageProps> = ({ activeSubPage: in
         subtitle={t('prayerRequestPage.pageSubtitle')}
       />
       
-      <div className="sticky top-[88px] bg-gray-800 text-white z-40 shadow-md">
+      <SecondaryNavBar>
         <nav className="container mx-auto px-6">
           <ul className="flex justify-center items-center -mb-px space-x-4 sm:space-x-8 overflow-x-auto">
             {navItems.map((item) => (
@@ -143,7 +144,7 @@ const PrayerRequestPage: React.FC<PrayerRequestPageProps> = ({ activeSubPage: in
             ))}
           </ul>
         </nav>
-      </div>
+      </SecondaryNavBar>
       
       <div className="container mx-auto px-6 py-16">
         <PrayerRequestForm />

@@ -62,8 +62,8 @@ const VideoSection: React.FC<{
     {headerExtra}
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
       {entries.length > 0 ? (
-        entries.map((sermon) => (
-          <a href={entryHref(sermon)} key={sermon.id}>
+        entries.map((sermon, index) => (
+          <a href={entryHref(sermon)} key={sermon.id} className={index < 2 ? '' : 'hidden md:block'}>
             <SermonCard
               imageSrc={sermon.imageUrl || getYouTubeThumbnail(sermon.youtubeId)}
               title={language === Language.EN ? sermon.title.en : sermon.title.zh}

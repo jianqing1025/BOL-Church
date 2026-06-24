@@ -1,5 +1,7 @@
 import { translations } from './constants/translations';
 
+export type SermonCategory = 'sunday-worship' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'live-broadcast';
+
 export interface Sermon {
   id: string;
   title: { en: string; zh: string };
@@ -10,6 +12,10 @@ export interface Sermon {
   youtubeId: string;
   imageUrl?: string;
   type: 'sermon' | 'daily-manna';
+  category?: SermonCategory;
+  hidden?: boolean;
+  durationSeconds?: number | null;
+  viewCount?: number | null;
 }
 
 export interface Message {

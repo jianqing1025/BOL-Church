@@ -19,6 +19,8 @@ type Env = {
 
 type LocalizedText = { en: string; zh: string };
 
+type SermonCategoryDb = 'sunday-worship' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'live-broadcast';
+
 type SermonRow = {
   id: string;
   title_en: string;
@@ -33,9 +35,95 @@ type SermonRow = {
   youtube_id: string;
   image_url: string | null;
   type: 'sermon' | 'daily-manna';
+  category?: SermonCategoryDb | null;
+  hidden?: number;
+  duration_seconds?: number | null;
+  view_count?: number | null;
 };
 
-type DailyMannaRow = Omit<SermonRow, 'type'>;
+type DailyMannaRow = Omit<SermonRow, 'type' | 'category'>;
+
+async function ensureHiddenColumns(env: Env): Promise<void> {
+  try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already exists */ }
+}
+
+async function ensureMetadataColumns(env: Env): Promise<void> {
+  try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN duration_seconds INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN view_count INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN duration_seconds INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN view_count INTEGER').run(); } catch { /* already exists */ }
+}
+
+async function ensureCategoryColumn(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare("ALTER TABLE sermons ADD COLUMN category TEXT NOT NULL DEFAULT 'sunday-worship'").run();
+  } catch { /* already exists */ }
+}
+
+function normalizeCategory(value: unknown): SermonCategoryDb {
+  if (
+    value === 'worship-praise' ||
+    value === 'healing-prayer' ||
+    value === 'testimony' ||
+    value === 'live-broadcast'
+  ) return value;
+  return 'sunday-worship';
+}
+
+// 標題啟發式：把上傳到 YouTube 的視頻按標題自動歸類到 5 個 sermon 分類
+// 注意：live-broadcast 優先級最高（標題顯式含 "Live" 字樣多半就是直播錄影）
+function inferCategoryFromTitle(title: string): SermonCategoryDb {
+  const text = title || '';
+  if (/\blive\b|直播/i.test(text)) return 'live-broadcast';
+  if (/敬拜|讚美|赞美|詩歌|诗歌|praise|worship|hymn/i.test(text)) return 'worship-praise';
+  if (/醫治|医治|禱告會|祷告会|healing|prayer\s*meeting/i.test(text)) return 'healing-prayer';
+  if (/見證|见证|testimony/i.test(text)) return 'testimony';
+  return 'sunday-worship';
+}
+
+// Parse YouTube ISO 8601 duration (e.g. "PT1H35M20S") to seconds
+function parseIsoDuration(iso: string | undefined | null): number {
+  if (!iso) return 0;
+  const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso);
+  if (!m) return 0;
+  return (Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0);
+}
+
+type VideoMeta = { durationSeconds: number; viewCount: number };
+
+async function fetchVideoMetadata(apiKey: string, videoIds: string[]): Promise<Map<string, VideoMeta>> {
+  const map = new Map<string, VideoMeta>();
+  if (!videoIds.length || !apiKey) return map;
+  // YouTube videos.list accepts up to 50 IDs per call
+  const CHUNK = 50;
+  for (let i = 0; i < videoIds.length; i += CHUNK) {
+    const chunk = videoIds.slice(i, i + CHUNK);
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'contentDetails,statistics');
+    url.searchParams.set('id', chunk.join(','));
+    url.searchParams.set('key', apiKey);
+    try {
+      const response = await fetch(url.toString());
+      if (!response.ok) continue;
+      const data = await response.json<{
+        items?: Array<{
+          id?: string;
+          contentDetails?: { duration?: string };
+          statistics?: { viewCount?: string };
+        }>;
+      }>();
+      for (const item of data.items || []) {
+        if (!item.id) continue;
+        map.set(item.id, {
+          durationSeconds: parseIsoDuration(item.contentDetails?.duration),
+          viewCount: Number(item.statistics?.viewCount || 0),
+        });
+      }
+    } catch { /* skip on error */ }
+  }
+  return map;
+}
 
 type MessageRow = {
   id: string;
@@ -289,6 +377,10 @@ function mapSermon(row: SermonRow) {
     youtubeId: row.youtube_id,
     imageUrl: row.image_url ?? undefined,
     type: row.type,
+    category: normalizeCategory(row.category),
+    hidden: Boolean(row.hidden),
+    durationSeconds: row.duration_seconds ?? null,
+    viewCount: row.view_count ?? null,
   };
 }
 
@@ -303,6 +395,9 @@ function mapDailyManna(row: DailyMannaRow) {
     youtubeId: row.youtube_id,
     imageUrl: row.image_url ?? undefined,
     type: 'daily-manna' as const,
+    hidden: Boolean(row.hidden),
+    durationSeconds: row.duration_seconds ?? null,
+    viewCount: row.view_count ?? null,
   };
 }
 
@@ -743,6 +838,7 @@ async function handleUserById(request: Request, env: Env, id: string): Promise<R
 
 async function ensureSeedData(env: Env): Promise<void> {
   await ensureDefaultOwner(env);
+  await ensureCategoryColumn(env);
 
   const contentRowCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM site_content').first<{ count: number }>();
   if (!contentRowCount || Number(contentRowCount.count) === 0) {
@@ -761,9 +857,9 @@ async function ensureSeedData(env: Env): Promise<void> {
       await env.DB.prepare(
         `INSERT INTO sermons (
           id, title_en, title_zh, speaker_en, speaker_zh, date,
-          series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type,
+          series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         crypto.randomUUID(),
         sermon.title.en,
@@ -778,6 +874,7 @@ async function ensureSeedData(env: Env): Promise<void> {
         sermon.youtubeId,
         sermon.imageUrl ?? null,
         sermon.type,
+        normalizeCategory(sermon.category),
         new Date().toISOString(),
         new Date().toISOString()
       ).run();
@@ -1470,7 +1567,7 @@ type LatestSermon = { id: string; titleEn: string; titleZh: string; videoId: str
 
 async function getLatestSermons(env: Env, limit = 4): Promise<LatestSermon[]> {
   const result = await env.DB
-    .prepare("SELECT id, title_en, title_zh, youtube_id, date FROM sermons WHERE type = 'sermon' ORDER BY date DESC LIMIT ?")
+    .prepare("SELECT id, title_en, title_zh, youtube_id, date FROM sermons WHERE type = 'sermon' AND COALESCE(hidden, 0) = 0 ORDER BY date DESC LIMIT ?")
     .bind(limit)
     .all<{ id: string; title_en: string; title_zh: string; youtube_id: string; date: string }>();
   return (result.results || []).map(row => ({
@@ -1528,8 +1625,29 @@ async function probeYouTubeLive(row: LiveStreamConfigRow): Promise<{ videoId: st
   }
 }
 
+// 24h-before-next-service 自動清除 manual_video_id：
+// 直播結束後 archive 把 just-ended video 寫進 manual_video_id 作為「上次直播回放」。
+// 下次直播即將開始（24h 內）就清掉它，讓真正的直播偵測可以恢復。
+async function clearExpiredManualOverride(env: Env, config: LiveStreamConfigRow): Promise<LiveStreamConfigRow> {
+  if (!config.manual_video_id) return config;
+  const nextIso = nextServiceIso(config, new Date());
+  if (!nextIso) return config;
+  const nextMs = new Date(nextIso).getTime();
+  const HOURS_24 = 24 * 60 * 60 * 1000;
+  if (nextMs - Date.now() > HOURS_24) return config;
+  try {
+    await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
+      .bind('', Date.now()).run();
+    return await getLiveStreamConfigRow(env);
+  } catch {
+    return config;
+  }
+}
+
 async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateRow> {
-  const config = await getLiveStreamConfigRow(env);
+  let config = await getLiveStreamConfigRow(env);
+  // 進入直播窗口前 24h，把回放期的 manual override 清掉，讓自動偵測能跑
+  config = await clearExpiredManualOverride(env, config);
   if (!force) {
     if (!config.enabled || config.manual_video_id) {
       return getLiveStreamStateRow(env);
@@ -1640,16 +1758,24 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     const imageUrl = snippet.thumbnails?.maxres?.url || snippet.thumbnails?.high?.url || null;
     const nowIso = new Date().toISOString();
 
+    await ensureCategoryColumn(env);
     await env.DB
       .prepare(
-        `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?)`
+        `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', 'live-broadcast', ?, ?)`
       )
       .bind(sermonId, titleEn, titleZh, speakerEn, speakerZh, today, '', '', '', '', videoId, imageUrl, nowIso, nowIso)
       .run();
 
     // 歸檔成功 → 清除 pending video_id
     await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
+
+    // 把剛結束的直播設為 manual_video_id —— /live 頁繼續放它當「上次直播回放」，
+    // 直到下次直播前 24h 自動清除（見 clearExpiredManualOverride）
+    try {
+      await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
+        .bind(videoId, Date.now()).run();
+    } catch { /* ignore */ }
 
     // 通知 admin
     await sendLiveStreamArchiveNotification(env, { sermonId, titleZh, titleEn, videoId, date: today });
@@ -1690,6 +1816,331 @@ async function sendLiveStreamArchiveNotification(env: Env, sermon: { sermonId: s
   } catch (err) {
     console.error('Archive notification email threw', err);
   }
+}
+
+// ============================================================================
+// 每日同步：頻道 Uploads playlist → sermons 表
+// ============================================================================
+
+// YouTube 頻道 ID（UC...）對應的「Uploads」自動 playlist ID 規則：
+// UC + xxxxxxxxxxxxxxxxxxxxxx  →  UU + xxxxxxxxxxxxxxxxxxxxxx
+function getUploadsPlaylistId(channelId: string | null | undefined): string | null {
+  if (!channelId || channelId.length < 3) return null;
+  if (!channelId.startsWith('UC')) return null;
+  return 'UU' + channelId.slice(2);
+}
+
+// 標題啟發式：「每日天言 / 每日一句话 / 聖卷 / 圣卷 / Daily Manna」 → daily-manna；其他全部 → sermon
+function inferEntryTypeFromTitle(title: string): 'sermon' | 'daily-manna' {
+  const text = title || '';
+  if (/每日天言|每日一句话|每日一句話|聖卷|圣卷|daily\s*manna/i.test(text)) {
+    return 'daily-manna';
+  }
+  return 'sermon';
+}
+
+// 主日崇拜的標題前面加上 "YYYY-MM-DD " 上傳日期前綴；冪等（如果已經有日期前綴就不重複加）
+function buildFinalTitle(originalTitle: string, dateIso: string, entryType: 'sermon' | 'daily-manna'): string {
+  if (entryType !== 'sermon') return originalTitle;
+  if (/^\d{4}-\d{2}-\d{2}/.test(originalTitle)) return originalTitle;
+  return `${dateIso} ${originalTitle}`.trim();
+}
+
+type YouTubePlaylistItemsResponse = {
+  items?: Array<{
+    contentDetails?: { videoId?: string; videoPublishedAt?: string };
+    snippet?: {
+      title?: string;
+      publishedAt?: string;
+      thumbnails?: { high?: { url?: string }; default?: { url?: string }; maxres?: { url?: string } };
+      resourceId?: { videoId?: string };
+    };
+  }>;
+  nextPageToken?: string;
+  error?: { message?: string };
+};
+
+type SyncCategory = 'sermon' | 'daily-manna' | 'all';
+type SyncResult = { inserted: number; updated: number; skipped: number; errors: string[]; pages: number; hasMore: boolean; category: SyncCategory };
+
+async function ensureSyncCursorTable(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS sync_cursors (
+      category TEXT PRIMARY KEY,
+      page_token TEXT,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+}
+
+async function readSyncCursor(env: Env, category: SyncCategory): Promise<string | null> {
+  try {
+    await ensureSyncCursorTable(env);
+    const row = await env.DB.prepare('SELECT page_token FROM sync_cursors WHERE category = ?').bind(category).first<{ page_token: string | null }>();
+    return row?.page_token || null;
+  } catch { return null; }
+}
+
+async function writeSyncCursor(env: Env, category: SyncCategory, pageToken: string | null): Promise<void> {
+  try {
+    await ensureSyncCursorTable(env);
+    const now = new Date().toISOString();
+    if (pageToken) {
+      await env.DB.prepare(
+        `INSERT INTO sync_cursors (category, page_token, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(category) DO UPDATE SET page_token = excluded.page_token, updated_at = excluded.updated_at`
+      ).bind(category, pageToken, now).run();
+    } else {
+      await env.DB.prepare('DELETE FROM sync_cursors WHERE category = ?').bind(category).run();
+    }
+  } catch { /* ignore */ }
+}
+
+async function syncChannelUploads(env: Env, opts?: { category?: SyncCategory; resetCursor?: boolean }): Promise<SyncResult> {
+  const category: SyncCategory = opts?.category || 'all';
+  const result: SyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], pages: 0, hasMore: false, category };
+
+  // 一次性清理：早期 sync 把每日天言誤存到 sermons 表（type='daily-manna'），
+  // 但公開頁是從獨立的 daily_manna 表讀的 → 用戶在頁面看不到。
+  // 把這些行搬到正確的 daily_manna 表，並從 sermons 刪掉。冪等：沒錯位行就是 no-op。
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO daily_manna
+        (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, created_at, updated_at)
+        SELECT id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, created_at, updated_at
+        FROM sermons WHERE type = 'daily-manna'`),
+      env.DB.prepare(`DELETE FROM sermons WHERE type = 'daily-manna'`),
+    ]);
+  } catch (err) {
+    result.errors.push(`cleanup misplaced: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const config = await getLiveStreamConfigRow(env);
+  if (!config.api_key || !config.channel_id) {
+    result.errors.push('channel_id 或 api_key 未設定');
+    return result;
+  }
+  const playlistId = getUploadsPlaylistId(config.channel_id);
+  if (!playlistId) {
+    result.errors.push('channel_id 不是 UC 開頭，無法推斷 Uploads playlist');
+    return result;
+  }
+
+  // 規則：YouTube uploads playlist 是「最新在前」。從第 1 頁掃，遇到第一條已存在的視頻 → 立即停止整個同步。
+  // 含義：只檢測 NEW 上傳，老內容不再 re-scan。每次手動 / cron 都很快。
+  let pageToken: string | undefined = undefined;
+  // 安全上限：如果某次跑超過 5 頁（250 條新視頻）還沒遇到老內容，肯定哪裡不對 → 中斷防止跑飛
+  const MAX_PAGES = 5;
+  let reachedExistingContent = false;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const url = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
+    url.searchParams.set('part', 'snippet,contentDetails');
+    url.searchParams.set('playlistId', playlistId);
+    url.searchParams.set('maxResults', '50');
+    url.searchParams.set('key', config.api_key);
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+    let data: YouTubePlaylistItemsResponse;
+    try {
+      const response = await fetch(url.toString());
+      data = await response.json<YouTubePlaylistItemsResponse>();
+      if (!response.ok || data.error) {
+        result.errors.push(data.error?.message ?? `HTTP ${response.status}`);
+        break;
+      }
+    } catch (err) {
+      result.errors.push(err instanceof Error ? err.message : String(err));
+      break;
+    }
+    result.pages++;
+
+    // 1) 把這一頁所有 item 預處理成 meta，按 category 過濾
+    type ItemMeta = {
+      videoId: string;
+      date: string;
+      entryType: 'sermon' | 'daily-manna';
+      finalTitle: string;
+      imageUrl: string | null;
+    };
+    const metas: ItemMeta[] = [];
+    for (const item of data.items || []) {
+      const videoId = item.contentDetails?.videoId || item.snippet?.resourceId?.videoId;
+      if (!videoId) continue;
+      const rawTitle = item.snippet?.title || `Upload ${videoId}`;
+      const publishedAt = item.contentDetails?.videoPublishedAt || item.snippet?.publishedAt || new Date().toISOString();
+      const date = publishedAt.slice(0, 10);
+      const entryType = inferEntryTypeFromTitle(rawTitle);
+      // 按 category 過濾：只處理當前同步任務關心的類型
+      if (category !== 'all' && entryType !== category) continue;
+      const finalTitle = buildFinalTitle(rawTitle, date, entryType);
+      const thumbnails = item.snippet?.thumbnails;
+      const imageUrl = thumbnails?.maxres?.url || thumbnails?.high?.url || thumbnails?.default?.url || null;
+      metas.push({ videoId, date, entryType, finalTitle, imageUrl });
+    }
+
+    if (metas.length === 0) {
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+      continue;
+    }
+
+    // 2) 按 entryType 分組：sermon 查 sermons 表、daily-manna 查 daily_manna 表
+    const sermonMetas = metas.filter(m => m.entryType === 'sermon');
+    const mannaMetas = metas.filter(m => m.entryType === 'daily-manna');
+
+    type ExistingRow = { id: string; title_en: string; title_zh: string };
+    const existingSermons = new Map<string, ExistingRow>();
+    const existingManna = new Map<string, ExistingRow>();
+
+    if (sermonMetas.length > 0) {
+      const ph = sermonMetas.map(() => '?').join(',');
+      try {
+        const res = await env.DB
+          .prepare(`SELECT id, title_en, title_zh, youtube_id FROM sermons WHERE youtube_id IN (${ph})`)
+          .bind(...sermonMetas.map(m => m.videoId))
+          .all<{ id: string; title_en: string; title_zh: string; youtube_id: string }>();
+        for (const r of res.results || []) {
+          existingSermons.set(r.youtube_id, { id: r.id, title_en: r.title_en, title_zh: r.title_zh });
+        }
+      } catch (err) {
+        result.errors.push(`select sermons page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (mannaMetas.length > 0) {
+      const ph = mannaMetas.map(() => '?').join(',');
+      try {
+        const res = await env.DB
+          .prepare(`SELECT id, title_en, title_zh, youtube_id FROM daily_manna WHERE youtube_id IN (${ph})`)
+          .bind(...mannaMetas.map(m => m.videoId))
+          .all<{ id: string; title_en: string; title_zh: string; youtube_id: string }>();
+        for (const r of res.results || []) {
+          existingManna.set(r.youtube_id, { id: r.id, title_en: r.title_en, title_zh: r.title_zh });
+        }
+      } catch (err) {
+        result.errors.push(`select daily_manna page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // 3) 構造 INSERT batch。遇到第一條已存在的 video → 整個同步立即停止（老內容不重掃）
+    const nowIso = new Date().toISOString();
+    const stmts: D1PreparedStatement[] = [];
+    let plannedInserts = 0;
+    let plannedSkips = 0;
+    const newMetas: typeof metas = [];
+
+    for (const meta of metas) {
+      const isExisting = meta.entryType === 'sermon'
+        ? existingSermons.has(meta.videoId)
+        : existingManna.has(meta.videoId);
+
+      if (isExisting) {
+        reachedExistingContent = true;
+        plannedSkips++;
+        break;
+      }
+      newMetas.push(meta);
+    }
+
+    // 對新視頻批量拉 duration + view_count（1 subrequest / 50 個 ID）
+    const videoMetaMap = newMetas.length > 0 && config.api_key
+      ? await fetchVideoMetadata(config.api_key, newMetas.map(m => m.videoId))
+      : new Map<string, VideoMeta>();
+
+    for (const meta of newMetas) {
+      const vm = videoMetaMap.get(meta.videoId);
+      const duration = vm?.durationSeconds ?? null;
+      const views = vm?.viewCount ?? null;
+      if (meta.entryType === 'sermon') {
+        const cat = inferCategoryFromTitle(meta.finalTitle);
+        stmts.push(
+          env.DB
+            .prepare(
+              `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              crypto.randomUUID(),
+              meta.finalTitle, meta.finalTitle,
+              'Pastor Andy Yu', '余大器 牧師',
+              meta.date,
+              '', '', '', '',
+              meta.videoId,
+              meta.imageUrl,
+              cat,
+              duration, views,
+              nowIso, nowIso
+            )
+        );
+      } else {
+        stmts.push(
+          env.DB
+            .prepare(
+              `INSERT INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, duration_seconds, view_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              crypto.randomUUID(),
+              meta.finalTitle, meta.finalTitle,
+              'Pastor Andy Yu', '余大器 牧師',
+              meta.date,
+              '', '', '', '',
+              meta.videoId,
+              meta.imageUrl,
+              duration, views,
+              nowIso, nowIso
+            )
+        );
+      }
+      plannedInserts++;
+    }
+
+    if (stmts.length > 0) {
+      try {
+        await env.DB.batch(stmts);
+        result.inserted += plannedInserts;
+        result.skipped += plannedSkips;
+      } catch (err) {
+        result.errors.push(`batch page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
+        result.skipped += metas.length;
+      }
+    } else {
+      result.skipped += plannedSkips;
+    }
+
+    // 遇到老內容 → 整個同步停止
+    if (reachedExistingContent) break;
+
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+  // 只有當「沒命中老內容 + 沒掃完 playlist + 達到 MAX_PAGES」才算 hasMore（一次性上傳太多新視頻的罕見情況）
+  if (!reachedExistingContent && pageToken) {
+    result.hasMore = true;
+  }
+  return result;
+}
+
+async function sendUploadsSyncNotification(env: Env, result: SyncResult): Promise<void> {
+  if (!env.RESEND_API_KEY) return;
+  if (result.inserted === 0 && result.updated === 0 && result.errors.length === 0) return; // 沒新東西，不打擾
+  const adminEmail = 'Admin@Bolccop.org';
+  const from = 'Bread of Life Christian Church <admin@bolccop.org>';
+  const subject = `[BOLCCOP] YouTube 同步：新增 ${result.inserted} 條 · 更新 ${result.updated} 條`;
+  const errBlock = result.errors.length ? `<p style="color:#c0392b;margin:8px 0;">錯誤：${result.errors.slice(0, 5).map(escapeHtmlForChurch).join('<br/>')}</p>` : '';
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#172033;max-width:520px;">
+  <h2 style="margin:0 0 12px 0;">每日 YouTube 同步</h2>
+  <p style="margin:0 0 8px;">新增 <strong>${result.inserted}</strong> 條，更新 ${result.updated} 條（重新分類或重命名），跳過 ${result.skipped} 條，掃描 ${result.pages} 頁。</p>
+  ${errBlock}
+  <p style="margin:8px 0;">請到 <a href="https://www.bolccop.org/admin">後台管理 → Sermons</a> 補上標題、講員、經文等資料。</p>
+  <p style="margin:14px 0 0;color:#888;font-size:12px;">此郵件由 BOLCCOP 系統自動發送。</p>
+</div>`;
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: adminEmail, subject, html })
+    });
+  } catch { /* ignore */ }
 }
 
 function escapeHtmlForChurch(value: string): string {
@@ -1883,12 +2334,15 @@ async function buildPublicLiveStreamState(env: Env) {
 
   const baseExtras = { viewersOnline, youtubeViewers, viewerList };
 
-  // Manual override always wins.
-  if (config.manual_video_id) {
+  // 三態決策（注意：真正的「直播中」優先級 > manual override 的「回放」）
+  //   1. state.is_live + state.video_id   → 真正直播中（status='live'，啟用聊天）
+  //   2. 否則有 manual_video_id           → 上次直播回放（status='replay'，無聊天）
+  //   3. 都沒有                            → 完全離線（status='offline'）
+  if (state.is_live && state.video_id) {
     return {
       status: 'live' as const,
-      videoId: config.manual_video_id,
-      startedAt: null,
+      videoId: state.video_id,
+      startedAt: state.started_at,
       nextServiceIso: next,
       latestSermon: latest,
       latestSermons,
@@ -1896,11 +2350,11 @@ async function buildPublicLiveStreamState(env: Env) {
       ...baseExtras,
     };
   }
-  if (state.is_live && state.video_id) {
+  if (config.manual_video_id) {
     return {
-      status: 'live' as const,
-      videoId: state.video_id,
-      startedAt: state.started_at,
+      status: 'replay' as const,
+      videoId: config.manual_video_id,
+      startedAt: null,
       nextServiceIso: next,
       latestSermon: latest,
       latestSermons,
@@ -2057,6 +2511,213 @@ async function handleLiveStreamProbe(request: Request, env: Env): Promise<Respon
   if (auth instanceof Response) return auth;
   const state = await runProbeIfDue(env, true);
   return json({ state: stateRowToAdmin(state) });
+}
+
+async function handleSermonSyncYoutube(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const url = new URL(request.url);
+  const cat = url.searchParams.get('category');
+  const category: SyncCategory = cat === 'sermon' || cat === 'daily-manna' ? cat : 'all';
+  const result = await syncChannelUploads(env, { category });
+  // 首次手動觸發的回填可能很大，發郵件通知 admin 一份摘要
+  await sendUploadsSyncNotification(env, result);
+  return json(result);
+}
+
+// ============================================================================
+// Move + Hide content
+// ============================================================================
+
+async function handleMoveSermon(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureHiddenColumns(env);
+  await ensureCategoryColumn(env);
+  const payload = await readJson<{ to?: 'daily-manna' | 'live-override' | SermonCategoryDb }>(request);
+  const target = payload.to;
+  if (
+    target !== 'daily-manna' &&
+    target !== 'live-override' &&
+    target !== 'sunday-worship' &&
+    target !== 'worship-praise' &&
+    target !== 'healing-prayer' &&
+    target !== 'testimony' &&
+    target !== 'live-broadcast'
+  ) {
+    return badRequest('Invalid target');
+  }
+
+  if (target === 'daily-manna') {
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, hidden, created_at, updated_at)
+           SELECT id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, hidden, created_at, updated_at
+           FROM sermons WHERE id = ?`
+        ).bind(id),
+        env.DB.prepare('DELETE FROM sermons WHERE id = ?').bind(id),
+      ]);
+      return json({ ok: true, moved: 'daily-manna' });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  }
+
+  if (target === 'live-override') {
+    // 把 sermon 的 youtube_id 設為 live_stream_config.manual_video_id，
+    // /live 的 manual override 邏輯會立即播放此影片。
+    // 注意：這是 action，不是 category。把 sermon "釘住" 為當前 /live 顯示的影片。
+    try {
+      const row = await env.DB.prepare('SELECT youtube_id FROM sermons WHERE id = ?').bind(id).first<{ youtube_id: string }>();
+      if (!row) return notFound();
+      await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
+        .bind(row.youtube_id, Date.now())
+        .run();
+      return json({ ok: true, moved: 'live-override', videoId: row.youtube_id });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  }
+
+  // 否則：改 category（5 個 sermon 子分類間調整）
+  try {
+    await env.DB.prepare('UPDATE sermons SET category = ?, updated_at = ? WHERE id = ?')
+      .bind(target, new Date().toISOString(), id)
+      .run();
+    return json({ ok: true, moved: target });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleMoveDailyManna(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureHiddenColumns(env);
+  await ensureCategoryColumn(env);
+  const payload = await readJson<{ to?: SermonCategoryDb }>(request);
+  const target = normalizeCategory(payload.to);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, hidden, created_at, updated_at)
+         SELECT id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, 'sermon', ?, hidden, created_at, updated_at
+         FROM daily_manna WHERE id = ?`
+      ).bind(target, id),
+      env.DB.prepare('DELETE FROM daily_manna WHERE id = ?').bind(id),
+    ]);
+    return json({ ok: true, moved: target });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleSermonVisibility(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureHiddenColumns(env);
+  const payload = await readJson<{ hidden?: boolean }>(request);
+  const hidden = payload.hidden ? 1 : 0;
+  try {
+    await env.DB.prepare('UPDATE sermons SET hidden = ?, updated_at = ? WHERE id = ?')
+      .bind(hidden, new Date().toISOString(), id).run();
+    return json({ ok: true, hidden: Boolean(hidden) });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleDailyMannaVisibility(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureHiddenColumns(env);
+  const payload = await readJson<{ hidden?: boolean }>(request);
+  const hidden = payload.hidden ? 1 : 0;
+  try {
+    await env.DB.prepare('UPDATE daily_manna SET hidden = ?, updated_at = ? WHERE id = ?')
+      .bind(hidden, new Date().toISOString(), id).run();
+    return json({ ok: true, hidden: Boolean(hidden) });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
+async function handleBackfillMetadata(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  await ensureMetadataColumns(env);
+  const config = await getLiveStreamConfigRow(env);
+  if (!config.api_key) return json({ error: 'YouTube API key not configured' }, 400);
+
+  const result = { updated: 0, batches: 0, errors: [] as string[], hasMore: false };
+
+  // 拿所有缺 metadata 的 rows（sermons + daily_manna），每次最多處理 30 批 = 1500 條
+  const MAX_BATCHES_PER_CALL = 30;
+  const sermonRows = await env.DB
+    .prepare("SELECT id, youtube_id FROM sermons WHERE duration_seconds IS NULL LIMIT ?")
+    .bind(MAX_BATCHES_PER_CALL * 50)
+    .all<{ id: string; youtube_id: string }>();
+  const mannaRows = await env.DB
+    .prepare("SELECT id, youtube_id FROM daily_manna WHERE duration_seconds IS NULL LIMIT ?")
+    .bind(MAX_BATCHES_PER_CALL * 50)
+    .all<{ id: string; youtube_id: string }>();
+
+  const sermonItems = sermonRows.results || [];
+  const mannaItems = mannaRows.results || [];
+
+  // 處理 sermons
+  for (let i = 0; i < sermonItems.length && result.batches < MAX_BATCHES_PER_CALL; i += 50) {
+    const chunk = sermonItems.slice(i, i + 50);
+    const ids = chunk.map(r => r.youtube_id);
+    try {
+      const metaMap = await fetchVideoMetadata(config.api_key, ids);
+      const stmts: D1PreparedStatement[] = [];
+      for (const row of chunk) {
+        const vm = metaMap.get(row.youtube_id);
+        if (!vm) continue;
+        stmts.push(
+          env.DB.prepare('UPDATE sermons SET duration_seconds = ?, view_count = ? WHERE id = ?')
+            .bind(vm.durationSeconds, vm.viewCount, row.id)
+        );
+      }
+      if (stmts.length > 0) await env.DB.batch(stmts);
+      result.updated += stmts.length;
+      result.batches++;
+    } catch (err) {
+      result.errors.push(`sermons batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 處理 daily_manna
+  for (let i = 0; i < mannaItems.length && result.batches < MAX_BATCHES_PER_CALL; i += 50) {
+    const chunk = mannaItems.slice(i, i + 50);
+    const ids = chunk.map(r => r.youtube_id);
+    try {
+      const metaMap = await fetchVideoMetadata(config.api_key, ids);
+      const stmts: D1PreparedStatement[] = [];
+      for (const row of chunk) {
+        const vm = metaMap.get(row.youtube_id);
+        if (!vm) continue;
+        stmts.push(
+          env.DB.prepare('UPDATE daily_manna SET duration_seconds = ?, view_count = ? WHERE id = ?')
+            .bind(vm.durationSeconds, vm.viewCount, row.id)
+        );
+      }
+      if (stmts.length > 0) await env.DB.batch(stmts);
+      result.updated += stmts.length;
+      result.batches++;
+    } catch (err) {
+      result.errors.push(`manna batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 如果某張表的搜尋拿滿了 LIMIT，可能還有更多
+  if (sermonItems.length === MAX_BATCHES_PER_CALL * 50 || mannaItems.length === MAX_BATCHES_PER_CALL * 50) {
+    result.hasMore = true;
+  }
+
+  return json(result);
 }
 
 // ============================================================================
@@ -2349,14 +3010,15 @@ const worker: ExportedHandler<Env> = {
       if (auth instanceof Response) {
         return auth;
       }
+      await ensureCategoryColumn(env);
       const sermon = await readJson<any>(request);
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
       await env.DB.prepare(
         `INSERT INTO sermons (
           id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh,
-          passage_en, passage_zh, youtube_id, image_url, type, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          passage_en, passage_zh, youtube_id, image_url, type, category, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         id,
         sermon.title.en,
@@ -2371,6 +3033,7 @@ const worker: ExportedHandler<Env> = {
         sermon.youtubeId,
         sermon.imageUrl ?? null,
         'sermon',
+        normalizeCategory(sermon.category),
         now,
         now
       ).run();
@@ -2466,12 +3129,13 @@ const worker: ExportedHandler<Env> = {
         if (auth instanceof Response) {
           return auth;
         }
+        await ensureCategoryColumn(env);
         const sermon = await readJson<any>(request);
         await env.DB.prepare(
           `UPDATE sermons SET
             title_en = ?, title_zh = ?, speaker_en = ?, speaker_zh = ?, date = ?,
             series_en = ?, series_zh = ?, passage_en = ?, passage_zh = ?,
-            youtube_id = ?, image_url = ?, type = ?, updated_at = ?
+            youtube_id = ?, image_url = ?, type = ?, category = ?, updated_at = ?
           WHERE id = ?`
         ).bind(
           sermon.title.en,
@@ -2486,6 +3150,7 @@ const worker: ExportedHandler<Env> = {
           sermon.youtubeId,
           sermon.imageUrl ?? null,
           'sermon',
+          normalizeCategory(sermon.category),
           new Date().toISOString(),
           id
         ).run();
@@ -2615,6 +3280,22 @@ const worker: ExportedHandler<Env> = {
     if (url.pathname === '/api/admin/live-stream/probe' && request.method === 'POST') {
       return handleLiveStreamProbe(request, env);
     }
+    if (url.pathname === '/api/admin/sermons/sync-youtube' && request.method === 'POST') {
+      return handleSermonSyncYoutube(request, env);
+    }
+    {
+      const moveSermonMatch = url.pathname.match(/^\/api\/admin\/sermons\/([^/]+)\/move$/);
+      if (moveSermonMatch && request.method === 'POST') return handleMoveSermon(request, env, decodeURIComponent(moveSermonMatch[1]));
+      const moveMannaMatch = url.pathname.match(/^\/api\/admin\/daily-manna\/([^/]+)\/move$/);
+      if (moveMannaMatch && request.method === 'POST') return handleMoveDailyManna(request, env, decodeURIComponent(moveMannaMatch[1]));
+      const visSermonMatch = url.pathname.match(/^\/api\/admin\/sermons\/([^/]+)\/visibility$/);
+      if (visSermonMatch && request.method === 'PATCH') return handleSermonVisibility(request, env, decodeURIComponent(visSermonMatch[1]));
+      const visMannaMatch = url.pathname.match(/^\/api\/admin\/daily-manna\/([^/]+)\/visibility$/);
+      if (visMannaMatch && request.method === 'PATCH') return handleDailyMannaVisibility(request, env, decodeURIComponent(visMannaMatch[1]));
+      if (url.pathname === '/api/admin/sermons/backfill-metadata' && request.method === 'POST') {
+        return handleBackfillMetadata(request, env);
+      }
+    }
 
     if (url.pathname === '/api/live/join' && request.method === 'POST') {
       return handleLiveJoin(request, env);
@@ -2650,8 +3331,19 @@ const worker: ExportedHandler<Env> = {
     return assetResponse;
   },
 
-  async scheduled(_event, env, ctx): Promise<void> {
-    ctx.waitUntil(runProbeIfDue(env, false).then(() => undefined).catch(() => undefined));
+  async scheduled(event, env, ctx): Promise<void> {
+    // 多個 cron trigger 分派：
+    //  - "0 14 * * *"   每日同步 YouTube uploads
+    //  - 其它（"*/5 17-22 * * SUN"） live 偵測
+    if (event.cron === '0 14 * * *') {
+      ctx.waitUntil(
+        syncChannelUploads(env)
+          .then(result => sendUploadsSyncNotification(env, result))
+          .catch(() => undefined)
+      );
+    } else {
+      ctx.waitUntil(runProbeIfDue(env, false).then(() => undefined).catch(() => undefined));
+    }
   },
 };
 

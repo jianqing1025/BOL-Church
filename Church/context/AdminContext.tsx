@@ -43,6 +43,7 @@ interface AdminContextType {
   deleteDailyMannaRecord: (id: string) => Promise<void>;
   createUser: (data: { name: string; email: string; password: string; role: AdminRole }) => Promise<void>;
   updateUserRecord: (id: string, data: Partial<{ name: string; email: string; password: string; role: AdminRole; active: boolean }>) => Promise<void>;
+  refreshBootstrap: () => Promise<void>;
 }
 
 export const AdminContext = createContext<AdminContextType | undefined>(undefined);
@@ -319,6 +320,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         deleteDailyMannaRecord,
         createUser,
         updateUserRecord,
+        refreshBootstrap,
       }}
     >
       {children}

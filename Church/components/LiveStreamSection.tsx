@@ -7,6 +7,7 @@ import type { LiveStreamPublicState } from '../types';
 import LiveJoinModal from './LiveJoinModal';
 import LiveViewerList from './LiveViewerList';
 import LiveChatPanel from './LiveChatPanel';
+import LivePlayer from './LivePlayer';
 
 const POLL_INTERVAL_MS = 30_000;
 const PING_INTERVAL_MS = 20_000;
@@ -77,9 +78,18 @@ function useCountdown(targetIso: string | null) {
   return { days, hours, minutes };
 }
 
+function formatLiveDuration(seconds?: number | null): string {
+  if (!seconds || seconds < 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 const LiveStreamSection: React.FC = () => {
   const { t, language } = useLocalization();
-  const { currentUser } = useAdmin();
+  const { currentUser, sermons } = useAdmin();
   const [state, setState] = useState<LiveStreamPublicState | null>(null);
   const [identity, setIdentity] = useState<StoredIdentity | null>(() => (typeof window !== 'undefined' ? readIdentity() : null));
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -87,6 +97,7 @@ const LiveStreamSection: React.FC = () => {
 
   const isLoggedInAdmin = !!currentUser;
   const isLive = state?.status === 'live' && !!state?.videoId;
+  const isReplay = state?.status === 'replay' && !!state?.videoId;
 
   // Public state polling
   useEffect(() => {
@@ -171,6 +182,65 @@ const LiveStreamSection: React.FC = () => {
 
   const countdown = useCountdown(state?.nextServiceIso ?? null);
 
+  // 歷史直播：從本地 sermons 拉所有 category='live-broadcast' 的條目，
+  // 過濾隱藏，按日期倒序排，限制顯示前 12 條（多了讓用戶去 /sermons 翻）
+  const pastBroadcasts = useMemo(() => {
+    return sermons
+      .filter(s => s.category === 'live-broadcast' && !s.hidden)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, 12);
+  }, [sermons]);
+
+  const renderPastBroadcasts = () => {
+    if (pastBroadcasts.length === 0) return null;
+    return (
+      <div>
+        <div className="mb-3 text-sm font-semibold text-gray-700">
+          {t('sermonsPage.pastBroadcastsTitle')}
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+          {pastBroadcasts.map(sermon => {
+            const title = language === Language.ZH ? (sermon.title.zh || sermon.title.en) : (sermon.title.en || sermon.title.zh);
+            const dateStr = sermon.date
+              ? new Date(`${sermon.date}T00:00:00`).toLocaleDateString(language === Language.ZH ? 'zh-Hant' : 'en-US', {
+                  year: 'numeric', month: 'short', day: 'numeric',
+                })
+              : '';
+            const duration = formatLiveDuration(sermon.durationSeconds);
+            return (
+              <a
+                key={sermon.id}
+                href={`/sermons/${sermon.id}`}
+                className="group block overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="relative aspect-video w-full overflow-hidden bg-black">
+                  <img
+                    src={`https://img.youtube.com/vi/${sermon.youtubeId}/hqdefault.jpg`}
+                    alt={title}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                  {duration && (
+                    <span className="absolute bottom-1.5 right-1.5 z-10 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white tabular-nums">
+                      {duration}
+                    </span>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white">▶</div>
+                  </div>
+                </div>
+                <div className="p-2.5">
+                  <div className="line-clamp-2 text-sm font-semibold text-gray-900">{title}</div>
+                  {dateStr && <div className="mt-1 text-xs text-gray-500">{dateStr}</div>}
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (!state) {
     return <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">...</div>;
   }
@@ -200,18 +270,12 @@ const LiveStreamSection: React.FC = () => {
               )}
             </div>
             <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
-              <iframe
-                title="Live Stream"
-                src={`https://www.youtube.com/embed/${state.videoId}?autoplay=1&mute=1&rel=0`}
-                className="h-full w-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
+              <LivePlayer videoId={state.videoId} />
             </div>
           </div>
 
-          {/* Right: chat sidebar 1/4 */}
-          <aside className="flex flex-col rounded-lg border border-gray-200 bg-white shadow-sm lg:w-[320px] lg:flex-none h-[500px] lg:h-auto lg:self-stretch overflow-hidden">
+          {/* Right: chat sidebar 1/4 — mobile 較矮（手機優先看 player），desktop 跟 player 等高 */}
+          <aside className="flex flex-col rounded-lg border border-gray-200 bg-white shadow-sm lg:w-[320px] lg:flex-none h-[260px] lg:h-auto lg:self-stretch overflow-hidden">
             {/* Counts bar */}
             <div className="grid grid-cols-2 gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold">
               <div className="flex items-center gap-1.5">
@@ -238,16 +302,20 @@ const LiveStreamSection: React.FC = () => {
 
             {(!chatCollapsed) && (
               <>
-                {/* Viewer list: 1/3 height */}
-                <div className="border-b border-gray-200 bg-gray-50/50 basis-1/3 min-h-0 overflow-hidden flex flex-col">
+                {/* Viewer list:
+                      mobile: 固定高 h-20（容納 ~2 行 pill）
+                      desktop: 佔 1/6（原本 1/3 的一半，多出的 1/6 給 chat） */}
+                <div className="border-b border-gray-200 bg-gray-50/50 h-20 shrink-0 lg:h-auto lg:shrink lg:basis-1/6 min-h-0 overflow-hidden flex flex-col">
                   <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-100">{t('liveChat.onlineHeader')}</div>
                   <div className="flex-1 min-h-0 overflow-y-auto">
                     <LiveViewerList viewers={state.viewerList} myDisplayName={identity?.displayName} />
                   </div>
                 </div>
 
-                {/* Chat: 2/3 height */}
-                <div className="basis-2/3 min-h-0 flex flex-col">
+                {/* Chat:
+                      mobile: flex-1 吃掉剩餘高度（約 260 - 40(counts) - 36(toggle) - 80(viewer) ≈ 104px，原本 ~333px 的 1/3）
+                      desktop: 佔 5/6（吃掉 viewer 縮減出來的空間） */}
+                <div className="flex-1 lg:flex-none lg:basis-5/6 min-h-0 flex flex-col">
                   {identity ? (
                     <LiveChatPanel
                       videoId={state.videoId}
@@ -266,7 +334,42 @@ const LiveStreamSection: React.FC = () => {
             )}
           </aside>
         </div>
+
+        {/* 歷史直播：直播狀態下也在底部展示，便於用戶下播後繼續看舊內容 */}
+        <div className="mt-8">{renderPastBroadcasts()}</div>
       </>
+    );
+  }
+
+  // Replay state — 上次直播的回放（manual_video_id 已被 archive flow 設為剛結束的直播）
+  // 跟 LIVE 不同：沒有「🔴 LIVE」徽章、不顯示聊天面板（chat per-stream）、徽章用中性色
+  if (isReplay) {
+    return (
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+          <span className="flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+            {t('sermonsPage.replayBadge')}
+          </span>
+          {state.nextServiceIso && (
+            <span className="text-blue-600/80 font-normal">
+              · {t('sermonsPage.nextServiceLabel')} {formatNextService(state.nextServiceIso, language)}
+            </span>
+          )}
+        </div>
+        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
+          <iframe
+            key={state.videoId || 'replay'}
+            src={`https://www.youtube.com/embed/${state.videoId}?rel=0`}
+            title="Last broadcast replay"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="h-full w-full"
+          />
+        </div>
+        <div className="mt-8">{renderPastBroadcasts()}</div>
+      </div>
     );
   }
 
@@ -302,49 +405,7 @@ const LiveStreamSection: React.FC = () => {
         </button>
       </div>
 
-      {state.latestSermons && state.latestSermons.length > 0 ? (
-        <div>
-          <div className="mb-3 text-sm font-semibold text-gray-700">
-            {t('sermonsPage.watchLatestReplay')}
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-            {state.latestSermons.map(sermon => {
-              const title = language === Language.ZH ? sermon.titleZh : sermon.titleEn;
-              const dateStr = sermon.date
-                ? new Date(sermon.date.length === 10 ? `${sermon.date}T00:00:00` : sermon.date)
-                    .toLocaleDateString(language === Language.ZH ? 'zh-Hant' : 'en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                    })
-                : '';
-              return (
-                <a
-                  key={sermon.id}
-                  href={`/sermons/${sermon.id}`}
-                  className="group block overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="relative aspect-video w-full overflow-hidden bg-black">
-                    <img
-                      src={`https://img.youtube.com/vi/${sermon.videoId}/mqdefault.jpg`}
-                      alt={title}
-                      loading="lazy"
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                      <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white">▶</div>
-                    </div>
-                  </div>
-                  <div className="p-2.5">
-                    <div className="line-clamp-2 text-sm font-semibold text-gray-900">{title}</div>
-                    {dateStr && <div className="mt-1 text-xs text-gray-500">{dateStr}</div>}
-                  </div>
-                </a>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      {renderPastBroadcasts()}
     </div>
   );
 };

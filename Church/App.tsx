@@ -91,7 +91,7 @@ function App() {
       const parts = route.split('/');
       const segment = (parts[2] || 'sunday-worship').split('?')[0];
 
-      const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'recent-sermons'];
+      const validSubPages: ReadonlyArray<SermonSubPage> = ['daily-manna', 'sunday-worship', 'worship-praise', 'healing-prayer', 'testimony'];
 
       // If the segment is NOT one of the known sub-pages, treat it as a Sermon ID
       if (segment && !validSubPages.includes(segment as any)) {

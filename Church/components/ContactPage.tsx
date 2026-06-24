@@ -6,6 +6,7 @@ import { ContactSubPage } from '../types';
 import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
+import SecondaryNavBar from './SecondaryNavBar';
 
 const ContactForm = () => {
   const { t } = useLocalization();
@@ -230,7 +231,7 @@ const ContactPage: React.FC<ContactPageProps> = ({ activeSubPage: initialSubPage
         subtitle={t('contactPage.pageSubtitle')}
       />
       
-      <div className="sticky top-[88px] bg-gray-800 text-white z-40 shadow-md">
+      <SecondaryNavBar>
         <nav className="container mx-auto px-6">
           <ul className="flex justify-center items-center -mb-px space-x-4 sm:space-x-8 overflow-x-auto">
             {navItems.map((item) => (
@@ -250,7 +251,7 @@ const ContactPage: React.FC<ContactPageProps> = ({ activeSubPage: initialSubPage
             ))}
           </ul>
         </nav>
-      </div>
+      </SecondaryNavBar>
       
       <div className="container mx-auto px-6 py-16">
         {activeTab === 'contact-us' && <ContactForm />}

@@ -116,14 +116,15 @@ const Events: React.FC = () => {
         <h2 className="text-3xl md:text-4xl font-bold text-center mb-12 text-gray-800">{t('events.title')}</h2>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           {eventCards.map(slot => (
-            <EventCard
-              key={slot.key}
-              slot={slot}
-              title={t(`events.event${slot.index}Title`) === `events.event${slot.index}Title` ? slot.label : t(`events.event${slot.index}Title`)}
-              date={t(`events.event${slot.index}Date`) === `events.event${slot.index}Date` ? slot.hint : t(`events.event${slot.index}Date`)}
-              href={ministryCardLinks[slot.index] ?? '/events/'}
-              isAdminMode={isAdminMode}
-            />
+            <div key={slot.key} className={slot.index === 1 || slot.index === 3 ? '' : 'hidden md:block'}>
+              <EventCard
+                slot={slot}
+                title={t(`events.event${slot.index}Title`) === `events.event${slot.index}Title` ? slot.label : t(`events.event${slot.index}Title`)}
+                date={t(`events.event${slot.index}Date`) === `events.event${slot.index}Date` ? slot.hint : t(`events.event${slot.index}Date`)}
+                href={ministryCardLinks[slot.index] ?? '/events/'}
+                isAdminMode={isAdminMode}
+              />
+            </div>
           ))}
         </div>
         <div className="text-center mt-12">

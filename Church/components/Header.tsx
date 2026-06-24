@@ -75,8 +75,10 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     ]},
     { key: 'header.navSermons', subLinks: [
         { href: '/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
+        { href: '/sermons/worship-praise', key: 'sermonsPage.navWorshipPraise' },
+        { href: '/sermons/healing-prayer', key: 'sermonsPage.navHealingPrayer' },
+        { href: '/sermons/testimony', key: 'sermonsPage.navTestimony' },
         { href: '/sermons/daily-manna', key: 'sermonsPage.navDailyManna' },
-        { href: '/sermons/recent-sermons', key: 'sermonsPage.navRecentSermons' },
         { href: '/live', key: 'sermonsPage.navLiveStream' },
     ]},
     { key: 'header.navGiving', subLinks: [
@@ -118,6 +120,25 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const updateHeaderHeight = () => {
+      document.documentElement.style.setProperty('--site-header-height', `${header.offsetHeight}px`);
+    };
+
+    updateHeaderHeight();
+    const resizeObserver = new ResizeObserver(updateHeaderHeight);
+    resizeObserver.observe(header);
+    window.addEventListener('resize', updateHeaderHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateHeaderHeight);
     };
   }, []);
 

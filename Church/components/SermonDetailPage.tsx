@@ -30,7 +30,7 @@ const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
       <div className="container mx-auto px-6 py-40 text-center">
         <h1 className="text-3xl font-bold text-gray-800">Sermon not found</h1>
         <p className="mt-4 text-gray-600">The sermon you are looking for might have been moved or deleted.</p>
-        <a href="/sermons/recent-sermons" className="mt-8 inline-block bg-blue-600 text-white px-8 py-3 rounded-full hover:bg-blue-700 transition-colors">
+        <a href="/sermons/sunday-worship" className="mt-8 inline-block bg-blue-600 text-white px-8 py-3 rounded-full hover:bg-blue-700 transition-colors">
           Back to Sermon Archive
         </a>
       </div>

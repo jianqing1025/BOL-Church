@@ -18,13 +18,16 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
   homepage: 'admin.homepage',
   text: 'admin.text',
   sermons: 'admin.sermons',
+  'worship-praise': 'admin.worshipPraise',
+  'healing-prayer': 'admin.healingPrayer',
+  testimony: 'admin.testimony',
   livestream: 'admin.livestream',
   manna: 'admin.manna',
   inbox: 'admin.inbox',
@@ -79,6 +82,14 @@ function initialsForUser(name: string, email: string) {
   }
   return (parts[0]?.slice(0, 2) || email.slice(0, 2)).toUpperCase();
 }
+
+function formatAdminVersion(version: string) {
+  const parts = version.split('.');
+  if (parts.length < 3) return version;
+  return `${parts[0]}.${parts[1]}.${parts[2].padStart(2, '0')}`;
+}
+
+const DISPLAY_APP_VERSION = formatAdminVersion(APP_VERSION);
 
 function formatPreviewText(value: unknown, fallback: string) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -243,7 +254,7 @@ const AdminDashboard: React.FC = () => {
   const dateLocale = language === Language.ZH ? 'zh-TW' : 'en-US';
   const sectionLabel = (section: Section) => t(sectionLabelKeys[section]);
   const roleLabel = currentUser?.role === 'owner' ? t('admin.owner') : t('admin.adminRole');
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'livestream', 'manna', 'users'];
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
   const insightSections: Section[] = ['analytics'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
@@ -1226,9 +1237,48 @@ const AdminDashboard: React.FC = () => {
               <p className="text-sm text-gray-600">{t('admin.sermonSubtitle')}</p>
             </div>
             <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              {sermonCount} {t('admin.sermonCountStatus')}
+              {sermons.filter(s => (s.category ?? 'sunday-worship') === 'sunday-worship').length} {t('admin.sermonCountStatus')}
             </div>
-            <SermonManager entryType="sermon" />
+            <SermonManager entryType="sermon" category="sunday-worship" />
+          </div>
+        );
+      case 'worship-praise':
+        return (
+          <div className="rounded-lg bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-2xl font-bold text-gray-900">{t('admin.worshipPraise')}</h2>
+              <p className="text-sm text-gray-600">{t('admin.worshipPraiseSubtitle')}</p>
+            </div>
+            <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {sermons.filter(s => s.category === 'worship-praise').length} {t('admin.categoryCountStatus')}
+            </div>
+            <SermonManager entryType="sermon" category="worship-praise" />
+          </div>
+        );
+      case 'healing-prayer':
+        return (
+          <div className="rounded-lg bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-2xl font-bold text-gray-900">{t('admin.healingPrayer')}</h2>
+              <p className="text-sm text-gray-600">{t('admin.healingPrayerSubtitle')}</p>
+            </div>
+            <div className="mb-4 rounded-lg border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              {sermons.filter(s => s.category === 'healing-prayer').length} {t('admin.categoryCountStatus')}
+            </div>
+            <SermonManager entryType="sermon" category="healing-prayer" />
+          </div>
+        );
+      case 'testimony':
+        return (
+          <div className="rounded-lg bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-2xl font-bold text-gray-900">{t('admin.testimony')}</h2>
+              <p className="text-sm text-gray-600">{t('admin.testimonySubtitle')}</p>
+            </div>
+            <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {sermons.filter(s => s.category === 'testimony').length} {t('admin.categoryCountStatus')}
+            </div>
+            <SermonManager entryType="sermon" category="testimony" />
           </div>
         );
       case 'manna':
@@ -1245,7 +1295,21 @@ const AdminDashboard: React.FC = () => {
           </div>
         );
       case 'livestream':
-        return <LiveStreamManager />;
+        return (
+          <div className="space-y-6">
+            <LiveStreamManager />
+            <div className="rounded-lg bg-white p-6 shadow-sm">
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.liveBroadcast')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.liveBroadcastSubtitle')}</p>
+              </div>
+              <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+                {sermons.filter(s => s.category === 'live-broadcast').length} {t('admin.categoryCountStatus')}
+              </div>
+              <SermonManager entryType="sermon" category="live-broadcast" />
+            </div>
+          </div>
+        );
       case 'inbox':
         return renderMessages();
       case 'prayer':
@@ -1327,9 +1391,12 @@ const AdminDashboard: React.FC = () => {
             {t('admin.backToWebsite')}
           </a>
         </nav>
-        <div className="border-t border-white/10 p-4">
+        <div className="mt-auto border-t border-white/10 p-4">
           {currentUser && (
             <div className="relative">
+              <div className="mb-2 px-1 text-right text-xs font-semibold text-white/45">
+                Version: V{DISPLAY_APP_VERSION}
+              </div>
               <div className="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-3">
                 <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                   {initialsForUser(currentUser.name, currentUser.email)}
@@ -1378,9 +1445,6 @@ const AdminDashboard: React.FC = () => {
                     </button>
                   </div>
                 </details>
-              </div>
-              <div className="mt-2 px-3 text-center text-xs font-semibold text-white/45">
-                Version: V{APP_VERSION}
               </div>
             </div>
           )}

@@ -323,10 +323,23 @@ const LiveStreamManager: React.FC = () => {
         <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           <div>
             <dt className="font-semibold text-gray-700">Status</dt>
-            <dd className={state?.isLive ? 'text-red-600 font-bold' : 'text-gray-600'}>
-              {state?.isLive ? `● ${t('admin.livestreamLive')}` : `○ ${t('admin.livestreamOffline')}`}
-              {state?.videoId && (
+            <dd className={
+              state?.isLive
+                ? 'text-red-600 font-bold'
+                : config?.manualVideoId
+                  ? 'text-blue-600 font-bold'
+                  : 'text-gray-600'
+            }>
+              {state?.isLive
+                ? `● ${t('admin.livestreamLive')}`
+                : config?.manualVideoId
+                  ? `● ${t('admin.livestreamReplay')}`
+                  : `○ ${t('admin.livestreamOffline')}`}
+              {state?.isLive && state?.videoId && (
                 <span className="ml-2 font-mono text-xs text-gray-500">{state.videoId}</span>
+              )}
+              {!state?.isLive && config?.manualVideoId && (
+                <span className="ml-2 font-mono text-xs text-gray-500">{config.manualVideoId}</span>
               )}
             </dd>
           </div>
@@ -348,6 +361,7 @@ const LiveStreamManager: React.FC = () => {
           )}
         </dl>
       </div>
+
     </div>
   );
 };

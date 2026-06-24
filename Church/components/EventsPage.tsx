@@ -4,6 +4,7 @@ import { useLocalization } from '../hooks/useLocalization';
 import { MinistrySubPage } from '../types';
 import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
+import SecondaryNavBar from './SecondaryNavBar';
 
 interface EventsPageProps {
   activeSubPage: MinistrySubPage;
@@ -49,7 +50,7 @@ const EventsPage: React.FC<EventsPageProps> = ({ activeSubPage: initialSubPage }
         subtitle={t('eventsPage.pageSubtitle')}
       />
       
-      <div className="sticky top-[88px] bg-gray-800 text-white z-40 shadow-md">
+      <SecondaryNavBar>
         <nav className="container mx-auto px-6">
           <ul className="flex justify-center items-center -mb-px space-x-4 sm:space-x-8 overflow-x-auto">
             {navItems.map((item) => (
@@ -69,7 +70,7 @@ const EventsPage: React.FC<EventsPageProps> = ({ activeSubPage: initialSubPage }
             ))}
           </ul>
         </nav>
-      </div>
+      </SecondaryNavBar>
       
       <div className="container mx-auto max-w-4xl px-6 py-16">
         <Editable

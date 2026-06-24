@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
 
 export interface LiveStreamSavePayload {
@@ -112,6 +112,31 @@ export const api = {
     request<{ ok: boolean; channelName?: string; error?: string }>('/api/admin/live-stream/test', { method: 'POST', body: JSON.stringify(payload) }),
   liveStreamAdminProbe: () =>
     request<{ state: LiveStreamAdminState }>('/api/admin/live-stream/probe', { method: 'POST' }),
+  sermonsSyncYoutube: (category: 'sermon' | 'daily-manna' | 'all' = 'all') =>
+    request<{ inserted: number; updated: number; skipped: number; errors: string[]; pages: number; hasMore: boolean; category: string }>(
+      `/api/admin/sermons/sync-youtube${category !== 'all' ? `?category=${category}` : ''}`,
+      { method: 'POST' }
+    ),
+  moveSermon: (id: string, to: SermonCategory | 'daily-manna' | 'live-override') =>
+    request<{ ok: true; moved: string }>(`/api/admin/sermons/${encodeURIComponent(id)}/move`, {
+      method: 'POST', body: JSON.stringify({ to })
+    }),
+  moveDailyManna: (id: string, to: SermonCategory) =>
+    request<{ ok: true; moved: string }>(`/api/admin/daily-manna/${encodeURIComponent(id)}/move`, {
+      method: 'POST', body: JSON.stringify({ to })
+    }),
+  setSermonVisibility: (id: string, hidden: boolean) =>
+    request<{ ok: true; hidden: boolean }>(`/api/admin/sermons/${encodeURIComponent(id)}/visibility`, {
+      method: 'PATCH', body: JSON.stringify({ hidden })
+    }),
+  setDailyMannaVisibility: (id: string, hidden: boolean) =>
+    request<{ ok: true; hidden: boolean }>(`/api/admin/daily-manna/${encodeURIComponent(id)}/visibility`, {
+      method: 'PATCH', body: JSON.stringify({ hidden })
+    }),
+  backfillSermonMetadata: () =>
+    request<{ updated: number; batches: number; errors: string[]; hasMore: boolean }>('/api/admin/sermons/backfill-metadata', {
+      method: 'POST',
+    }),
   liveJoin: (payload: { sessionId: string; name?: string; asGuest?: boolean; displayName?: string }) =>
     request<{ displayName: string; guestNumber: number | null; isAdmin: boolean; videoId: string }>('/api/live/join', { method: 'POST', body: JSON.stringify(payload) }),
   liveRefresh: () =>

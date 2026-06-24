@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { navigateTo as navigateToRoute } from '../utils/routes';
+import SecondaryNavBar from './SecondaryNavBar';
 
-export type SermonsNavKey = 'sunday-worship' | 'daily-manna' | 'recent-sermons' | 'live-stream';
+export type SermonsNavKey = 'sunday-worship' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'daily-manna' | 'live-stream';
 
 interface SermonsSecondaryNavProps {
   active: SermonsNavKey;
@@ -10,8 +11,10 @@ interface SermonsSecondaryNavProps {
 
 const NAV_ITEMS: { key: SermonsNavKey; textKey: string; href: string }[] = [
   { key: 'sunday-worship', textKey: 'sermonsPage.navSundayWorship', href: '/sermons/sunday-worship' },
+  { key: 'worship-praise', textKey: 'sermonsPage.navWorshipPraise', href: '/sermons/worship-praise' },
+  { key: 'healing-prayer', textKey: 'sermonsPage.navHealingPrayer', href: '/sermons/healing-prayer' },
+  { key: 'testimony', textKey: 'sermonsPage.navTestimony', href: '/sermons/testimony' },
   { key: 'daily-manna', textKey: 'sermonsPage.navDailyManna', href: '/sermons/daily-manna' },
-  { key: 'recent-sermons', textKey: 'sermonsPage.navRecentSermons', href: '/sermons/recent-sermons' },
   { key: 'live-stream', textKey: 'sermonsPage.navLiveStream', href: '/live' },
 ];
 
@@ -24,7 +27,7 @@ const SermonsSecondaryNav: React.FC<SermonsSecondaryNavProps> = ({ active }) => 
   };
 
   return (
-    <div className="sticky top-[88px] bg-gray-800 text-white z-40 shadow-md">
+    <SecondaryNavBar>
       <nav className="container mx-auto px-6">
         <ul className="flex justify-center items-center -mb-px space-x-4 sm:space-x-8 overflow-x-auto">
           {NAV_ITEMS.map(item => (
@@ -44,7 +47,7 @@ const SermonsSecondaryNav: React.FC<SermonsSecondaryNavProps> = ({ active }) => 
           ))}
         </ul>
       </nav>
-    </div>
+    </SecondaryNavBar>
   );
 };
 
