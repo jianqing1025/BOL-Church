@@ -136,30 +136,28 @@ const ChannelSyncManager: React.FC<ChannelSyncManagerProps> = ({ open, onClose }
                   <button onClick={() => test(ch)} className="rounded border px-2 py-1 text-xs hover:bg-gray-50">{t('admin.channelSyncTest')}</button>
                   <button onClick={() => startEdit(ch)} className="rounded border px-2 py-1 text-xs hover:bg-gray-50">{t('admin.channelSyncEdit')}</button>
                   <button onClick={() => remove(ch)} className="rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50">{t('admin.channelSyncDelete')}</button>
-                  <div className="relative">
-                    <button
-                      disabled={syncingId === ch.id}
-                      onClick={() => setOpenMenuId(openMenuId === ch.id ? null : ch.id)}
-                      className="rounded bg-gray-900 px-2 py-1 text-xs text-white disabled:opacity-50"
-                    >
-                      {syncingId === ch.id ? t('admin.channelSyncSyncing') : t('admin.channelSyncMenu')}
-                    </button>
-                    {openMenuId === ch.id && (
-                      <div className="absolute right-0 z-10 mt-1 w-36 rounded border bg-white py-1 shadow-lg">
-                        {SYNC_TARGETS.map(item => (
-                          <button
-                            key={item.target}
-                            onClick={() => runSync(ch, item.target)}
-                            className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
-                          >
-                            {t(item.key)}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    disabled={syncingId === ch.id}
+                    onClick={() => setOpenMenuId(openMenuId === ch.id ? null : ch.id)}
+                    className="rounded bg-gray-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+                  >
+                    {syncingId === ch.id ? t('admin.channelSyncSyncing') : t('admin.channelSyncMenu')}
+                  </button>
                 </div>
               </div>
+              {openMenuId === ch.id && (
+                <div className="mt-2 flex flex-wrap gap-1 border-t border-gray-100 pt-2">
+                  {SYNC_TARGETS.map(item => (
+                    <button
+                      key={item.target}
+                      onClick={() => runSync(ch, item.target)}
+                      className="rounded border px-2.5 py-1 text-sm hover:bg-gray-100"
+                    >
+                      {t(item.key)}
+                    </button>
+                  ))}
+                </div>
+              )}
               {rowMsg[ch.id] && <div className="mt-2 text-xs text-gray-600">{rowMsg[ch.id]}</div>}
             </div>
           ))}
