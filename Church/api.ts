@@ -12,6 +12,25 @@ export interface LiveStreamSavePayload {
   enabled?: boolean;
 }
 
+export interface SyncChannelAdmin {
+  id: string;
+  name: string;
+  channelId: string;
+  apiKeyMasked: string;
+  apiKeyPresent: boolean;
+  enabled: boolean;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export type SyncTargetClient =
+  | 'all' | 'sunday-worship' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'daily-manna';
+
+export interface SyncResultClient {
+  inserted: number; updated: number; skipped: number;
+  errors: string[]; pages: number; hasMore: boolean; category: string;
+}
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     headers: {
@@ -117,6 +136,18 @@ export const api = {
       `/api/admin/sermons/sync-youtube${category !== 'all' ? `?category=${category}` : ''}`,
       { method: 'POST' }
     ),
+  syncChannelsList: () =>
+    request<{ channels: SyncChannelAdmin[] }>('/api/admin/sync-channels'),
+  syncChannelCreate: (payload: { name: string; channelId: string; apiKey: string }) =>
+    request<{ channel: SyncChannelAdmin }>('/api/admin/sync-channels', { method: 'POST', body: JSON.stringify(payload) }),
+  syncChannelUpdate: (id: string, payload: Partial<{ name: string; channelId: string; apiKey: string; enabled: boolean }>) =>
+    request<{ channel: SyncChannelAdmin }>(`/api/admin/sync-channels/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  syncChannelDelete: (id: string) =>
+    request<{ ok: true }>(`/api/admin/sync-channels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  syncChannelTest: (id: string) =>
+    request<{ ok: boolean; channelName?: string; error?: string }>(`/api/admin/sync-channels/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  syncChannelSync: (id: string, target: SyncTargetClient) =>
+    request<SyncResultClient>(`/api/admin/sync-channels/${encodeURIComponent(id)}/sync?target=${target}`, { method: 'POST' }),
   moveSermon: (id: string, to: SermonCategory | 'daily-manna' | 'live-override') =>
     request<{ ok: true; moved: string }>(`/api/admin/sermons/${encodeURIComponent(id)}/move`, {
       method: 'POST', body: JSON.stringify({ to })
