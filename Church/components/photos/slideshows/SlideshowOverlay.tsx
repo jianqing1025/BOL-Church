@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { ChurchPhoto } from '../../../data';
 import type { SlideshowMode } from '../types';
 import { CascadeSlideshow } from './Cascade';
@@ -16,13 +16,23 @@ export const SlideshowOverlay: React.FC<{
   photos: ChurchPhoto[];
   onClose: () => void;
 }> = ({ mode, photos, onClose }) => {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Run once on open: lock scroll, enter native fullscreen, restore on close.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
+    // Launched from a click gesture, so requestFullscreen is usually allowed; best-effort.
+    void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+    };
+  }, []);
 
   if (!photos.length) return null;
 
