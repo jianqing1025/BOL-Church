@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, Loader2, RefreshCw, Save, Sliders, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import type { ChurchPhoto } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
+import { buildPaginationNumbers } from '../utils/pagination';
 
 const PhotoManager: React.FC = () => {
   const { t } = useLocalization();
@@ -10,6 +11,8 @@ const PhotoManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
+  const [pageSize, setPageSize] = useState(100);
+  const [page, setPage] = useState(1);
 
   const [settings, setSettings] = useState<{ maxLongEdge: number; jpegQuality: number }>({ maxLongEdge: 1600, jpegQuality: 0.82 });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -98,6 +101,13 @@ const PhotoManager: React.FC = () => {
     }
   };
 
+  useEffect(() => { setPage(1); }, [pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(photos.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageEntries = photos.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginationNumbers = useMemo(() => buildPaginationNumbers(totalPages, safePage), [totalPages, safePage]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -105,13 +115,27 @@ const PhotoManager: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">{t('adminPhotos.title')}</h2>
           <p className="text-sm text-gray-600">{t('adminPhotos.subtitle')}</p>
         </div>
-        <button
-          onClick={() => void loadPhotos()}
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
-        >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          {t('adminPhotos.refresh')}
-        </button>
+        <div className="flex items-center gap-2 text-sm text-gray-700">
+          <label htmlFor="photo-page-size">{t('admin.perPageLabel')}</label>
+          <select
+            id="photo-page-size"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm font-semibold"
+          >
+            <option value={100}>100</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
+          <span className="text-gray-500">{t('admin.perPageUnit')}</span>
+          <button
+            onClick={() => void loadPhotos()}
+            className="ml-2 inline-flex items-center justify-center gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            {t('adminPhotos.refresh')}
+          </button>
+        </div>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
@@ -170,7 +194,7 @@ const PhotoManager: React.FC = () => {
           <div className="p-8 text-center text-sm text-gray-500">{t('adminPhotos.empty')}</div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {photos.map(photo => (
+            {pageEntries.map(photo => (
               <div key={photo.id} className="grid gap-4 p-4 lg:grid-cols-[112px_1fr_auto] lg:items-center">
                 <img src={photo.src} alt={photo.title} className="h-28 w-28 rounded-md bg-gray-100 object-cover" />
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -238,6 +262,43 @@ const PhotoManager: React.FC = () => {
           </div>
         )}
       </div>
+
+      {!loading && totalPages > 1 && (
+        <nav className="mt-2 flex flex-wrap items-center justify-center gap-1.5" aria-label="pagination">
+          <button
+            type="button"
+            onClick={() => setPage(Math.max(1, safePage - 1))}
+            disabled={safePage <= 1}
+            className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ‹ {t('admin.prev')}
+          </button>
+          {paginationNumbers.map((n, idx) => n === 'gap' ? (
+            <span key={`gap-${idx}`} className="px-2 text-gray-400">…</span>
+          ) : (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setPage(n)}
+              aria-current={n === safePage ? 'page' : undefined}
+              className={`min-w-[2.25rem] rounded-md px-2 py-1.5 text-sm font-semibold ${n === safePage ? 'bg-blue-600 text-white' : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              {n}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+            disabled={safePage >= totalPages}
+            className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t('admin.next')} ›
+          </button>
+          <span className="ml-3 text-xs text-gray-500">
+            {t('admin.pageInfo').replace('{page}', String(safePage)).replace('{total}', String(totalPages)).replace('{count}', String(photos.length))}
+          </span>
+        </nav>
+      )}
     </div>
   );
 };
