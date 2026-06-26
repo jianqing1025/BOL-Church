@@ -5,6 +5,7 @@ import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
 import RichTextEditor from './RichTextEditor';
 import SermonManager from './SermonManager';
+import PhotoManager from './PhotoManager';
 import LiveStreamManager from './LiveStreamManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
@@ -18,12 +19,13 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
   homepage: 'admin.homepage',
   text: 'admin.text',
+  photos: 'admin.photos',
   sermons: 'admin.sermons',
   'worship-praise': 'admin.worshipPraise',
   'healing-prayer': 'admin.healingPrayer',
@@ -254,7 +256,7 @@ const AdminDashboard: React.FC = () => {
   const dateLocale = language === Language.ZH ? 'zh-TW' : 'en-US';
   const sectionLabel = (section: Section) => t(sectionLabelKeys[section]);
   const roleLabel = currentUser?.role === 'owner' ? t('admin.owner') : t('admin.adminRole');
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'manna', 'users'];
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'photos', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
   const insightSections: Section[] = ['analytics'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
@@ -1229,6 +1231,8 @@ const AdminDashboard: React.FC = () => {
         return renderHomepage();
       case 'text':
         return <TextContentManager />;
+      case 'photos':
+        return <PhotoManager />;
       case 'sermons':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">

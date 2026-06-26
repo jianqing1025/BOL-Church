@@ -17,6 +17,7 @@ import GivingPage from './components/GivingPage';
 import ContactPage from './components/ContactPage';
 import AdminDashboard from './components/AdminDashboard';
 import PrayerRequestPage from './components/PrayerRequestPage';
+import PhotosPage from './components/photos/PhotosPage';
 import { SubPage, MinistrySubPage, SermonSubPage, GivingSubPage, ContactSubPage, PrayerRequestSubPage } from './types';
 import { APP_NAVIGATION_EVENT, currentRoute, redirectLegacyHashRoute } from './utils/routes';
 
@@ -124,6 +125,9 @@ function App() {
         const subPage = 'submit-request' as PrayerRequestSubPage;
         return <PrayerRequestPage activeSubPage={subPage} />;
     }
+    if (route === '/photos' || route === '/photos/') {
+      return <PhotosPage />;
+    }
     if (route.startsWith('/about/')) {
       const subPageSegment = route.split('/')[2] || 'our-church';
       const validSubPages: ReadonlyArray<SubPage> = ['our-church', 'our-beliefs', 'about-pastor', 'job-opportunities', 'ministry-leaders', 'becoming-a-member'];
@@ -133,11 +137,12 @@ function App() {
     return <HomePage />;
   };
   
-  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request');
+  const isPhotosPage = route.startsWith('/photos');
+  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isPhotosPage;
 
   return (
     <div className="bg-white text-gray-800 antialiased min-h-screen flex flex-col">
-      <Header isTransparent={isHomePage} />
+      <Header isTransparent={isHomePage} useHeroBackground={isPhotosPage} isPhotosPage={isPhotosPage} />
       <main className="flex-grow">
         {renderPage()}
       </main>

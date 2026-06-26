@@ -1,12 +1,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
+import { useAdmin } from '../hooks/useAdmin';
 import { Language } from '../types';
 import { navigateTo as navigateToRoute } from '../utils/routes';
 import { MenuIcon, CloseIcon, LogoIcon } from './icons/Icons';
+import { buildMediaSlots } from '../media';
 
 interface HeaderProps {
   isTransparent: boolean;
+  useHeroBackground?: boolean;
+  isPhotosPage?: boolean;
 }
 
 type NavSubLink =
@@ -17,8 +21,7 @@ type NavLink =
   | { href: string; key: string; subLinks?: never }
   | { key: string; subLinks: NavSubLink[]; href?: never };
 
-const useHeaderStyle = () => {
-    const { isTransparent } = React.useContext(HeaderContext);
+const useHeaderStyle = (isTransparent: boolean, useHeroBackground: boolean) => {
     const [isScrolled, setIsScrolled] = useState(!isTransparent);
 
     useEffect(() => {
@@ -32,6 +35,16 @@ const useHeaderStyle = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, [isTransparent]);
 
+    if (useHeroBackground) {
+      return {
+        isScrolled: true,
+        headerClasses: 'sticky top-0 z-50 bg-gray-900 bg-cover bg-center shadow-sm transition-all duration-300',
+        logoClasses: 'text-white hover:text-gray-200 drop-shadow',
+        navLinkClasses: 'text-white hover:text-gray-200 drop-shadow',
+        mobileIconColor: 'text-white',
+      };
+    }
+
     return {
         isScrolled,
         headerClasses: isScrolled
@@ -43,14 +56,14 @@ const useHeaderStyle = () => {
     };
 }
 
-const HeaderContext = React.createContext<{ isTransparent: boolean }>({ isTransparent: true });
-
-
-const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
+const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = false, isPhotosPage = false }) => {
   const { language, toggleLanguage, t } = useLocalization();
+  const { images } = useAdmin();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
+  const heroSlides = buildMediaSlots('hero', images);
+  const headerBackgroundUrl = heroSlides[0] ? (images[heroSlides[0].key] || heroSlides[0].placeholder) : undefined;
   
   const navLinks: NavLink[] = [
     { key: 'header.navHome', subLinks: [
@@ -64,6 +77,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
         { href: '/about/job-opportunities', key: 'aboutPage.navJobOpportunities' },
         { href: '/about/ministry-leaders', key: 'aboutPage.navMinistryLeaders' },
         { href: '/about/becoming-a-member', key: 'aboutPage.navBecomingAMember' },
+        { href: '/photos', key: 'photosPage.navChurchPhotos' },
     ]},
     { key: 'header.navEvents', subLinks: [
         { href: '/events/kids', key: 'eventsPage.navKids' },
@@ -142,12 +156,80 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
     };
   }, []);
 
-  const { headerClasses, logoClasses, navLinkClasses, mobileIconColor } = useHeaderStyle();
+  const { headerClasses, logoClasses, navLinkClasses, mobileIconColor } = useHeaderStyle(isTransparent, useHeroBackground);
+  const uploadLabel = t('photosPage.uploadPhotos');
+  const churchTitle = language === Language.EN ? t('header.logo') : '\u4fe1\u671b\u611b\u9748\u7ce7\u5802';
+  const openPhotoUpload = () => {
+    window.dispatchEvent(new CustomEvent('bolccop:open-photo-upload'));
+  };
 
   return (
-    <HeaderContext.Provider value={{ isTransparent }}>
-      <header className={headerClasses} ref={headerRef}>
-        <div className="container mx-auto px-4 py-3 md:px-6 md:py-4 flex justify-between items-center">
+      <header
+        className={headerClasses}
+        ref={headerRef}
+        style={useHeroBackground && headerBackgroundUrl ? { backgroundImage: `url(${headerBackgroundUrl})` } : undefined}
+      >
+        {useHeroBackground && <div className="absolute inset-0 bg-black/50" aria-hidden="true" />}
+        {isPhotosPage ? (
+        <div className="relative z-10 flex w-full items-center justify-between gap-4 px-4 py-3 md:px-6 md:py-4">
+          <a href="/" onClick={event => navigateTo(event, '/')} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
+            <LogoIcon className="h-7 w-7 flex-shrink-0 sm:h-8 sm:w-8 md:h-9 md:w-9" />
+            <span className="truncate text-xl font-bold leading-none sm:text-2xl md:text-3xl">{churchTitle}</span>
+          </a>
+          <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center space-x-5 md:flex lg:space-x-6">
+            {navLinks.map(link => (
+              'subLinks' in link ? (
+                <div
+                  key={link.key}
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown(link.key)}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                   <a
+                    href={link.subLinks[0].href}
+                    onClick={event => navigateTo(event, link.subLinks[0].href)}
+                    onFocus={() => setActiveDropdown(link.key)}
+                    className={`transition-colors text-lg font-bold ${navLinkClasses} cursor-pointer py-2`}
+                    aria-haspopup="true"
+                    aria-expanded={activeDropdown === link.key}
+                   >
+                    {t(link.key)}
+                  </a>
+                  {activeDropdown === link.key && (
+                    <div className="absolute left-0 top-full z-10 w-56 pt-2">
+                      <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
+                        {link.subLinks.map(subLink => (
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                            {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
+                           </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <a key={link.key} href={link.href!} onClick={handleLinkClick} className={`transition-colors text-lg font-bold ${navLinkClasses}`}>
+                  {t(link.key)}
+                </a>
+              )
+            ))}
+          </nav>
+          <div className="ml-auto hidden flex-shrink-0 items-center gap-3 md:flex">
+            <button onClick={toggleLanguage} className={`text-base font-semibold transition-colors ${navLinkClasses}`}>
+              {language === Language.EN ? '\u4e2d\u6587' : 'English'}
+            </button>
+            <button type="button" onClick={openPhotoUpload} className="rounded-full bg-blue-600 px-5 py-2 text-base font-semibold text-white transition-all hover:bg-blue-700">
+              {uploadLabel}
+            </button>
+          </div>
+          <div className={`md:hidden ${mobileIconColor}`}>
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
+              {isMenuOpen ? <CloseIcon /> : <MenuIcon />}
+            </button>
+          </div>
+        </div>
+        ) : (
+        <div className="container relative z-10 mx-auto px-4 py-3 md:px-6 md:py-4 flex justify-between items-center">
           <a href="/" onClick={event => navigateTo(event, '/')} className={`flex min-w-0 items-center gap-2 md:gap-3 transition-colors ${logoClasses}`}>
             <LogoIcon className="h-7 w-7 flex-shrink-0 sm:h-8 sm:w-8 md:h-9 md:w-9" />
             <span className="max-w-[13rem] truncate text-xl font-bold leading-none sm:max-w-none sm:text-2xl md:text-3xl">{t('header.logo')}</span>
@@ -204,12 +286,24 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
             </button>
           </div>
         </div>
+        )}
         
         {isMenuOpen && (
-          <div className="md:hidden absolute right-3 top-full mt-2 w-[min(50vw,20rem)] max-h-[calc(100vh-84px)] overflow-y-auto rounded-3xl border border-white/35 bg-white/55 shadow-2xl shadow-black/15 backdrop-blur-2xl">
+          <div className="md:hidden absolute right-3 top-full z-20 mt-2 w-[min(50vw,20rem)] max-h-[calc(100vh-84px)] overflow-y-auto rounded-3xl border border-white/35 bg-white/55 shadow-2xl shadow-black/15 backdrop-blur-2xl">
             <nav className="flex flex-col items-center space-y-2 p-4">
               {navLinks.map(link => (
-                'href' in link ? (
+                link.key === 'header.navEvents' ? (
+                    <React.Fragment key="mobile-photos-before-events">
+                      <a href="/photos" onClick={event => navigateTo(event, '/photos')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                        {t('photosPage.navChurchPhotos')}
+                      </a>
+                      <div className="flex flex-col items-center gap-2">
+                        <a href={link.subLinks[0].href} onClick={event => navigateTo(event, link.subLinks[0].href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                            {t(link.key)}
+                        </a>
+                      </div>
+                    </React.Fragment>
+                ) : 'href' in link ? (
                     <a key={link.key} href={link.href} onClick={event => navigateTo(event, link.href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
                         {t(link.key)}
                     </a>
@@ -224,14 +318,19 @@ const Header: React.FC<HeaderProps> = ({ isTransparent }) => {
               <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
-              <a href="/contact/contact-us" onClick={event => navigateTo(event, '/contact/contact-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
-                {t('header.newHere')}
-              </a>
+              {isPhotosPage ? (
+                <button type="button" onClick={() => { openPhotoUpload(); handleLinkClick(); }} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+                  {uploadLabel}
+                </button>
+              ) : (
+                <a href="/contact/contact-us" onClick={event => navigateTo(event, '/contact/contact-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
+                  {t('header.newHere')}
+                </a>
+              )}
             </nav>
           </div>
         )}
       </header>
-    </HeaderContext.Provider>
   );
 };
 

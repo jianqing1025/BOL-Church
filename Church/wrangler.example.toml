@@ -13,9 +13,19 @@ database_name = "your-d1-database-name"
 database_id = "your-d1-database-id"
 migrations_dir = "./migrations"
 
+[[d1_databases]]
+binding = "PHOTOS_DB"
+database_name = "Church-Photos"
+database_id = "your-photos-d1-database-id"
+migrations_dir = "./photo-migrations"
+
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
 bucket_name = "your-r2-bucket-name"
+
+[[r2_buckets]]
+binding = "CHURCH_PHOTOS_BUCKET"
+bucket_name = "church-photos"
 
 [vars]
 ADMIN_BOOTSTRAP_EMAIL = "lijianqing@outlook.com"
