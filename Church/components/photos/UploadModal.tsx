@@ -70,6 +70,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const exif = await extractExif(file);
 
     let mainBlob: Blob = file;
+    let fileName = file.name;
     let width = exif?.width;
     let height = exif?.height;
     if (resizeEnabled) {
@@ -77,6 +78,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       mainBlob = resized.blob;
       width = resized.width;
       height = resized.height;
+      fileName = file.name.replace(/\.[^.]+$/, '') + '.jpg'; // canvas re-encodes to JPEG
     } else if (!width || !height) {
       const dims = await getDimensions(file);
       if (dims) { width = dims.width; height = dims.height; }
@@ -89,7 +91,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
     const response = await api.uploadPhoto({
       file: mainBlob,
-      fileName: file.name,
+      fileName,
       title: file.name.replace(/\.[^.]+$/, ''),
       collection: year,
       album,
