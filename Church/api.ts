@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, Donation, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
 
 export interface LiveStreamSavePayload {
@@ -66,6 +66,57 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   bootstrap: () => request<SiteBootstrap>('/api/bootstrap'),
+  photos: () => request<{ photos: ChurchPhoto[] }>('/api/photos'),
+  uploadPhoto: (payload: {
+    file: Blob;
+    fileName: string;
+    title?: string;
+    collection?: string;
+    album?: string;
+    uploaderId: string;
+    uploaderName?: string;
+    thumb?: Blob | null;
+    width?: number;
+    height?: number;
+    shotAt?: string;
+    camera?: string;
+    lens?: string;
+    focalLength?: string;
+    aperture?: string;
+    shutter?: string;
+    iso?: number;
+  }) => {
+    const form = new FormData();
+    form.append('file', payload.file, payload.fileName);
+    form.append('uploaderId', payload.uploaderId);
+    if (payload.thumb) form.append('thumb', payload.thumb, `thumb-${payload.fileName}`);
+    if (payload.title) form.append('title', payload.title);
+    if (payload.collection) form.append('collection', payload.collection);
+    if (payload.album) form.append('album', payload.album);
+    if (payload.uploaderName) form.append('uploaderName', payload.uploaderName);
+    if (payload.width) form.append('width', String(payload.width));
+    if (payload.height) form.append('height', String(payload.height));
+    if (payload.shotAt) form.append('shotAt', payload.shotAt);
+    if (payload.camera) form.append('camera', payload.camera);
+    if (payload.lens) form.append('lens', payload.lens);
+    if (payload.focalLength) form.append('focalLength', payload.focalLength);
+    if (payload.aperture) form.append('aperture', payload.aperture);
+    if (payload.shutter) form.append('shutter', payload.shutter);
+    if (payload.iso) form.append('iso', String(payload.iso));
+    return request<{ photo: ChurchPhoto }>('/api/photos/upload', { method: 'POST', body: form });
+  },
+  deleteOwnPhoto: (id: string, uploaderId: string) =>
+    request<{ ok: true }>(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ uploaderId }) }),
+  updateOwnPhoto: (id: string, uploaderId: string, payload: Partial<{ title: string; collection: string; album: string; uploaderName: string }>) =>
+    request<{ photo: ChurchPhoto }>(`/api/photos/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...payload, uploaderId }),
+    }),
+  adminPhotos: () => request<{ photos: ChurchPhoto[] }>('/api/admin/photos'),
+  adminUpdatePhoto: (id: string, payload: Partial<{ title: string; collection: string; album: string; uploaderName: string; hidden: boolean; sortOrder: number }>) =>
+    request<{ photo: ChurchPhoto }>(`/api/admin/photos/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeletePhoto: (id: string) =>
+    request<{ ok: true }>(`/api/admin/photos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   me: () => request<{ user: AdminUser | null }>('/api/auth/me'),
   login: (email: string, password: string) =>
     request<{ user: AdminUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),

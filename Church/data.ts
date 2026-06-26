@@ -48,6 +48,34 @@ export interface Donation {
   status: 'completed';
 }
 
+export interface ChurchPhotoExif {
+  camera?: string;
+  lens?: string;
+  focalLength?: string;
+  aperture?: string;
+  shutter?: string;
+  iso?: number;
+}
+
+export interface ChurchPhoto {
+  id: string;
+  src: string;
+  title: string;
+  collection: string;
+  album: string;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  thumbSrc?: string;
+  shotAt?: string;
+  exif?: ChurchPhotoExif;
+  uploaderId?: string;
+  uploaderName?: string;
+  hidden?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type AdminRole = 'owner' | 'contributor';
 
 export interface AdminUser {

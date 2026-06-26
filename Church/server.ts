@@ -14,7 +14,9 @@ import {
 
 type Env = {
   DB: D1Database;
+  PHOTOS_DB: D1Database;
   MEDIA_BUCKET: R2Bucket;
+  CHURCH_PHOTOS_BUCKET: R2Bucket;
   ASSETS: Fetcher;
   CLOUDFLARE_ZONE_ID?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
@@ -153,6 +155,33 @@ type DonationRow = {
   status: 'completed';
 };
 
+type PhotoRow = {
+  id: string;
+  object_key: string;
+  src: string;
+  title: string;
+  collection: string;
+  album: string;
+  size_bytes: number | null;
+  width: number | null;
+  height: number | null;
+  shot_at: string | null;
+  camera: string | null;
+  lens: string | null;
+  focal_length: string | null;
+  aperture: string | null;
+  shutter: string | null;
+  iso: number | null;
+  thumb_object_key: string | null;
+  thumb_src: string | null;
+  uploader_id: string | null;
+  uploader_name: string | null;
+  sort_order: number;
+  hidden: number;
+  created_at: number;
+  updated_at: number;
+};
+
 type UserRow = {
   id: string;
   name: string;
@@ -271,6 +300,43 @@ function forbidden(message = 'Forbidden'): Response {
 
 function unauthorized(message = 'Authentication required'): Response {
   return json({ error: message }, 401);
+}
+
+function sanitizeObjectSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'photo';
+}
+
+function mapPhoto(row: PhotoRow) {
+  const exif: Record<string, string | number> = {};
+  if (row.camera) exif.camera = row.camera;
+  if (row.lens) exif.lens = row.lens;
+  if (row.focal_length) exif.focalLength = row.focal_length;
+  if (row.aperture) exif.aperture = row.aperture;
+  if (row.shutter) exif.shutter = row.shutter;
+  if (row.iso != null) exif.iso = Number(row.iso);
+  return {
+    id: row.id,
+    src: row.src,
+    title: row.title,
+    collection: row.collection,
+    album: row.album,
+    sizeBytes: row.size_bytes ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
+    thumbSrc: row.thumb_src || undefined,
+    shotAt: row.shot_at || undefined,
+    exif: Object.keys(exif).length > 0 ? exif : undefined,
+    uploaderId: row.uploader_id || undefined,
+    uploaderName: row.uploader_name || undefined,
+    hidden: Boolean(row.hidden),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
 }
 
 function getCookie(request: Request, name: string): string | null {
@@ -1377,6 +1443,256 @@ async function handleImageObject(env: Env, key: string): Promise<Response> {
   headers.set('etag', object.httpEtag);
   headers.set('Cache-Control', 'public, max-age=31536000, immutable');
   return new Response(object.body, { headers });
+}
+
+async function ensurePhotoTables(env: Env): Promise<void> {
+  await env.PHOTOS_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS photos (
+      id TEXT PRIMARY KEY,
+      object_key TEXT NOT NULL,
+      src TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      collection TEXT NOT NULL DEFAULT '',
+      album TEXT NOT NULL DEFAULT '',
+      size_bytes INTEGER,
+      width INTEGER,
+      height INTEGER,
+      uploader_id TEXT NOT NULL DEFAULT '',
+      uploader_name TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      hidden INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`
+  ).run();
+  await env.PHOTOS_DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_photos_visible_sort ON photos(hidden, sort_order DESC, created_at DESC)'
+  ).run();
+  await env.PHOTOS_DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_photos_collection_album ON photos(collection, album)'
+  ).run();
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN uploader_id TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN uploader_name TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN shot_at TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN camera TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN lens TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN focal_length TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN aperture TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN shutter TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN iso INTEGER').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_object_key TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_src TEXT').run().catch(() => undefined);
+}
+
+async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {
+  await ensurePhotoTables(env);
+  const result = await env.PHOTOS_DB
+    .prepare(
+      `SELECT * FROM photos
+       ${includeHidden ? '' : 'WHERE hidden = 0'}
+       ORDER BY sort_order DESC, created_at DESC`
+    )
+    .all<PhotoRow>();
+  return json({ photos: (result.results || []).map(mapPhoto) });
+}
+
+async function handlePhotoObject(env: Env, key: string): Promise<Response> {
+  const object = await env.CHURCH_PHOTOS_BUCKET.get(key);
+  if (!object) {
+    return notFound('Photo not found');
+  }
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  return new Response(object.body, { headers });
+}
+
+async function handlePhotoUpload(request: Request, env: Env): Promise<Response> {
+  await ensurePhotoTables(env);
+  const formData = await request.formData();
+  const file = formData.get('file');
+  if (!isUploadBlob(file)) {
+    return badRequest('Missing upload file');
+  }
+
+  const uploaderId = String(formData.get('uploaderId') || '').trim();
+  if (!/^[a-zA-Z0-9_-]{16,120}$/.test(uploaderId)) {
+    return badRequest('Missing uploader identity');
+  }
+
+  const originalName = file instanceof File ? file.name : 'photo.jpg';
+  const extension = sanitizeFileName(originalName).split('.').pop() || 'jpg';
+  const title = String(formData.get('title') || '').trim() || sanitizeFileName(originalName).replace(/\.[^.]+$/, '');
+  const collection = String(formData.get('collection') || '').trim();
+  const album = String(formData.get('album') || '').trim();
+  const uploaderName = String(formData.get('uploaderName') || '').trim().slice(0, 80);
+
+  // Client-supplied (canvas) metadata — best-effort, parsed defensively.
+  const toInt = (value: FormDataEntryValue | null): number | null => {
+    const n = Number(String(value ?? '').trim());
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  };
+  const toText = (value: FormDataEntryValue | null): string | null => {
+    const s = String(value ?? '').trim();
+    return s ? s.slice(0, 200) : null;
+  };
+  const width = toInt(formData.get('width'));
+  const height = toInt(formData.get('height'));
+  const shotAt = toText(formData.get('shotAt'));
+  const camera = toText(formData.get('camera'));
+  const lens = toText(formData.get('lens'));
+  const focalLength = toText(formData.get('focalLength'));
+  const aperture = toText(formData.get('aperture'));
+  const shutter = toText(formData.get('shutter'));
+  const iso = toInt(formData.get('iso'));
+
+  const baseName = `${Date.now()}-${sanitizeObjectSegment(originalName).replace(/\.[^.]+$/, '')}`;
+  const collectionSeg = sanitizeObjectSegment(collection || 'all');
+  const albumSeg = sanitizeObjectSegment(album || 'general');
+  const objectKey = ['photos', collectionSeg, albumSeg, `${baseName}.${extension}`].join('/');
+  const buffer = await file.arrayBuffer();
+
+  await env.CHURCH_PHOTOS_BUCKET.put(objectKey, buffer, {
+    httpMetadata: { contentType: file.type || 'image/jpeg' },
+  });
+
+  // Optional client-generated thumbnail.
+  const thumb = formData.get('thumb');
+  let thumbObjectKey: string | null = null;
+  let thumbSrc: string | null = null;
+  if (isUploadBlob(thumb)) {
+    thumbObjectKey = ['photos', 'thumbs', collectionSeg, albumSeg, `${baseName}.jpg`].join('/');
+    await env.CHURCH_PHOTOS_BUCKET.put(thumbObjectKey, await thumb.arrayBuffer(), {
+      httpMetadata: { contentType: thumb.type || 'image/jpeg' },
+    });
+    thumbSrc = `/api/photos/media/${thumbObjectKey}`;
+  }
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const src = `/api/photos/media/${objectKey}`;
+  await env.PHOTOS_DB.prepare(
+    `INSERT INTO photos (
+      id, object_key, src, title, collection, album, size_bytes, width, height,
+      shot_at, camera, lens, focal_length, aperture, shutter, iso,
+      thumb_object_key, thumb_src,
+      uploader_id, uploader_name, sort_order, hidden, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+  ).bind(
+    id,
+    objectKey,
+    src,
+    title,
+    collection,
+    album,
+    buffer.byteLength,
+    width,
+    height,
+    shotAt,
+    camera,
+    lens,
+    focalLength,
+    aperture,
+    shutter,
+    iso,
+    thumbObjectKey,
+    thumbSrc,
+    uploaderId,
+    uploaderName,
+    now,
+    now,
+    now
+  ).run();
+
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  return json({ photo: row ? mapPhoto(row) : null }, 201);
+}
+
+async function handleOwnPhotoDelete(request: Request, env: Env, id: string): Promise<Response> {
+  await ensurePhotoTables(env);
+  const payload = await readJson<{ uploaderId?: string }>(request);
+  const uploaderId = String(payload.uploaderId || '').trim();
+  if (!uploaderId) return unauthorized('Uploader identity required');
+
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  if (!row) return notFound('Photo not found');
+  if (row.uploader_id !== uploaderId) {
+    return forbidden('You can only delete photos uploaded from this device.');
+  }
+
+  await env.CHURCH_PHOTOS_BUCKET.delete(row.object_key);
+  if (row.thumb_object_key) await env.CHURCH_PHOTOS_BUCKET.delete(row.thumb_object_key);
+  await env.PHOTOS_DB.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+  return json({ ok: true });
+}
+
+async function handleOwnPhotoUpdate(request: Request, env: Env, id: string): Promise<Response> {
+  await ensurePhotoTables(env);
+  const payload = await readJson<Partial<{ uploaderId: string; title: string; collection: string; album: string; uploaderName: string }>>(request);
+  const uploaderId = String(payload.uploaderId || '').trim();
+  if (!uploaderId) return unauthorized('Uploader identity required');
+
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  if (!row) return notFound('Photo not found');
+  if (row.uploader_id !== uploaderId) {
+    return forbidden('You can only update photos uploaded from this device.');
+  }
+
+  await env.PHOTOS_DB.prepare(
+    `UPDATE photos SET title = ?, collection = ?, album = ?, uploader_name = ?, updated_at = ? WHERE id = ?`
+  ).bind(
+    payload.title ?? row.title,
+    payload.collection ?? row.collection,
+    payload.album ?? row.album,
+    payload.uploaderName !== undefined ? String(payload.uploaderName).trim().slice(0, 80) : (row.uploader_name ?? ''),
+    Date.now(),
+    id
+  ).run();
+
+  const next = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  return json({ photo: next ? mapPhoto(next) : null });
+}
+
+async function handlePhotoUpdate(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+
+  await ensurePhotoTables(env);
+  const payload = await readJson<Partial<{ title: string; collection: string; album: string; hidden: boolean; sortOrder: number; uploaderName: string }>>(request);
+  const existing = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  if (!existing) return notFound('Photo not found');
+
+  await env.PHOTOS_DB.prepare(
+    `UPDATE photos SET
+      title = ?, collection = ?, album = ?, uploader_name = ?, hidden = ?, sort_order = ?, updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    payload.title ?? existing.title,
+    payload.collection ?? existing.collection,
+    payload.album ?? existing.album,
+    payload.uploaderName !== undefined ? String(payload.uploaderName).trim().slice(0, 80) : (existing.uploader_name ?? ''),
+    typeof payload.hidden === 'boolean' ? (payload.hidden ? 1 : 0) : existing.hidden,
+    typeof payload.sortOrder === 'number' ? payload.sortOrder : existing.sort_order,
+    Date.now(),
+    id
+  ).run();
+
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  return json({ photo: row ? mapPhoto(row) : null });
+}
+
+async function handlePhotoDelete(request: Request, env: Env, id: string): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+
+  await ensurePhotoTables(env);
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  if (!row) return notFound('Photo not found');
+  await env.CHURCH_PHOTOS_BUCKET.delete(row.object_key);
+  if (row.thumb_object_key) await env.CHURCH_PHOTOS_BUCKET.delete(row.thumb_object_key);
+  await env.PHOTOS_DB.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+  return json({ ok: true });
 }
 
 // ============================================================================
@@ -3062,6 +3378,45 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === '/api/bootstrap' && request.method === 'GET') {
       return handleBootstrap(request, env);
+    }
+
+    if (url.pathname === '/api/photos' && request.method === 'GET') {
+      return handlePhotosList(env);
+    }
+
+    if (url.pathname === '/api/photos/upload' && request.method === 'POST') {
+      return handlePhotoUpload(request, env);
+    }
+
+    if (url.pathname.startsWith('/api/photos/media/') && request.method === 'GET') {
+      const objectKey = decodeURIComponent(url.pathname.replace('/api/photos/media/', ''));
+      return handlePhotoObject(env, objectKey);
+    }
+
+    {
+      const ownPhotoMatch = url.pathname.match(/^\/api\/photos\/([^/]+)$/);
+      if (ownPhotoMatch && request.method === 'PATCH') {
+        return handleOwnPhotoUpdate(request, env, decodeURIComponent(ownPhotoMatch[1]));
+      }
+      if (ownPhotoMatch && request.method === 'DELETE') {
+        return handleOwnPhotoDelete(request, env, decodeURIComponent(ownPhotoMatch[1]));
+      }
+    }
+
+    if (url.pathname === '/api/admin/photos' && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      return handlePhotosList(env, true);
+    }
+
+    {
+      const photoMatch = url.pathname.match(/^\/api\/admin\/photos\/([^/]+)$/);
+      if (photoMatch && request.method === 'PATCH') {
+        return handlePhotoUpdate(request, env, decodeURIComponent(photoMatch[1]));
+      }
+      if (photoMatch && request.method === 'DELETE') {
+        return handlePhotoDelete(request, env, decodeURIComponent(photoMatch[1]));
+      }
     }
 
     if (url.pathname === '/api/analytics/summary' && request.method === 'GET') {
