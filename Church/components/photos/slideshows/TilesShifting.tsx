@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../../data';
-import { imgUrl, shuffle, knownAspect, SLIDESHOW_AUDIO, type AspectKind } from './util';
+import { imgUrl, shuffle, knownAspect, type AspectKind } from './util';
 import { StaticTile } from './StaticTile';
 
 type TileKind = 'single' | 'double' | 'wide';
@@ -92,10 +92,8 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
   const [ready, setReady] = useState(false);
   const [focalContent, setFocalContent] = useState<string | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
 
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const pools = useRef({ portrait: [] as ChurchPhoto[], landscape: [] as ChurchPhoto[] });
   const portraitTemplatePool = useRef([] as ChurchPhoto[]);
   const decks = useRef({ portrait: [] as ChurchPhoto[], landscape: [] as ChurchPhoto[] });
@@ -124,10 +122,6 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
 
     return () => { cancelled = true; };
   }, [data]);
-
-  useEffect(() => {
-    if (audioRef.current) { audioRef.current.volume = 0.6; audioRef.current.play().catch(() => {}); }
-  }, [ready]);
 
   const rememberUsage = useCallback((url: string) => {
     usedHistory.current.push(url);
@@ -329,23 +323,14 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
     return () => observer.disconnect();
   }, [rows.length]);
 
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    audioRef.current.muted = !isMuted;
-    setIsMuted(!isMuted);
-  };
-
   return (
     <div className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-black font-sans animate-fadeIn">
       {focalContent && (
         <div className="absolute inset-0 z-0 scale-110 transition-all duration-1000" style={{ backgroundImage: `url(${imgUrl({ src: focalContent } as ChurchPhoto, 'blog')})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) brightness(0.4)' }} />
       )}
       <style>{sharedStyles}</style>
-      <audio ref={audioRef} src={SLIDESHOW_AUDIO} loop />
 
       <div className="absolute right-6 top-6 z-[110] flex gap-4">
-        <button onClick={toggleMute} className="rounded-full border border-white/20 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-rose-500">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button>
         <button onClick={onClose} className="rounded-full border border-white/20 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-rose-500"><X size={24} /></button>
       </div>
 

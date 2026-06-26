@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../../data';
-import { imgUrl, shuffle, SLIDESHOW_AUDIO } from './util';
+import { imgUrl, shuffle } from './util';
 
 // --- CONFIGURATION ---
 const GRID_ROWS = 2;
@@ -43,7 +43,6 @@ export const FlowDriftSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[];
   const items = photos;
   const [tiles, setTiles] = useState<FlowTileData[]>([]);
   const [ready, setReady] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
 
   const [pools, setPools] = useState({ portrait: [] as ChurchPhoto[], landscape: [] as ChurchPhoto[] });
   const portraitDeck = useRef<ChurchPhoto[]>([]);
@@ -51,7 +50,6 @@ export const FlowDriftSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[];
   const recentHistoryRef = useRef<string[]>([]);
   const animatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   const getItemUrl = useCallback((item: ChurchPhoto) => item.src, []);
 
@@ -95,10 +93,6 @@ export const FlowDriftSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[];
 
     return () => { mounted = false; clearTimeout(timer); };
   }, [items]);
-
-  useEffect(() => {
-    if (audioRef.current) { audioRef.current.volume = 0.4; audioRef.current.play().catch(() => {}); }
-  }, [ready]);
 
   const rememberUsage = useCallback((urls: string[]) => {
     urls.forEach((url) => recentHistoryRef.current.push(url));
@@ -366,11 +360,6 @@ export const FlowDriftSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[];
     return { top: `${top}%`, left: `${left}%`, width: `${width}%`, height: `${height}%`, transform, transition, padding: `${TILE_GAP}px`, position: 'absolute', boxSizing: 'border-box' };
   };
 
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (audioRef.current) { audioRef.current.muted = !isMuted; setIsMuted(!isMuted); }
-  };
-
   return (
     <div className="fixed inset-0 z-[100] select-none overflow-hidden bg-black/60 font-sans backdrop-blur-3xl animate-fadeIn">
       <style>{`
@@ -394,11 +383,8 @@ export const FlowDriftSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[];
       `}</style>
 
       <div className="absolute right-6 top-6 z-[120] flex gap-4">
-        <button onClick={toggleMute} className="rounded-full border border-white/10 bg-black/20 p-3 text-white/80 shadow-xl backdrop-blur-md transition-colors hover:bg-white/20">{isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
         <button onClick={onClose} className="rounded-full border border-white/10 bg-black/20 p-3 text-white/80 shadow-xl backdrop-blur-md transition-colors hover:bg-white/20"><X size={20} /></button>
       </div>
-
-      <audio ref={audioRef} src={SLIDESHOW_AUDIO} loop />
 
       {!ready && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center">

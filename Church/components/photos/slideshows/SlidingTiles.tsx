@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Volume2, VolumeX, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import type { ChurchPhoto } from '../../../data';
-import { imgUrl, shuffle, knownAspect, SLIDESHOW_AUDIO, type AspectKind } from './util';
+import { imgUrl, shuffle, knownAspect, type AspectKind } from './util';
 import { StaticTile } from './StaticTile';
 
 type SlidingTileKind = 'single' | 'double' | 'wide';
@@ -98,13 +98,11 @@ export const SlidingTilesSlideshow = ({ photos, onClose }: { photos: ChurchPhoto
   const galleryData = photos;
   const [rows, setRows] = useState<SlidingTile[][]>([]);
   const [ready, setReady] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [focalContent, setFocalContent] = useState<string | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const timersRef = useRef<number[]>([]);
   const decksRef = useRef<{ landscape: ChurchPhoto[]; portrait: ChurchPhoto[] }>({ landscape: [], portrait: [] });
   const poolsRef = useRef<{ landscape: ChurchPhoto[]; portrait: ChurchPhoto[] }>({ landscape: [], portrait: [] });
@@ -260,12 +258,6 @@ export const SlidingTilesSlideshow = ({ photos, onClose }: { photos: ChurchPhoto
   }, [ready, rows.length, triggerRowShift]);
 
   useEffect(() => {
-    if (!audioRef.current) return;
-    audioRef.current.volume = 0.58;
-    audioRef.current.play().catch(() => {});
-  }, []);
-
-  useEffect(() => {
     const node = gridRef.current;
     if (!node) return;
     const update = () => setGridWidth(node.clientWidth);
@@ -275,19 +267,11 @@ export const SlidingTilesSlideshow = ({ photos, onClose }: { photos: ChurchPhoto
     return () => observer.disconnect();
   }, [rows.length]);
 
-  const toggleMute = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    if (!audioRef.current) return;
-    audioRef.current.muted = !isMuted;
-    setIsMuted(!isMuted);
-  };
-
   const backgroundUrl = useMemo(() => (focalContent ? imgUrl({ src: focalContent } as ChurchPhoto, 'blog') : null), [focalContent]);
 
   return (
     <div ref={shellRef} className="sliding-tiles-shell fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#050505] animate-fadeIn">
       <style>{sharedStyles}</style>
-      <audio ref={audioRef} src={SLIDESHOW_AUDIO} loop />
 
       {backgroundUrl && (
         <div className="absolute inset-0 z-0 scale-110 transition-all duration-1000" style={{ backgroundImage: `radial-gradient(circle at 18% 20%, rgba(255,255,255,0.08), transparent 35%), radial-gradient(circle at 82% 22%, rgba(255,255,255,0.05), transparent 28%), url(${backgroundUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(70px) brightness(0.32) saturate(1.1)' }} />
@@ -295,7 +279,6 @@ export const SlidingTilesSlideshow = ({ photos, onClose }: { photos: ChurchPhoto
       <div className="absolute inset-0 z-[1] bg-[linear-gradient(135deg,rgba(255,255,255,0.03),transparent_30%,transparent_70%,rgba(255,255,255,0.03))]" />
 
       <div className="absolute right-6 top-6 z-[20] flex gap-4">
-        <button onClick={toggleMute} className="rounded-full border border-white/15 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-white/18">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button>
         <button onClick={onClose} className="rounded-full border border-white/15 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-white/18"><X size={24} /></button>
       </div>
 

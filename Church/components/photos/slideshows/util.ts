@@ -11,9 +11,6 @@ export const shuffle = <T,>(arr: T[]): T[] => {
 
 export type AspectKind = 'portrait' | 'landscape';
 
-/** Background music used by every OurStoryHub slideshow engine. */
-export const SLIDESHOW_AUDIO = 'https://res.cloudinary.com/drtve7qyt/video/upload/v1765372845/xqx_mpn0kc.ogg';
-
 /**
  * Replacement for OurStoryHub's getOptimizedUrl. Church serves originals from
  * R2 (no Cloudinary transforms), so grid/thumbnail contexts use thumbSrc when

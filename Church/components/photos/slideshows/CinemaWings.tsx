@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../../data';
-import { imgUrl, shuffle, SLIDESHOW_AUDIO } from './util';
+import { imgUrl, shuffle } from './util';
 import { StaticTile } from './StaticTile';
 
 type TileType = 'single' | 'double' | 'wide' | 'ghost' | 'wing' | 'wide-3';
@@ -35,14 +35,12 @@ const WINGS_COORDS = [
 export const CinemaWingsSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[]; onClose: () => void }) => {
   const galleryData = photos;
   const [rows, setRows] = useState<TileData[][]>([]);
-  const [isMuted, setIsMuted] = useState(false);
   const [pools, setPools] = useState({ portrait: [] as ChurchPhoto[], landscape: [] as ChurchPhoto[] });
   const portraitDeck = useRef<ChurchPhoto[]>([]);
   const landscapeDeck = useRef<ChurchPhoto[]>([]);
   const [ready, setReady] = useState(false);
   const [focalSrc, setFocalSrc] = useState<string | null>(null);
   const updateQueue = useRef<number[]>([]);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -134,8 +132,6 @@ export const CinemaWingsSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[
   }, [createTile]);
 
   useEffect(() => { if (ready && rows.length === 0) setRows(generateWingsGrid()); }, [ready, generateWingsGrid, rows.length]);
-  useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().catch(() => {}); } }, [ready]);
-  const toggleMute = (e: React.MouseEvent) => { e.stopPropagation(); if (audioRef.current) { audioRef.current.muted = !isMuted; setIsMuted(!isMuted); } };
 
   useEffect(() => {
     if (rows.length === 0) return;
@@ -163,10 +159,7 @@ export const CinemaWingsSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[
         .entering { animation: cwTileEnter 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
         @keyframes cwTileEnter { 0% { opacity: 0; transform: scale(0.8) translateY(30px); filter: blur(15px); } 100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); } }
       `}</style>
-      <audio ref={audioRef} src={SLIDESHOW_AUDIO} loop />
-
       <div className="absolute right-4 top-4 z-[110] flex gap-4">
-        <button onClick={toggleMute} className="rounded-full border border-white/20 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-rose-500">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button>
         <button onClick={onClose} className="rounded-full border border-white/20 bg-white/10 p-2 text-white shadow-xl backdrop-blur-lg transition-colors hover:bg-rose-500"><X size={24} /></button>
       </div>
 
