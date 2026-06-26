@@ -68,6 +68,7 @@ const PhotosPage: React.FC = () => {
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); } catch { return new Set(); }
   });
+  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number }>({ maxLongEdge: 1600, jpegQuality: 0.82 });
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
@@ -83,6 +84,9 @@ const PhotosPage: React.FC = () => {
   }, []);
 
   useEffect(() => { void loadPhotos(); }, [loadPhotos]);
+  useEffect(() => {
+    api.photoSettings().then(setUploadSettings).catch(() => undefined);
+  }, []);
   useEffect(() => {
     const open = () => setUploadOpen(true);
     window.addEventListener('bolccop:open-photo-upload', open);
@@ -360,6 +364,8 @@ const PhotosPage: React.FC = () => {
         uploaderId={uploaderId}
         defaultYear={selectedCollection}
         defaultAlbum={selectedAlbum}
+        defaultMaxLongEdge={uploadSettings.maxLongEdge}
+        defaultJpegQuality={uploadSettings.jpegQuality}
         onUploaded={onUploaded}
       />
 

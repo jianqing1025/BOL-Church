@@ -3,6 +3,7 @@ import { CheckCircle, CloudUpload, Loader2, X } from 'lucide-react';
 import { api } from '../../api';
 import type { ChurchPhoto } from '../../data';
 import { useLocalization } from '../../hooks/useLocalization';
+import { useAdmin } from '../../hooks/useAdmin';
 import { extractExif, getDimensions, makeThumbnail, resizeImage } from '../../services/imageProcessing';
 
 const YEAR_PATTERN = /^\d{4}$/;
@@ -10,6 +11,8 @@ const UPLOADER_NAME_KEY = 'bolccop-photo-uploader-name';
 const THUMB_LONG_EDGE = 960;
 const THUMB_QUALITY = 0.8;
 const CONCURRENCY = 3;
+const DEFAULT_MAX_LONG_EDGE = 1600;
+const DEFAULT_JPEG_QUALITY = 0.82;
 
 type FileStage = 'pending' | 'processing' | 'uploading' | 'done' | 'error';
 interface FileStatus { stage: FileStage; error?: string; }
@@ -22,13 +25,18 @@ interface UploadModalProps {
   uploaderId: string;
   defaultYear: string;
   defaultAlbum: string;
+  defaultMaxLongEdge?: number;
+  defaultJpegQuality?: number;
   onUploaded: (photos: ChurchPhoto[]) => void;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
-  isOpen, onClose, collections, albums, uploaderId, defaultYear, defaultAlbum, onUploaded,
+  isOpen, onClose, collections, albums, uploaderId, defaultYear, defaultAlbum,
+  defaultMaxLongEdge, defaultJpegQuality, onUploaded,
 }) => {
   const { t } = useLocalization();
+  const { currentUser } = useAdmin();
+  const canEditResize = Boolean(currentUser); // only logged-in admins may change compression
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [queue, setQueue] = useState<File[]>([]);
@@ -38,8 +46,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [newAlbum, setNewAlbum] = useState('');
   const [uploaderName, setUploaderName] = useState(() => localStorage.getItem(UPLOADER_NAME_KEY) || '');
   const [resizeEnabled, setResizeEnabled] = useState(true);
-  const [maxLongEdge, setMaxLongEdge] = useState(1920);
-  const [jpegQuality, setJpegQuality] = useState(0.92);
+  const [maxLongEdge, setMaxLongEdge] = useState(defaultMaxLongEdge ?? DEFAULT_MAX_LONG_EDGE);
+  const [jpegQuality, setJpegQuality] = useState(defaultJpegQuality ?? DEFAULT_JPEG_QUALITY);
   const [statuses, setStatuses] = useState<FileStatus[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +59,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setUploadAlbum(defaultAlbum && defaultAlbum !== 'All' && defaultAlbum !== 'Favorites' ? defaultAlbum : '');
     setNewAlbum('');
     setError('');
-  }, [isOpen, defaultYear, defaultAlbum]);
+    setResizeEnabled(true);
+    setMaxLongEdge(defaultMaxLongEdge ?? DEFAULT_MAX_LONG_EDGE);
+    setJpegQuality(defaultJpegQuality ?? DEFAULT_JPEG_QUALITY);
+  }, [isOpen, defaultYear, defaultAlbum, defaultMaxLongEdge, defaultJpegQuality]);
 
   const year = newCollection || (uploadCollection === 'All' ? '' : uploadCollection);
   const album = newAlbum || uploadAlbum;
@@ -268,23 +279,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             </div>
           </div>
 
-          {/* Resize controls */}
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={resizeEnabled} onChange={(e) => setResizeEnabled(e.target.checked)} className="h-4 w-4 accent-rose-500" />
+          {/* Resize controls — only logged-in admins can change them */}
+          <div className={`rounded-xl border border-gray-100 bg-gray-50 p-3 ${canEditResize ? '' : 'opacity-60'}`}>
+            <label className={`flex items-center gap-2 ${canEditResize ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+              <input type="checkbox" checked={resizeEnabled} disabled={!canEditResize} onChange={(e) => setResizeEnabled(e.target.checked)} className="h-4 w-4 accent-rose-500 disabled:cursor-not-allowed" />
               <span className="text-sm font-semibold text-gray-700">{t('photosPage.resizeBeforeUpload')}</span>
+              {!canEditResize && <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.adminOnly')}</span>}
             </label>
             {resizeEnabled && (
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.maxLongEdge')}</span>
-                  <select value={maxLongEdge} onChange={(e) => setMaxLongEdge(Number(e.target.value))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-700 outline-none focus:border-rose-300">
+                  <select value={maxLongEdge} disabled={!canEditResize} onChange={(e) => setMaxLongEdge(Number(e.target.value))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-700 outline-none focus:border-rose-300 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400">
                     {[1280, 1600, 1920, 2560, 3840].map((v) => <option key={v} value={v}>{v}px</option>)}
                   </select>
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.jpegQuality')} · {Math.round(jpegQuality * 100)}%</span>
-                  <input type="range" min={0.6} max={1} step={0.01} value={jpegQuality} onChange={(e) => setJpegQuality(Number(e.target.value))} className="mt-2 w-full accent-rose-500" />
+                  <input type="range" min={0.6} max={1} step={0.01} value={jpegQuality} disabled={!canEditResize} onChange={(e) => setJpegQuality(Number(e.target.value))} className="mt-2 w-full accent-rose-500 disabled:cursor-not-allowed" />
                 </label>
               </div>
             )}

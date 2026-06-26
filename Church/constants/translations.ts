@@ -92,6 +92,7 @@ export const translations = {
     albums: { en: 'Albums', zh: '\u76f8\u518a' },
     download: { en: 'Download', zh: '\u4e0b\u8f09' },
     info: { en: 'Info', zh: '\u8cc7\u8a0a' },
+    adminOnly: { en: 'Admin only', zh: '\u50c5\u7ba1\u7406\u54e1' },
   },
   eventsPage: {
     pageTitle: { en: 'MINISTRIES', zh: '教會事工' },
@@ -358,6 +359,10 @@ export const translations = {
     hide: { en: 'Hide', zh: '隐藏' },
     delete: { en: 'Delete', zh: '删除' },
     confirmDelete: { en: 'Delete this photo?', zh: '确定删除这张照片吗？' },
+    uploaderName: { en: 'Uploader', zh: '上传人' },
+    defaultsTitle: { en: 'Upload Compression Defaults', zh: '上传压缩默认值' },
+    defaultsSubtitle: { en: 'Applied to all uploads; only admins can override per upload.', zh: '应用于所有上传；仅管理员可在上传时调整。' },
+    defaultsSaved: { en: 'Defaults saved.', zh: '默认值已保存。' },
   },
   admin: {
     loginTitle: { en: 'Admin Login', zh: '管理員登入' },

@@ -1482,6 +1482,51 @@ async function ensurePhotoTables(env: Env): Promise<void> {
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN iso INTEGER').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_object_key TEXT').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_src TEXT').run().catch(() => undefined);
+
+  await env.PHOTOS_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS photo_settings (
+      id INTEGER PRIMARY KEY,
+      max_long_edge INTEGER NOT NULL DEFAULT 1600,
+      jpeg_quality REAL NOT NULL DEFAULT 0.82
+    )`
+  ).run();
+  await env.PHOTOS_DB.prepare(
+    'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality) VALUES (1, 1600, 0.82)'
+  ).run();
+}
+
+const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82 };
+
+async function readPhotoSettings(env: Env): Promise<{ maxLongEdge: number; jpegQuality: number }> {
+  const row = await env.PHOTOS_DB
+    .prepare('SELECT max_long_edge, jpeg_quality FROM photo_settings WHERE id = 1')
+    .first<{ max_long_edge: number | null; jpeg_quality: number | null }>();
+  if (!row) return { ...PHOTO_SETTINGS_DEFAULT };
+  return {
+    maxLongEdge: Number(row.max_long_edge) || PHOTO_SETTINGS_DEFAULT.maxLongEdge,
+    jpegQuality: Number(row.jpeg_quality) || PHOTO_SETTINGS_DEFAULT.jpegQuality,
+  };
+}
+
+async function handlePhotoSettingsGet(env: Env): Promise<Response> {
+  await ensurePhotoTables(env);
+  return json(await readPhotoSettings(env));
+}
+
+async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+
+  await ensurePhotoTables(env);
+  const payload = await readJson<Partial<{ maxLongEdge: number; jpegQuality: number }>>(request);
+  const current = await readPhotoSettings(env);
+  const maxLongEdge = Math.max(512, Math.min(7680, Math.round(Number(payload.maxLongEdge)) || current.maxLongEdge));
+  const jpegQuality = Math.max(0.5, Math.min(1, Number(payload.jpegQuality) || current.jpegQuality));
+  await env.PHOTOS_DB
+    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ? WHERE id = 1')
+    .bind(maxLongEdge, jpegQuality)
+    .run();
+  return json({ maxLongEdge, jpegQuality });
 }
 
 async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {
@@ -3393,6 +3438,10 @@ const worker: ExportedHandler<Env> = {
       return handlePhotoObject(env, objectKey);
     }
 
+    if (url.pathname === '/api/photos/settings' && request.method === 'GET') {
+      return handlePhotoSettingsGet(env);
+    }
+
     {
       const ownPhotoMatch = url.pathname.match(/^\/api\/photos\/([^/]+)$/);
       if (ownPhotoMatch && request.method === 'PATCH') {
@@ -3407,6 +3456,10 @@ const worker: ExportedHandler<Env> = {
       const auth = await requireUser(request, env, 'contributor');
       if (auth instanceof Response) return auth;
       return handlePhotosList(env, true);
+    }
+
+    if (url.pathname === '/api/admin/photos/settings' && request.method === 'PUT') {
+      return handlePhotoSettingsUpdate(request, env);
     }
 
     {

@@ -130,7 +130,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
           </span>
         )}
 
-        {isHovered && !isSelectMode && <ExifOverlay photo={photo} uploadedByLabel={uploadedByLabel} />}
+        {isHovered && !isSelectMode && <ExifOverlay photo={photo} />}
       </div>
     );
   }

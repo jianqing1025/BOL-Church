@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, RefreshCw, Save, Sliders, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import type { ChurchPhoto } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
@@ -10,6 +10,10 @@ const PhotoManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
+
+  const [settings, setSettings] = useState<{ maxLongEdge: number; jpegQuality: number }>({ maxLongEdge: 1600, jpegQuality: 0.82 });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState('');
 
   const loadPhotos = async () => {
     setLoading(true);
@@ -24,8 +28,25 @@ const PhotoManager: React.FC = () => {
     }
   };
 
+  const saveSettings = async () => {
+    setSavingSettings(true);
+    setError('');
+    setSettingsNotice('');
+    try {
+      const saved = await api.adminUpdatePhotoSettings(settings);
+      setSettings(saved);
+      setSettingsNotice(t('adminPhotos.defaultsSaved'));
+      window.setTimeout(() => setSettingsNotice(''), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   useEffect(() => {
     loadPhotos();
+    api.photoSettings().then(setSettings).catch(() => undefined);
   }, []);
 
   const updateLocal = (id: string, patch: Partial<ChurchPhoto>) => {
@@ -94,6 +115,50 @@ const PhotoManager: React.FC = () => {
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
+
+      {/* Upload compression defaults */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Sliders size={18} className="text-rose-500" />
+          <div>
+            <h3 className="text-base font-bold text-gray-900">{t('adminPhotos.defaultsTitle')}</h3>
+            <p className="text-xs text-gray-500">{t('adminPhotos.defaultsSubtitle')}</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('photosPage.maxLongEdge')}</span>
+            <select
+              value={settings.maxLongEdge}
+              onChange={(e) => setSettings((s) => ({ ...s, maxLongEdge: Number(e.target.value) }))}
+              className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
+            >
+              {[1280, 1600, 1920, 2560, 3840].map((v) => <option key={v} value={v}>{v}px</option>)}
+            </select>
+          </label>
+          <label className="block flex-1">
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('photosPage.jpegQuality')} · {Math.round(settings.jpegQuality * 100)}%</span>
+            <input
+              type="range"
+              min={0.6}
+              max={1}
+              step={0.01}
+              value={settings.jpegQuality}
+              onChange={(e) => setSettings((s) => ({ ...s, jpegQuality: Number(e.target.value) }))}
+              className="mt-3 w-full max-w-xs accent-rose-500"
+            />
+          </label>
+          <button
+            onClick={() => void saveSettings()}
+            disabled={savingSettings}
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-300"
+          >
+            {savingSettings ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            {t('adminPhotos.save')}
+          </button>
+          {settingsNotice && <span className="text-sm font-semibold text-emerald-600">{settingsNotice}</span>}
+        </div>
+      </div>
 
       <div className="rounded-lg bg-white shadow-sm">
         {loading ? (
