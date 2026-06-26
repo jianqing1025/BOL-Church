@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, Loader2, RefreshCw, Save, Sliders, Trash2 } from 'lucide-react';
-import { api } from '../api';
+import { api, type PhotoUploadSettings } from '../api';
 import type { ChurchPhoto } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
 import { buildPaginationNumbers } from '../utils/pagination';
+
+const YEAR_PATTERN = /^\d{4}$/;
 
 const PhotoManager: React.FC = () => {
   const { t } = useLocalization();
@@ -14,9 +16,11 @@ const PhotoManager: React.FC = () => {
   const [pageSize, setPageSize] = useState(100);
   const [page, setPage] = useState(1);
 
-  const [settings, setSettings] = useState<{ maxLongEdge: number; jpegQuality: number }>({ maxLongEdge: 1600, jpegQuality: 0.82 });
+  const [settings, setSettings] = useState<PhotoUploadSettings>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState('');
+  const [newDefaultYear, setNewDefaultYear] = useState('');
+  const [newDefaultAlbum, setNewDefaultAlbum] = useState('');
 
   const loadPhotos = async () => {
     setLoading(true);
@@ -36,8 +40,15 @@ const PhotoManager: React.FC = () => {
     setError('');
     setSettingsNotice('');
     try {
-      const saved = await api.adminUpdatePhotoSettings(settings);
+      const payload: PhotoUploadSettings = {
+        ...settings,
+        defaultYear: (newDefaultYear.trim() || settings.defaultYear).trim(),
+        defaultAlbum: (newDefaultAlbum.trim() || settings.defaultAlbum).trim(),
+      };
+      const saved = await api.adminUpdatePhotoSettings(payload);
       setSettings(saved);
+      setNewDefaultYear('');
+      setNewDefaultAlbum('');
       setSettingsNotice(t('adminPhotos.defaultsSaved'));
       window.setTimeout(() => setSettingsNotice(''), 3000);
     } catch (err) {
@@ -108,6 +119,15 @@ const PhotoManager: React.FC = () => {
   const pageEntries = photos.slice((safePage - 1) * pageSize, safePage * pageSize);
   const paginationNumbers = useMemo(() => buildPaginationNumbers(totalPages, safePage), [totalPages, safePage]);
 
+  const existingYears = useMemo(
+    () => Array.from(new Set(photos.map(p => (p.collection || '').trim()).filter(y => YEAR_PATTERN.test(y)))).sort((a, b) => Number(b) - Number(a)),
+    [photos],
+  );
+  const existingAlbums = useMemo(
+    () => Array.from(new Set(photos.map(p => (p.album || '').trim()).filter(Boolean))).sort(),
+    [photos],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -140,7 +160,7 @@ const PhotoManager: React.FC = () => {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
 
-      {/* Upload compression defaults */}
+      {/* Upload defaults */}
       <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
           <Sliders size={18} className="text-rose-500" />
@@ -149,7 +169,55 @@ const PhotoManager: React.FC = () => {
             <p className="text-xs text-gray-500">{t('adminPhotos.defaultsSubtitle')}</p>
           </div>
         </div>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+
+        {/* Default year + album */}
+        <div className="mb-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('photosPage.year')}</span>
+            <div className="grid grid-cols-[1fr_120px] gap-2">
+              <select
+                value={settings.defaultYear}
+                disabled={newDefaultYear.length > 0}
+                onChange={(e) => setSettings((s) => ({ ...s, defaultYear: e.target.value }))}
+                className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                <option value="">{t('photosPage.all')}</option>
+                {existingYears.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <input
+                value={newDefaultYear}
+                inputMode="numeric"
+                maxLength={4}
+                onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); setNewDefaultYear(v); if (v) setSettings((s) => ({ ...s, defaultYear: '' })); }}
+                placeholder={t('photosPage.orNew')}
+                className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('photosPage.uploadAlbum')}</span>
+            <div className="grid grid-cols-[1fr_140px] gap-2">
+              <select
+                value={settings.defaultAlbum}
+                disabled={newDefaultAlbum.length > 0}
+                onChange={(e) => setSettings((s) => ({ ...s, defaultAlbum: e.target.value }))}
+                className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                <option value="">{t('photosPage.typeName')}</option>
+                {existingAlbums.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+              <input
+                value={newDefaultAlbum}
+                onChange={(e) => { setNewDefaultAlbum(e.target.value); if (e.target.value) setSettings((s) => ({ ...s, defaultAlbum: '' })); }}
+                placeholder={t('photosPage.orNew')}
+                className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Compression */}
+        <div className="flex flex-col gap-4 border-t border-gray-100 pt-4 sm:flex-row sm:items-end">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('photosPage.maxLongEdge')}</span>
             <select

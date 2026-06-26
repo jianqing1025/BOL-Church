@@ -68,7 +68,7 @@ const PhotosPage: React.FC = () => {
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); } catch { return new Set(); }
   });
-  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number }>({ maxLongEdge: 1600, jpegQuality: 0.82 });
+  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string }>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' });
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
@@ -362,8 +362,8 @@ const PhotosPage: React.FC = () => {
         collections={collections}
         albums={albums}
         uploaderId={uploaderId}
-        defaultYear={selectedCollection}
-        defaultAlbum={selectedAlbum}
+        defaultYear={selectedCollection !== 'All' ? selectedCollection : uploadSettings.defaultYear}
+        defaultAlbum={selectedAlbum !== 'All' && selectedAlbum !== 'Favorites' ? selectedAlbum : uploadSettings.defaultAlbum}
         defaultMaxLongEdge={uploadSettings.maxLongEdge}
         defaultJpegQuality={uploadSettings.jpegQuality}
         onUploaded={onUploaded}

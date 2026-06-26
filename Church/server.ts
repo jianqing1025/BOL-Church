@@ -1487,24 +1487,32 @@ async function ensurePhotoTables(env: Env): Promise<void> {
     `CREATE TABLE IF NOT EXISTS photo_settings (
       id INTEGER PRIMARY KEY,
       max_long_edge INTEGER NOT NULL DEFAULT 1600,
-      jpeg_quality REAL NOT NULL DEFAULT 0.82
+      jpeg_quality REAL NOT NULL DEFAULT 0.82,
+      default_year TEXT NOT NULL DEFAULT '',
+      default_album TEXT NOT NULL DEFAULT ''
     )`
   ).run();
+  await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_year TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_album TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare(
     'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality) VALUES (1, 1600, 0.82)'
   ).run();
 }
 
-const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82 };
+const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' };
 
-async function readPhotoSettings(env: Env): Promise<{ maxLongEdge: number; jpegQuality: number }> {
+type PhotoSettings = { maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string };
+
+async function readPhotoSettings(env: Env): Promise<PhotoSettings> {
   const row = await env.PHOTOS_DB
-    .prepare('SELECT max_long_edge, jpeg_quality FROM photo_settings WHERE id = 1')
-    .first<{ max_long_edge: number | null; jpeg_quality: number | null }>();
+    .prepare('SELECT max_long_edge, jpeg_quality, default_year, default_album FROM photo_settings WHERE id = 1')
+    .first<{ max_long_edge: number | null; jpeg_quality: number | null; default_year: string | null; default_album: string | null }>();
   if (!row) return { ...PHOTO_SETTINGS_DEFAULT };
   return {
     maxLongEdge: Number(row.max_long_edge) || PHOTO_SETTINGS_DEFAULT.maxLongEdge,
     jpegQuality: Number(row.jpeg_quality) || PHOTO_SETTINGS_DEFAULT.jpegQuality,
+    defaultYear: row.default_year || '',
+    defaultAlbum: row.default_album || '',
   };
 }
 
@@ -1518,15 +1526,18 @@ async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Re
   if (auth instanceof Response) return auth;
 
   await ensurePhotoTables(env);
-  const payload = await readJson<Partial<{ maxLongEdge: number; jpegQuality: number }>>(request);
+  const payload = await readJson<Partial<PhotoSettings>>(request);
   const current = await readPhotoSettings(env);
   const maxLongEdge = Math.max(512, Math.min(7680, Math.round(Number(payload.maxLongEdge)) || current.maxLongEdge));
   const jpegQuality = Math.max(0.5, Math.min(1, Number(payload.jpegQuality) || current.jpegQuality));
+  const rawYear = payload.defaultYear === undefined ? current.defaultYear : String(payload.defaultYear).trim();
+  const defaultYear = /^\d{4}$/.test(rawYear) ? rawYear : '';
+  const defaultAlbum = (payload.defaultAlbum === undefined ? current.defaultAlbum : String(payload.defaultAlbum).trim()).slice(0, 80);
   await env.PHOTOS_DB
-    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ? WHERE id = 1')
-    .bind(maxLongEdge, jpegQuality)
+    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ?, default_year = ?, default_album = ? WHERE id = 1')
+    .bind(maxLongEdge, jpegQuality, defaultYear, defaultAlbum)
     .run();
-  return json({ maxLongEdge, jpegQuality });
+  return json({ maxLongEdge, jpegQuality, defaultYear, defaultAlbum });
 }
 
 async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {

@@ -67,6 +67,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const year = newCollection || (uploadCollection === 'All' ? '' : uploadCollection);
   const album = newAlbum || uploadAlbum;
   const canSubmit = queue.length > 0 && YEAR_PATTERN.test(year) && !uploading;
+  // Surface admin-configured defaults even when they aren't in the existing lists yet.
+  const yearOptions = uploadCollection !== 'All' && !collections.includes(uploadCollection) ? [uploadCollection, ...collections] : collections;
+  const albumOptions = uploadAlbum && !albums.includes(uploadAlbum) ? [uploadAlbum, ...albums] : albums;
   const doneCount = useMemo(() => statuses.filter(s => s.stage === 'done').length, [statuses]);
 
   const reset = () => {
@@ -239,7 +242,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 className="h-[47px] rounded-lg border border-gray-200 bg-gray-50 px-4 text-base text-gray-700 outline-none transition-colors focus:border-rose-300 disabled:text-gray-400"
               >
                 <option value="All">{t('photosPage.all')}</option>
-                {collections.map((c) => <option key={c} value={c}>{c}</option>)}
+                {yearOptions.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               <input
                 value={newCollection}
@@ -268,7 +271,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 className="h-[47px] rounded-lg border border-gray-200 bg-gray-50 px-4 text-base text-gray-700 outline-none transition-colors focus:border-rose-300 disabled:text-gray-400"
               >
                 <option value="">{t('photosPage.typeName')}</option>
-                {albums.map((a) => <option key={a} value={a}>{a}</option>)}
+                {albumOptions.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
               <input
                 value={newAlbum}

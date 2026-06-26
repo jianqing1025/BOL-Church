@@ -12,6 +12,13 @@ export interface LiveStreamSavePayload {
   enabled?: boolean;
 }
 
+export interface PhotoUploadSettings {
+  maxLongEdge: number;
+  jpegQuality: number;
+  defaultYear: string;
+  defaultAlbum: string;
+}
+
 export interface SyncChannelAdmin {
   id: string;
   name: string;
@@ -67,9 +74,9 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   bootstrap: () => request<SiteBootstrap>('/api/bootstrap'),
   photos: () => request<{ photos: ChurchPhoto[] }>('/api/photos'),
-  photoSettings: () => request<{ maxLongEdge: number; jpegQuality: number }>('/api/photos/settings'),
-  adminUpdatePhotoSettings: (payload: { maxLongEdge: number; jpegQuality: number }) =>
-    request<{ maxLongEdge: number; jpegQuality: number }>('/api/admin/photos/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+  photoSettings: () => request<PhotoUploadSettings>('/api/photos/settings'),
+  adminUpdatePhotoSettings: (payload: PhotoUploadSettings) =>
+    request<PhotoUploadSettings>('/api/admin/photos/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   uploadPhoto: (payload: {
     file: Blob;
     fileName: string;

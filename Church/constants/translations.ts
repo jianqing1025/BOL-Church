@@ -360,8 +360,8 @@ export const translations = {
     delete: { en: 'Delete', zh: '删除' },
     confirmDelete: { en: 'Delete this photo?', zh: '确定删除这张照片吗？' },
     uploaderName: { en: 'Uploader', zh: '上传人' },
-    defaultsTitle: { en: 'Upload Compression Defaults', zh: '上传压缩默认值' },
-    defaultsSubtitle: { en: 'Applied to all uploads; only admins can override per upload.', zh: '应用于所有上传；仅管理员可在上传时调整。' },
+    defaultsTitle: { en: 'Upload Defaults', zh: '上传默认值' },
+    defaultsSubtitle: { en: 'Default year/album and compression applied to uploads; only admins can override per upload.', zh: '上传默认的年份/相册与压缩；仅管理员可在上传时调整。' },
     defaultsSaved: { en: 'Defaults saved.', zh: '默认值已保存。' },
   },
   admin: {
