@@ -1199,6 +1199,11 @@ function ExpensesPage() {
   );
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+  const categoryShortById = useMemo(() => {
+    const m = new Map<string, string>();
+    (lookups?.expenseCategories ?? []).forEach(c => { if (c.shortName) m.set(c.id, c.shortName); });
+    return m;
+  }, [lookups]);
   const emailActionExpense = emailAction ? expenses.find(item => item.id === emailAction.expenseId) : null;
   const closeEmailAction = () => {
     setEmailAction(null);
@@ -1232,7 +1237,7 @@ function ExpensesPage() {
         <strong>待審核：{pending.length}</strong>
         <div className="toolbar-actions">
           {canManageNotify && (
-            <button onClick={() => setNotifyOpen(true)} title="通知設置">⚙ 通知設置</button>
+            <button onClick={() => setNotifyOpen(true)} title="設置">⚙ 設置</button>
           )}
           {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
           <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
@@ -1292,11 +1297,13 @@ function ExpensesPage() {
       {notifyOpen && settings && (
         <ExpenseNotifySettingsModal
           settings={settings}
+          categories={lookups?.expenseCategories ?? []}
           onClose={() => setNotifyOpen(false)}
           onSave={async next => {
             await saveSettings(next);
             setNotifyOpen(false);
           }}
+          onReload={refreshAll}
         />
       )}
       {emailAction && (
@@ -1343,7 +1350,7 @@ function ExpensesPage() {
               <tr key={item.id}>
                 <td data-label="日期">{shortDate(item.date)}</td>
                 <td data-label="描述" className="expense-description-col">{isDesktop ? item.description : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{item.description}</span>}</td>
-                <td data-label="分類" className="expense-category-col">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{item.categoryName || '-'}</span>}</td>
+                <td data-label="分類" className="expense-category-col">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{(item.categoryId && categoryShortById.get(item.categoryId)) || item.categoryName || '-'}</span>}</td>
                 <td data-label="付款人">{paidByLabel(item)}</td>
                 <td data-label="金額">{currency(item.amount)}</td>
                 <td data-label="狀態">
@@ -1409,13 +1416,17 @@ function ExpensesPage() {
   );
 }
 
-function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
+function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onReload }: {
   settings: AppSettings;
+  categories: ExpenseCategory[];
   onClose: () => void;
   onSave: (next: AppSettings) => Promise<void>;
+  onReload: () => Promise<void>;
 }) {
   const current = settings.expenseNotify;
-  const [tab, setTab] = useState<'notify' | 'template'>('notify');
+  const [tab, setTab] = useState<'notify' | 'template' | 'categories'>('notify');
+  const [catRows, setCatRows] = useState(() => categories.map(c => ({ id: c.id, name: c.name, shortName: c.shortName ?? '' })));
+  const [catSavedAt, setCatSavedAt] = useState(false);
   const [enabled, setEnabled] = useState(current?.enabled ?? false);
   const [recipientsText, setRecipientsText] = useState((current?.recipients ?? []).join('\n'));
   const [mailFrom, setMailFrom] = useState(current?.mailFrom ?? 'Seattle Bread of Life Christian Church <finance@bolccop.org>');
@@ -1459,6 +1470,19 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
     }
   };
 
+  const handleSaveCategories = async () => {
+    setBusy(true); setError(null); setCatSavedAt(false);
+    try {
+      await api.updateExpenseCategories(catRows.map(c => ({ id: c.id, name: c.name.trim(), shortName: c.shortName.trim() })));
+      await onReload();
+      setCatSavedAt(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSendTest = async () => {
     setTesting(true);
     setTestResults(null);
@@ -1477,13 +1501,14 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <header>
-          <h2>支出通知設置</h2>
+          <h2>設置</h2>
           <button type="button" onClick={onClose}>關閉</button>
         </header>
 
         <div className="settings-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'notify'} className={tab === 'notify' ? 'active' : ''} onClick={() => setTab('notify')}>通知設置</button>
           <button type="button" role="tab" aria-selected={tab === 'template'} className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>郵件模板</button>
+          <button type="button" role="tab" aria-selected={tab === 'categories'} className={tab === 'categories' ? 'active' : ''} onClick={() => setTab('categories')}>支出類型管理</button>
         </div>
 
         {tab === 'notify' && (
@@ -1576,13 +1601,42 @@ function ExpenseNotifySettingsModal({ settings, onClose, onSave }: {
           </div>
         )}
 
+        {tab === 'categories' && (
+          <div className="modal-body" style={{ display: 'grid', gap: '0.6rem' }}>
+            <p style={{ fontSize: '0.8rem', color: '#68758a', margin: 0 }}>
+              長類型用於網站表格顯示，短類型用於手機端卡片。短類型留空時手機端回退顯示長類型。
+            </p>
+            <div className="category-mgmt">
+              <div className="category-mgmt-head">
+                <span>長類型（網站）</span>
+                <span>短類型（手機）</span>
+              </div>
+              {catRows.map((row, idx) => (
+                <div key={row.id} className="category-mgmt-row">
+                  <input
+                    value={row.name}
+                    onChange={e => setCatRows(rows => rows.map((r, i) => i === idx ? { ...r, name: e.target.value } : r))}
+                  />
+                  <input
+                    value={row.shortName}
+                    placeholder="短類型"
+                    onChange={e => setCatRows(rows => rows.map((r, i) => i === idx ? { ...r, shortName: e.target.value } : r))}
+                  />
+                </div>
+              ))}
+              {catRows.length === 0 && <div style={{ color: '#68758a', fontSize: '0.85rem' }}>暫無支出類型。</div>}
+            </div>
+            {catSavedAt && <div style={{ color: '#1f9d55', fontSize: '0.85rem' }}>已保存。</div>}
+          </div>
+        )}
+
         {error && (
           <div style={{ color: '#c0392b', fontSize: '0.9rem', padding: '0 0.5rem' }}>{error}</div>
         )}
 
         <footer>
           <button type="button" onClick={onClose} disabled={busy}>取消</button>
-          <button type="button" className="primary" onClick={handleSave} disabled={busy}>{busy ? '保存中...' : '保存'}</button>
+          <button type="button" className="primary" onClick={tab === 'categories' ? handleSaveCategories : handleSave} disabled={busy}>{busy ? '保存中...' : '保存'}</button>
         </footer>
       </div>
     </div>

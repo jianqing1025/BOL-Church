@@ -42,6 +42,8 @@ export const api = {
   testExpenseNotify: () =>
     request<{ results: Array<{ recipient: string; ok: boolean; status?: number; error?: string }> }>('/api/settings/expense-notify/test', { method: 'POST' }),
   lookups: () => request<LookupData>('/api/lookups'),
+  updateExpenseCategories: (categories: Array<{ id: string; name: string; shortName: string }>) =>
+    request<{ ok: true }>('/api/expense-categories', { method: 'PUT', body: JSON.stringify({ categories }) }),
   members: (query = '') => request<{ items: Member[]; total: number }>(`/api/members${query}`),
   createMember: (payload: Partial<Member>) =>
     request<Member>('/api/members', { method: 'POST', body: JSON.stringify(payload) }),

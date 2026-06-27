@@ -1083,7 +1083,7 @@ const worker: ExportedHandler<Env> = {
             env.DB.prepare('SELECT id, name, description, created_at AS createdAt FROM member_groups ORDER BY name').all(),
             env.DB.prepare('SELECT id, name, description, icon, created_at AS createdAt FROM offering_categories ORDER BY name').all(),
             env.DB.prepare('SELECT id, name, group_name AS groupName, sort_order AS sortOrder, created_at AS createdAt FROM offering_methods ORDER BY sort_order, name').all(),
-            env.DB.prepare('SELECT id, name, budget_monthly AS budgetMonthly, description, created_at AS createdAt FROM expense_categories ORDER BY name').all()
+            env.DB.prepare('SELECT id, name, short_name AS shortName, budget_monthly AS budgetMonthly, description, created_at AS createdAt FROM expense_categories ORDER BY name').all()
           ]);
           return json({
             memberGroups: groups.results || [],
@@ -1091,6 +1091,20 @@ const worker: ExportedHandler<Env> = {
             offeringMethods: offeringMethods.results || [],
             expenseCategories: expenseCategories.results || []
           });
+        }
+
+        if (url.pathname === '/api/expense-categories' && request.method === 'PUT') {
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
+          const payload = await readJson<{ categories: Array<{ id: string; name: string; shortName: string }> }>(request);
+          const items = Array.isArray(payload?.categories) ? payload.categories : [];
+          for (const c of items) {
+            if (!c?.id) continue;
+            await env.DB
+              .prepare('UPDATE expense_categories SET name = ?, short_name = ? WHERE id = ?')
+              .bind(String(c.name ?? '').trim(), String(c.shortName ?? '').trim(), c.id)
+              .run();
+          }
+          return json({ ok: true });
         }
 
         if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url, testFlag);

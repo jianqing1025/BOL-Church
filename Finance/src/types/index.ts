@@ -83,6 +83,7 @@ export interface Offering {
 export interface ExpenseCategory {
   id: string;
   name: string;
+  shortName?: string;
   budgetMonthly: number;
   description: string;
   createdAt: string;
