@@ -1,0 +1,23 @@
+-- Pre-fill concise short names (mobile display) for the expense categories.
+UPDATE expense_categories SET short_name = '银行手续费' WHERE id = 'import-2017-expense-z100';
+UPDATE expense_categories SET short_name = '社区服务'   WHERE id = 'import-2017-expense-c140';
+UPDATE expense_categories SET short_name = '国内宣教'   WHERE id = 'import-2017-expense-m150';
+UPDATE expense_categories SET short_name = '设备资产'   WHERE id = 'import-2017-expense-a100';
+UPDATE expense_categories SET short_name = '房屋设施'   WHERE id = 'import-2017-expense-a120';
+UPDATE expense_categories SET short_name = '国外宣教'   WHERE id = 'import-2017-expense-m160';
+UPDATE expense_categories SET short_name = '执照税务'   WHERE id = 'import-2017-expense-e160';
+UPDATE expense_categories SET short_name = '维修维护'   WHERE id = 'import-2017-expense-a150';
+UPDATE expense_categories SET short_name = '怜悯基金'   WHERE id = 'import-2017-expense-c150';
+UPDATE expense_categories SET short_name = '杂项'       WHERE id = 'import-2017-expense-m190';
+UPDATE expense_categories SET short_name = '宣教资助'   WHERE id = 'import-2017-expense-m140';
+UPDATE expense_categories SET short_name = '薪资福利'   WHERE id = 'import-2017-expense-e150';
+UPDATE expense_categories SET short_name = '圣礼'       WHERE id = 'import-2017-expense-s150';
+UPDATE expense_categories SET short_name = '特殊庆典'   WHERE id = 'import-2017-expense-s140';
+UPDATE expense_categories SET short_name = '主日讲员费' WHERE id = 'import-2017-expense-s130';
+UPDATE expense_categories SET short_name = '培训商务'   WHERE id = 'import-2017-expense-e110';
+UPDATE expense_categories SET short_name = '交通'       WHERE id = 'import-2017-expense-c130';
+UPDATE expense_categories SET short_name = '水电网络'   WHERE id = 'import-2017-expense-a140';
+UPDATE expense_categories SET short_name = '影音资料'   WHERE id = 'import-2017-expense-l150';
+UPDATE expense_categories SET short_name = '事工活動'   WHERE id = 'expense-ministry';
+UPDATE expense_categories SET short_name = '場地租金'   WHERE id = 'expense-rent';
+UPDATE expense_categories SET short_name = '行政用品'   WHERE id = 'expense-admin';
