@@ -1082,7 +1082,7 @@ const worker: ExportedHandler<Env> = {
           const [groups, offeringCategories, offeringMethods, expenseCategories] = await Promise.all([
             env.DB.prepare('SELECT id, name, description, created_at AS createdAt FROM member_groups ORDER BY name').all(),
             env.DB.prepare('SELECT id, name, description, icon, created_at AS createdAt FROM offering_categories ORDER BY name').all(),
-            env.DB.prepare('SELECT id, name, created_at AS createdAt FROM offering_methods ORDER BY name').all(),
+            env.DB.prepare('SELECT id, name, group_name AS groupName, sort_order AS sortOrder, created_at AS createdAt FROM offering_methods ORDER BY sort_order, name').all(),
             env.DB.prepare('SELECT id, name, budget_monthly AS budgetMonthly, description, created_at AS createdAt FROM expense_categories ORDER BY name').all()
           ]);
           return json({

@@ -58,6 +58,8 @@ export interface OfferingCategory {
 export interface OfferingMethod {
   id: string;
   name: string;
+  groupName?: string;
+  sortOrder?: number;
   createdAt: string;
 }
 

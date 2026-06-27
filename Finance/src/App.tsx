@@ -2520,6 +2520,19 @@ function lastSundayStr(): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Group offering methods by groupName, preserving the (sort_order) input order.
+ *  Returns [groupLabel, items] pairs; '' label = ungrouped (rendered flat). */
+function groupOfferingMethods(methods: OfferingMethod[]): [string, OfferingMethod[]][] {
+  const order: string[] = [];
+  const map = new Map<string, OfferingMethod[]>();
+  for (const m of methods) {
+    const g = m.groupName?.trim() || '';
+    if (!map.has(g)) { map.set(g, []); order.push(g); }
+    map.get(g)!.push(m);
+  }
+  return order.map(g => [g, map.get(g)!]);
+}
+
 function OfferingForm({
   offering,
   members,
@@ -2594,7 +2607,10 @@ function OfferingForm({
         支付方式
         <select value={form.methodId ?? ''} onChange={event => setForm({ ...form, methodId: event.target.value || null })}>
           <option value="">未選擇</option>
-          {methods.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          {groupOfferingMethods(methods).map(([group, items]) => group
+            ? <optgroup key={group} label={group}>{items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
+            : items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)
+          )}
         </select>
       </label>
       <label>
