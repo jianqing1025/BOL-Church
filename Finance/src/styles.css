@@ -1297,12 +1297,12 @@ td small {
 
   .toolbar-actions {
     align-self: flex-end;
+    align-items: center;
     flex-direction: row;
     flex-wrap: nowrap;
   }
   /* 取消 expense-add-btn 在手機端的 block 行為，讓它跟通知設置同一行 */
   .toolbar .expense-add-btn {
-    align-self: auto;
     width: auto;
   }
 }
@@ -1725,12 +1725,13 @@ td small {
     flex-direction: column;
   }
 
-  /* 手機端：支出管理「新增支出」縮小體積、靠最右側 */
-  .toolbar .expense-add-btn {
-    align-self: flex-end;
+  /* 手機端：工具列按鈕（通知設置 / 新增支出）統一大小 */
+  .toolbar-actions button {
     width: auto;
-    padding: 0.46rem 0.8rem;
-    font-size: 0.88rem;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.9rem;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
   /* 手機端：彈窗 header / footer 維持橫排 —— 關閉按鈕在右上角，底部按鈕排成一行 */
@@ -1827,10 +1828,11 @@ td small {
   }
 
   /* 每筆記錄 = 一張 3 欄網格卡片 */
+  /* minmax(0,1fr) 讓欄位可收縮到比內容更窄，長文字才會換行/省略而非撐寬卡片 */
   .expenses-table tbody tr,
   .offerings-table tbody tr {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     column-gap: 0.6rem;
     row-gap: 0.45rem;
     align-items: start;
@@ -1927,6 +1929,8 @@ td small {
     -webkit-box-orient: vertical;
     overflow: hidden;
     cursor: pointer;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   /* 操作列：整行寬度、按鈕靠右換行，與上方資訊以分隔線區隔 */
