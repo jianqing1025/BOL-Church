@@ -1061,6 +1061,7 @@ const Lightbox = AttachmentPreviewModal;
 function OfferingsPage() {
   const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
   const { hasPermission } = useAuth();
+  const isDesktop = useIsDesktop();
   const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
   const [editing, setEditing] = useState<Offering | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -1151,7 +1152,7 @@ function OfferingsPage() {
               <td data-label="分類">{item.categoryName || '-'}</td>
               <td data-label="方式">{item.methodName || '-'}</td>
               <td data-label="金額">{currency(item.amount)}</td>
-              <td data-label="備註" className="offering-notes-col">{item.notes}</td>
+              <td data-label="備註" className="offering-notes-col">{isDesktop ? item.notes : <span className="clamp-2" onClick={() => setDetail(item)}>{item.notes}</span>}</td>
               <td data-label="憑證">{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
               <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
@@ -1165,6 +1166,7 @@ function OfferingsPage() {
 function ExpensesPage() {
   const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveSettings, refreshAll } = useFinance();
   const { hasPermission, user } = useAuth();
+  const isDesktop = useIsDesktop();
   const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
   const canManageNotify = hasPermission('super_admin', 'finance_admin');
   const [editing, setEditing] = useState<Expense | null>(null);
@@ -1340,8 +1342,8 @@ function ExpensesPage() {
             return (
               <tr key={item.id}>
                 <td data-label="日期">{shortDate(item.date)}</td>
-                <td data-label="描述" className="expense-description-col">{item.description}</td>
-                <td data-label="分類" className="expense-category-col">{item.categoryName || '-'}</td>
+                <td data-label="描述" className="expense-description-col">{isDesktop ? item.description : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{item.description}</span>}</td>
+                <td data-label="分類" className="expense-category-col">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{item.categoryName || '-'}</span>}</td>
                 <td data-label="付款人">{paidByLabel(item)}</td>
                 <td data-label="金額">{currency(item.amount)}</td>
                 <td data-label="狀態">
