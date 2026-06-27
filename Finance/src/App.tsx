@@ -1176,6 +1176,26 @@ function ExpensesPage() {
   const [emailAction, setEmailAction] = useState<ExpenseEmailAction | null>(() => expenseEmailActionFromLocation());
   const pending = expenses.filter(item => item.status === 'pending');
 
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of expenses) {
+      const y = (item.date || '').slice(0, 4);
+      if (y) set.add(y);
+    }
+    return Array.from(set).sort().reverse();
+  }, [expenses]);
+  const [year, setYear] = useState<number>(() => {
+    const current = new Date().getFullYear();
+    const present = new Set(expenses.map(e => (e.date || '').slice(0, 4)).filter(Boolean));
+    if (present.has(String(current - 1))) return current - 1;
+    const sorted = Array.from(present).sort();
+    return sorted.length ? Number(sorted[sorted.length - 1]) : current;
+  });
+  const filteredExpenses = useMemo(
+    () => expenses.filter(item => (item.date || '').slice(0, 4) === String(year)),
+    [expenses, year]
+  );
+
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const emailActionExpense = emailAction ? expenses.find(item => item.id === emailAction.expenseId) : null;
   const closeEmailAction = () => {
@@ -1213,6 +1233,11 @@ function ExpensesPage() {
             <button onClick={() => setNotifyOpen(true)} title="通知設置">⚙ 通知設置</button>
           )}
           {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
+          <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+            {years.length
+              ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
+              : <option value={year}>{year} 年度</option>}
+          </select>
         </div>
       </Toolbar>
       {editing && (
@@ -1296,7 +1321,7 @@ function ExpensesPage() {
           </tr>
         </thead>
         <tbody>
-          {expenses.map(item => {
+          {filteredExpenses.map(item => {
             const approvalOp = (item.status === 'approved' || item.status === 'rejected')
               ? expenseOperatorDisplay(memberById, item.approvedBy, item.approvedByName, item.approvedAt) : null;
             const invoiceOp = item.invoicedAt ? expenseOperatorDisplay(memberById, item.invoicedBy, item.invoicedByName, item.invoicedAt) : null;
