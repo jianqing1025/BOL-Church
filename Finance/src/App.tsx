@@ -1139,21 +1139,21 @@ function OfferingsPage() {
         />
       )}
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
-      <table>
+      <table className="offerings-table">
         <thead>
           <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th>金額</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
           {filteredOfferings.map(item => (
             <tr key={item.id}>
-              <td className="desk-only">{shortDate(item.date)}</td>
-              <td>{offeringMemberLabel(item)}</td>
-              <td className="desk-only">{item.categoryName || '-'}</td>
-              <td className="desk-only">{item.methodName || '-'}</td>
-              <td>{currency(item.amount)}</td>
-              <td className="desk-only">{item.notes}</td>
-              <td className="desk-only">{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
-              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button className="desk-only" onClick={() => setEditing(item)}>編輯</button><button className="desk-only" onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
+              <td data-label="日期">{shortDate(item.date)}</td>
+              <td data-label="成員">{offeringMemberLabel(item)}</td>
+              <td data-label="分類">{item.categoryName || '-'}</td>
+              <td data-label="方式">{item.methodName || '-'}</td>
+              <td data-label="金額">{currency(item.amount)}</td>
+              <td data-label="備註" className="offering-notes-col">{item.notes}</td>
+              <td data-label="憑證">{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
+              <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
           ))}
         </tbody>
@@ -1313,7 +1313,7 @@ function ExpensesPage() {
           onConfirm={confirmEmailAction}
         />
       )}
-      <table>
+      <table className="expenses-table">
         <thead>
           <tr>
             <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th>金額</th>
@@ -1339,12 +1339,12 @@ function ExpensesPage() {
 
             return (
               <tr key={item.id}>
-                <td>{shortDate(item.date)}</td>
-                <td>{item.description}</td>
-                <td>{item.categoryName || '-'}</td>
-                <td>{paidByLabel(item)}</td>
-                <td>{currency(item.amount)}</td>
-                <td>
+                <td data-label="日期">{shortDate(item.date)}</td>
+                <td data-label="描述" className="expense-description-col">{item.description}</td>
+                <td data-label="分類" className="expense-category-col">{item.categoryName || '-'}</td>
+                <td data-label="付款人">{paidByLabel(item)}</td>
+                <td data-label="金額">{currency(item.amount)}</td>
+                <td data-label="狀態">
                   <div className="expense-status-cell">
                     <Badge>{expenseStatusLabels[item.status]}</Badge>
                     {approvalOp && (
@@ -1358,7 +1358,7 @@ function ExpensesPage() {
                     )}
                   </div>
                 </td>
-                <td>
+                <td data-label="開票">
                   <div className="expense-status-cell">
                     <Badge>{invoiceBadge}</Badge>
                     {invoiceOp && (
@@ -1380,7 +1380,7 @@ function ExpensesPage() {
                     )}
                   </div>
                 </td>
-                <td>
+                <td data-label="入賬">
                   <div className="expense-status-cell">
                     <Badge>{accountBadge}</Badge>
                     {accountOp && (
