@@ -11,6 +11,7 @@ import {
   type SyncTarget,
   type TrainingRow,
 } from './sync/classifier';
+import { nextPeak, computeTotalOnline } from './live/liveStats';
 
 type Env = {
   DB: D1Database;
@@ -2052,13 +2053,31 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
   const result = await probeYouTubeLive(config);
   const prev = await getLiveStreamStateRow(env);
 
-  // 邊沿檢測：上次 live、這次不 live → 直播剛結束，嘗試歸檔
+  // #2 修复:search.list 间歇性返回空。上次在直播、本次为空时,用 liveStreamingDetails
+  // 的 actualEndTime 确认是否真结束;未结束则视为瞬时漏检,保留 is_live / started_at / video_id。
+  if (!result.videoId && prev.is_live === 1 && prev.video_id) {
+    const details = await fetchLiveStreamingDetails(config.api_key, prev.video_id);
+    if (!details.actualEndTime) {
+      const peak = nextPeak((prev as any).youtube_peak ?? null, details.concurrentViewers);
+      await updateLiveStreamState(env, {
+        checked_at: Date.now(),
+        last_error: result.error,
+        youtube_viewers: details.concurrentViewers,
+        youtube_peak: peak,
+      });
+      await cleanupLiveData(env);
+      return getLiveStreamStateRow(env);
+    }
+  }
+
+  // 邊沿檢測：justEnded 已经过上面的 actualEndTime 确认
   const justEnded = prev.is_live === 1 && prev.video_id && !result.videoId;
   const pendingArchive = !prev.is_live && prev.video_id && !result.videoId;
   const videoIdToArchive = justEnded || pendingArchive ? prev.video_id : null;
 
   // 寫狀態：is_live 跟最新探測；如果 videoIdToArchive 還在處理中，video_id 保留它直到歸檔成功
   const newVideoId = result.videoId ?? videoIdToArchive ?? null;
+  const isNewVideo = !!result.videoId && prev.video_id !== result.videoId;
   const startedAt = result.videoId
     ? (prev.video_id === result.videoId && prev.started_at ? prev.started_at : Date.now())
     : null;
@@ -2068,17 +2087,20 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
     started_at: startedAt,
     checked_at: Date.now(),
     last_error: result.error,
+    ...(isNewVideo ? { youtube_peak: 0 } : {}),
   });
 
   if (videoIdToArchive) {
     await tryArchiveAndNotify(env, config, videoIdToArchive);
   }
 
-  // 直播中時順手拉一次 YouTube concurrentViewers，寫進 state（不影響主流程）
+  // 直播中:拉并发,更新峰值(新视频从 0 起算)
   if (result.videoId && config.api_key) {
     try {
-      const yt = await fetchYouTubeConcurrentViewers(config.api_key, result.videoId);
-      await updateLiveStreamState(env, { youtube_viewers: yt });
+      const details = await fetchLiveStreamingDetails(config.api_key, result.videoId);
+      const basePeak = isNewVideo ? 0 : ((prev as any).youtube_peak ?? null);
+      const peak = nextPeak(basePeak, details.concurrentViewers);
+      await updateLiveStreamState(env, { youtube_viewers: details.concurrentViewers, youtube_peak: peak });
     } catch { /* ignore */ }
   } else if (!result.videoId) {
     // 非直播狀態：清零，避免顯示陳舊數字
@@ -2744,21 +2766,29 @@ async function countWebsiteUnique(env: Env, videoId: string): Promise<number> {
   }
 }
 
-async function fetchYouTubeConcurrentViewers(apiKey: string, videoId: string): Promise<number | null> {
+async function fetchLiveStreamingDetails(
+  apiKey: string | null,
+  videoId: string
+): Promise<{ concurrentViewers: number | null; actualEndTime: string | null }> {
+  if (!apiKey) return { concurrentViewers: null, actualEndTime: null };
   try {
     const url = new URL('https://www.googleapis.com/youtube/v3/videos');
     url.searchParams.set('part', 'liveStreamingDetails');
     url.searchParams.set('id', videoId);
     url.searchParams.set('key', apiKey);
     const response = await fetch(url.toString());
-    if (!response.ok) return null;
-    const data = await response.json<{ items?: Array<{ liveStreamingDetails?: { concurrentViewers?: string } }> }>();
-    const raw = data.items?.[0]?.liveStreamingDetails?.concurrentViewers;
-    if (!raw) return null;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
+    if (!response.ok) return { concurrentViewers: null, actualEndTime: null };
+    const data = await response.json<{
+      items?: Array<{ liveStreamingDetails?: { concurrentViewers?: string; actualEndTime?: string } }>;
+    }>();
+    const d = data.items?.[0]?.liveStreamingDetails;
+    const n = d?.concurrentViewers != null ? Number(d.concurrentViewers) : NaN;
+    return {
+      concurrentViewers: Number.isFinite(n) ? n : null,
+      actualEndTime: d?.actualEndTime ?? null,
+    };
   } catch {
-    return null;
+    return { concurrentViewers: null, actualEndTime: null };
   }
 }
 
