@@ -195,6 +195,7 @@ export const translations = {
     collapseChat: { en: 'Hide chat', zh: '收起聊天' },
     onlineHeader: { en: 'Online', zh: '在線' },
     onlineCountSuffix: { en: 'online', zh: '在線' },
+    countLabelTotal: { en: 'Total online', zh: '總在線' },
     joinFirst: { en: 'Pick an identity to join the chat', zh: '請選擇身份加入聊天' },
     streamLiveBadge: { en: 'LIVE NOW', zh: '現場直播中' },
     refreshButton: { en: 'Check now', zh: '立即重新檢查' },
