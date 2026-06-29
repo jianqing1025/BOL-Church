@@ -50,6 +50,7 @@ type SermonRow = {
   hidden?: number;
   duration_seconds?: number | null;
   view_count?: number | null;
+  live_online_total?: number | null;
 };
 
 type DailyMannaRow = Omit<SermonRow, 'type' | 'category'>;
@@ -70,6 +71,21 @@ async function ensureCategoryColumn(env: Env): Promise<void> {
   try {
     await env.DB.prepare("ALTER TABLE sermons ADD COLUMN category TEXT NOT NULL DEFAULT 'sunday-worship'").run();
   } catch { /* already exists */ }
+}
+
+async function ensureLiveStatsSchema(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS live_session_seen (
+        video_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        joined_at INTEGER NOT NULL,
+        PRIMARY KEY (video_id, session_id)
+      )`
+    ).run();
+  } catch { /* ignore */ }
+  try { await env.DB.prepare('ALTER TABLE live_stream_state ADD COLUMN youtube_peak INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN live_online_total INTEGER').run(); } catch { /* already exists */ }
 }
 
 function normalizeCategory(value: unknown): SermonCategoryDb {
@@ -445,6 +461,7 @@ function mapSermon(row: SermonRow) {
     hidden: Boolean(row.hidden),
     durationSeconds: row.duration_seconds ?? null,
     viewCount: row.view_count ?? null,
+    liveOnlineTotal: row.live_online_total ?? null,
   };
 }
 
@@ -1776,6 +1793,7 @@ type LiveStreamStateRow = {
   checked_at: number;
   last_error: string | null;
   youtube_viewers?: number | null;
+  youtube_peak?: number | null;
 };
 
 const UNCHANGED_API_KEY = '__unchanged__';
@@ -1817,7 +1835,7 @@ async function getLiveStreamStateRow(env: Env): Promise<LiveStreamStateRow> {
   await env.DB.prepare(
     "INSERT OR IGNORE INTO live_stream_state (id, checked_at) VALUES (1, 0)"
   ).run();
-  return { id: 1, is_live: 0, video_id: null, started_at: null, checked_at: 0, last_error: null };
+  return { id: 1, is_live: 0, video_id: null, started_at: null, checked_at: 0, last_error: null, youtube_peak: null };
 }
 
 function configRowToAdmin(row: LiveStreamConfigRow) {
@@ -1951,17 +1969,17 @@ async function getLatestSermons(env: Env, limit = 4): Promise<LatestSermon[]> {
 
 async function updateLiveStreamState(
   env: Env,
-  patch: Partial<{ is_live: number; video_id: string | null; started_at: number | null; checked_at: number; last_error: string | null; youtube_viewers: number | null }>
+  patch: Partial<{ is_live: number; video_id: string | null; started_at: number | null; checked_at: number; last_error: string | null; youtube_viewers: number | null; youtube_peak: number | null }>
 ): Promise<void> {
   const current = await getLiveStreamStateRow(env);
   const next = { ...current, ...patch };
   await env.DB
     .prepare(
       `UPDATE live_stream_state
-       SET is_live = ?, video_id = ?, started_at = ?, checked_at = ?, last_error = ?, youtube_viewers = ?
+       SET is_live = ?, video_id = ?, started_at = ?, checked_at = ?, last_error = ?, youtube_viewers = ?, youtube_peak = ?
        WHERE id = 1`
     )
-    .bind(next.is_live, next.video_id, next.started_at, next.checked_at, next.last_error, (next as any).youtube_viewers ?? null)
+    .bind(next.is_live, next.video_id, next.started_at, next.checked_at, next.last_error, (next as any).youtube_viewers ?? null, (next as any).youtube_peak ?? null)
     .run();
 }
 
