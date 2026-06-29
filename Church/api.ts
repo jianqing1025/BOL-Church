@@ -75,6 +75,7 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   bootstrap: () => request<SiteBootstrap>('/api/bootstrap'),
   photos: () => request<{ photos: ChurchPhoto[] }>('/api/photos'),
+  photoDetail: (id: string) => request<{ photo: ChurchPhoto }>(`/api/photos/${encodeURIComponent(id)}`),
   photoSettings: () => request<PhotoUploadSettings>('/api/photos/settings'),
   adminUpdatePhotoSettings: (payload: PhotoUploadSettings) =>
     request<PhotoUploadSettings>('/api/admin/photos/settings', { method: 'PUT', body: JSON.stringify(payload) }),

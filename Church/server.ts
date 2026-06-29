@@ -358,6 +358,27 @@ function mapPhoto(row: PhotoRow) {
   };
 }
 
+// 精简版:列表用,省去 EXIF(相册可能上千张,EXIF 改由 hover 时按需取详情)。
+function mapPhotoSlim(row: PhotoRow) {
+  return {
+    id: row.id,
+    src: row.src,
+    title: row.title,
+    collection: row.collection,
+    album: row.album,
+    sizeBytes: row.size_bytes ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
+    thumbSrc: row.thumb_src || undefined,
+    shotAt: row.shot_at || undefined,
+    uploaderId: row.uploader_id || undefined,
+    uploaderName: row.uploader_name || undefined,
+    hidden: Boolean(row.hidden),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
 function getCookie(request: Request, name: string): string | null {
   const cookie = request.headers.get('Cookie') ?? '';
   const parts = cookie.split(';').map(part => part.trim());
@@ -1465,7 +1486,11 @@ async function handleImageObject(env: Env, key: string): Promise<Response> {
   return new Response(object.body, { headers });
 }
 
+// 每个 isolate 只跑一次完整 DDL,避免每个读请求都做 ~20 次 ALTER 往返(热路径减负)。
+let photoSchemaEnsured = false;
+
 async function ensurePhotoTables(env: Env): Promise<void> {
+  if (photoSchemaEnsured) return;
   await env.PHOTOS_DB.prepare(
     `CREATE TABLE IF NOT EXISTS photos (
       id TEXT PRIMARY KEY,
@@ -1519,6 +1544,7 @@ async function ensurePhotoTables(env: Env): Promise<void> {
   await env.PHOTOS_DB.prepare(
     'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality, page_size) VALUES (1, 1600, 0.82, 100)'
   ).run();
+  photoSchemaEnsured = true;
 }
 
 const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 };
@@ -1569,14 +1595,26 @@ async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Re
 
 async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {
   await ensurePhotoTables(env);
+  // 只取列表/筛选/排序需要的列(去掉 EXIF + object_key/thumb_object_key/sort_order),
+  // 显著降低大相册下单次响应的 CPU/体积,避免 Worker 资源超限(1102)。
   const result = await env.PHOTOS_DB
     .prepare(
-      `SELECT * FROM photos
+      `SELECT id, src, title, collection, album, size_bytes, width, height,
+              thumb_src, shot_at, uploader_id, uploader_name, hidden, created_at, updated_at
+       FROM photos
        ${includeHidden ? '' : 'WHERE hidden = 0'}
        ORDER BY sort_order DESC, created_at DESC`
     )
     .all<PhotoRow>();
-  return json({ photos: (result.results || []).map(mapPhoto) });
+  return json({ photos: (result.results || []).map(mapPhotoSlim) });
+}
+
+// 单张详情(含 EXIF):列表精简后,前端按需(hover/灯箱)拉取。
+async function handlePhotoDetail(env: Env, id: string): Promise<Response> {
+  await ensurePhotoTables(env);
+  const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  if (!row) return notFound('Photo not found');
+  return json({ photo: mapPhoto(row) });
 }
 
 async function handlePhotoObject(env: Env, key: string): Promise<Response> {
@@ -3636,6 +3674,9 @@ const worker: ExportedHandler<Env> = {
 
     {
       const ownPhotoMatch = url.pathname.match(/^\/api\/photos\/([^/]+)$/);
+      if (ownPhotoMatch && request.method === 'GET') {
+        return handlePhotoDetail(env, decodeURIComponent(ownPhotoMatch[1]));
+      }
       if (ownPhotoMatch && request.method === 'PATCH') {
         return handleOwnPhotoUpdate(request, env, decodeURIComponent(ownPhotoMatch[1]));
       }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { api } from '../../api';
 import type { ChurchPhoto } from '../../data';
 
 const fmtBytes = (b: number): string => {
@@ -14,15 +15,36 @@ const fmtDate = (value?: string | number): string => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
 };
 
+// 列表响应已精简(不含 EXIF),hover 时按需拉取单张详情并缓存,避免大相册一次性加载 EXIF。
+const detailCache = new Map<string, ChurchPhoto>();
+
 /**
  * Read-only metadata panel shown on hover (desktop) over a PhotoCard.
- * Pulls camera/EXIF + uploader from the persisted ChurchPhoto record.
+ * Non-EXIF fields come from the slim list record; camera/EXIF is fetched
+ * on demand (hover) via the per-photo detail endpoint and cached.
  */
 export const ExifOverlay: React.FC<{ photo: ChurchPhoto }> = React.memo(
   ({ photo }) => {
-    const exif = photo.exif;
-    const shotAt = fmtDate(photo.shotAt);
-    const uploadedAt = fmtDate(photo.createdAt);
+    const [detail, setDetail] = React.useState<ChurchPhoto>(() => detailCache.get(photo.id) ?? photo);
+
+    React.useEffect(() => {
+      const cached = detailCache.get(photo.id);
+      if (cached) { setDetail(cached); return; }
+      if (photo.exif) { setDetail(photo); return; }
+      let cancelled = false;
+      api.photoDetail(photo.id)
+        .then(res => {
+          if (cancelled || !res.photo) return;
+          detailCache.set(photo.id, res.photo);
+          setDetail(res.photo);
+        })
+        .catch(() => { /* keep slim data */ });
+      return () => { cancelled = true; };
+    }, [photo, photo.id, photo.exif]);
+
+    const exif = detail.exif;
+    const shotAt = fmtDate(detail.shotAt);
+    const uploadedAt = fmtDate(detail.createdAt);
     const rows = (
       [
         shotAt ? ['Shot At', shotAt] : null,
@@ -32,10 +54,10 @@ export const ExifOverlay: React.FC<{ photo: ChurchPhoto }> = React.memo(
         exif?.aperture ? ['F', exif.aperture] : null,
         exif?.shutter ? ['Shutter', exif.shutter] : null,
         exif?.iso != null ? ['ISO', String(exif.iso)] : null,
-        photo.width && photo.height ? ['Pixels', `${photo.width}×${photo.height}`] : null,
-        photo.sizeBytes != null ? ['Size', fmtBytes(photo.sizeBytes)] : null,
+        detail.width && detail.height ? ['Pixels', `${detail.width}×${detail.height}`] : null,
+        detail.sizeBytes != null ? ['Size', fmtBytes(detail.sizeBytes)] : null,
         uploadedAt ? ['Upload', uploadedAt] : null,
-        photo.uploaderName ? ['Upload by', photo.uploaderName] : null,
+        detail.uploaderName ? ['Upload by', detail.uploaderName] : null,
       ] as ([string, string] | null)[]
     ).filter((r): r is [string, string] => r !== null);
 
