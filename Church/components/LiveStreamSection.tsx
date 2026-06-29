@@ -232,6 +232,14 @@ const LiveStreamSection: React.FC = () => {
                 <div className="p-2.5">
                   <div className="line-clamp-2 text-sm font-semibold text-gray-900">{title}</div>
                   {dateStr && <div className="mt-1 text-xs text-gray-500">{dateStr}</div>}
+                  {(typeof sermon.liveOnlineTotal === 'number' || typeof sermon.viewCount === 'number') && (
+                    <div className="mt-1 flex items-center gap-3 text-[11px] text-gray-500 tabular-nums">
+                      {typeof sermon.liveOnlineTotal === 'number' && (
+                        <span title={t('liveChat.countLabelTotal')}>👥 {sermon.liveOnlineTotal}</span>
+                      )}
+                      {typeof sermon.viewCount === 'number' && <span>▶ {sermon.viewCount}</span>}
+                    </div>
+                  )}
                 </div>
               </a>
             );
