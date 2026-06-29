@@ -2641,6 +2641,7 @@ async function joinViewer(
   params: { sessionId: string; videoId: string; name?: string; asGuest?: boolean; existingDisplayName?: string; isAdmin?: boolean }
 ): Promise<{ displayName: string; guestNumber: number | null; isAdmin: boolean }> {
   const now = Date.now();
+  await recordSessionSeen(env, params.videoId, params.sessionId);
   const existing = await env.DB
     .prepare('SELECT display_name, guest_number, is_admin, video_id FROM live_viewers WHERE session_id = ?')
     .bind(params.sessionId)
@@ -2720,6 +2721,27 @@ async function countViewersOnline(env: Env, videoId: string): Promise<number> {
     .bind(videoId, Date.now() - VIEWER_ACTIVE_MS)
     .first<{ c: number }>();
   return Number(row?.c || 0);
+}
+
+async function recordSessionSeen(env: Env, videoId: string, sessionId: string): Promise<void> {
+  try {
+    await env.DB
+      .prepare('INSERT OR IGNORE INTO live_session_seen (video_id, session_id, joined_at) VALUES (?, ?, ?)')
+      .bind(videoId, sessionId, Date.now())
+      .run();
+  } catch { /* table may be missing pre-migration */ }
+}
+
+async function countWebsiteUnique(env: Env, videoId: string): Promise<number> {
+  try {
+    const row = await env.DB
+      .prepare('SELECT COUNT(*) AS c FROM live_session_seen WHERE video_id = ?')
+      .bind(videoId)
+      .first<{ c: number }>();
+    return Number(row?.c || 0);
+  } catch {
+    return 0;
+  }
 }
 
 async function fetchYouTubeConcurrentViewers(apiKey: string, videoId: string): Promise<number | null> {
@@ -3283,6 +3305,7 @@ async function handleBackfillMetadata(request: Request, env: Env): Promise<Respo
 async function handleLiveJoin(request: Request, env: Env): Promise<Response> {
   try {
     await ensureLiveChatTables(env);
+    await ensureLiveStatsSchema(env);
     const payload = await readJson<{ sessionId?: string; name?: string; asGuest?: boolean; displayName?: string }>(request);
     const sessionId = String(payload.sessionId || '').trim();
     if (!sessionId) return badRequest('Missing sessionId');
