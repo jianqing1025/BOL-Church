@@ -2105,9 +2105,20 @@ async function fetchYouTubeVideoSnippet(apiKey: string, videoId: string): Promis
 
 async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
   try {
-    // 已存在 → 直接清除 pending 狀態
-    const exists = await env.DB.prepare("SELECT id FROM sermons WHERE youtube_id = ? LIMIT 1").bind(videoId).first<{ id: string }>();
+    // 已存在（多半是每日同步先把這支影片從 Uploads 匯入了）→ 認領為 live-broadcast，
+    // 確保它出現在歷史直播區，並設為回放影片，然後清除 pending 狀態。
+    const exists = await env.DB.prepare("SELECT id, category FROM sermons WHERE youtube_id = ? LIMIT 1")
+      .bind(videoId).first<{ id: string; category: string }>();
     if (exists) {
+      if (exists.category !== 'live-broadcast') {
+        await ensureCategoryColumn(env);
+        await env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE id = ?")
+          .bind(new Date().toISOString(), exists.id).run();
+      }
+      try {
+        await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
+          .bind(videoId, Date.now()).run();
+      } catch { /* ignore */ }
       await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
       return;
     }
@@ -2129,13 +2140,21 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     const nowIso = new Date().toISOString();
 
     await ensureCategoryColumn(env);
-    await env.DB
+    // OR IGNORE：若同步在我們查重後、插入前剛好併發插入了同一支影片（唯一索引），
+    // 不報錯、不破壞 cron 主流程；隨後再認領分類。
+    const insertRes = await env.DB
       .prepare(
-        `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, created_at, updated_at)
+        `INSERT OR IGNORE INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', 'live-broadcast', ?, ?)`
       )
       .bind(sermonId, titleEn, titleZh, speakerEn, speakerZh, today, '', '', '', '', videoId, imageUrl, nowIso, nowIso)
       .run();
+    const didInsert = (insertRes.meta?.changes ?? 0) > 0;
+    if (!didInsert) {
+      // 併發競態：那行已被同步插入 → 認領為 live-broadcast，保證進入歷史直播區。
+      await env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE youtube_id = ? AND category <> 'live-broadcast'")
+        .bind(nowIso, videoId).run();
+    }
 
     // 歸檔成功 → 清除 pending video_id
     await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
@@ -2147,8 +2166,10 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
         .bind(videoId, Date.now()).run();
     } catch { /* ignore */ }
 
-    // 通知 admin
-    await sendLiveStreamArchiveNotification(env, { sermonId, titleZh, titleEn, videoId, date: today });
+    // 通知 admin（只在我們真正新建了 sermon 時；認領既有行不重複發信）
+    if (didInsert) {
+      await sendLiveStreamArchiveNotification(env, { sermonId, titleZh, titleEn, videoId, date: today });
+    }
   } catch (err) {
     // 不影響 cron 主流程
     console.error('Archive sermon failed', err);
@@ -2459,7 +2480,7 @@ async function syncChannelUploads(
       if (meta.entryType === 'sermon') {
         stmts.push(
           env.DB.prepare(
-            `INSERT INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, created_at, updated_at)
+            `INSERT OR IGNORE INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', ?, ?, ?, ?, ?)`
           ).bind(
             crypto.randomUUID(), meta.finalTitle, meta.finalTitle,
@@ -2470,7 +2491,7 @@ async function syncChannelUploads(
       } else {
         stmts.push(
           env.DB.prepare(
-            `INSERT INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, duration_seconds, view_count, created_at, updated_at)
+            `INSERT OR IGNORE INTO daily_manna (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, duration_seconds, view_count, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             crypto.randomUUID(), meta.finalTitle, meta.finalTitle,
@@ -2484,9 +2505,11 @@ async function syncChannelUploads(
 
     if (stmts.length > 0) {
       try {
-        await env.DB.batch(stmts);
-        result.inserted += plannedInserts;
-        result.skipped += plannedSkips;
+        const batchRes = await env.DB.batch(stmts);
+        // OR IGNORE 下，併發競態可能讓部分行被跳過 → 以實際 changes 計數，未變動的計入 skipped。
+        const actuallyInserted = batchRes.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
+        result.inserted += actuallyInserted;
+        result.skipped += plannedSkips + (plannedInserts - actuallyInserted);
       } catch (err) {
         result.errors.push(`batch page ${result.pages}: ${err instanceof Error ? err.message : String(err)}`);
         result.skipped += metas.length;
