@@ -87,6 +87,14 @@ function formatLiveDuration(seconds?: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// Match SermonsPage view-count formatting (1.2K / 3.4M)
+function formatViewCount(count?: number | null): string {
+  if (count == null || count < 0) return '';
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K`;
+  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
 const LiveStreamSection: React.FC = () => {
   const { t, language } = useLocalization();
   const { currentUser, sermons } = useAdmin();
@@ -231,14 +239,14 @@ const LiveStreamSection: React.FC = () => {
                 </div>
                 <div className="p-2.5">
                   <div className="line-clamp-2 text-sm font-semibold text-gray-900">{title}</div>
-                  {dateStr && <div className="mt-1 text-xs text-gray-500">{dateStr}</div>}
-                  {(typeof sermon.liveOnlineTotal === 'number' || typeof sermon.viewCount === 'number') && (
-                    <div className="mt-1 flex items-center gap-3 text-[11px] text-gray-500 tabular-nums">
-                      {typeof sermon.liveOnlineTotal === 'number' && (
-                        <span title={t('liveChat.countLabelTotal')}>👥 {sermon.liveOnlineTotal}</span>
-                      )}
-                      {typeof sermon.viewCount === 'number' && <span>▶ {sermon.viewCount}</span>}
-                    </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                    <span>{dateStr}</span>
+                    {formatViewCount(sermon.viewCount) && (
+                      <span className="text-gray-400 whitespace-nowrap">{formatViewCount(sermon.viewCount)} {t('admin.viewsLabel')}</span>
+                    )}
+                  </div>
+                  {typeof sermon.liveOnlineTotal === 'number' && (
+                    <div className="mt-0.5 text-[11px] text-gray-400" title={t('liveChat.countLabelTotal')}>👥 {sermon.liveOnlineTotal}</div>
                   )}
                 </div>
               </a>
