@@ -58,6 +58,9 @@ export interface LiveStreamPublicState {
   viewersOnline: number;
   youtubeViewers: number | null;
   viewerList: LiveStreamViewer[];
+  websiteTotal: number;
+  youtubePeak: number | null;
+  totalOnline: number;
 }
 
 export interface LiveStreamAdminState {

@@ -16,6 +16,7 @@ export interface Sermon {
   hidden?: boolean;
   durationSeconds?: number | null;
   viewCount?: number | null;
+  liveOnlineTotal?: number | null;
 }
 
 export interface Message {
