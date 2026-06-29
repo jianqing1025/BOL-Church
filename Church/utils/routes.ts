@@ -9,7 +9,11 @@ export function cleanPath(href: string): string {
 }
 
 export function currentRoute(): string {
-  return `${window.location.pathname}${window.location.search}` || '/';
+  // Route matching is path-based. Query strings (e.g. the slideshow popup's
+  // ?photoSlideshowWindow=1&photoSlideshowToken=… params) must NOT be part of the
+  // route, otherwise exact matches like `route === '/photos'` fail and the page
+  // falls through to the default layout. Components read window.location.search directly.
+  return window.location.pathname || '/';
 }
 
 export function redirectLegacyHashRoute(): boolean {
