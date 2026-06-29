@@ -281,12 +281,12 @@ const LiveStreamSection: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <span>👥</span>
                 <span className="text-gray-600">{t('liveChat.countLabelSite')}</span>
-                <span className="text-gray-900">{state.viewersOnline}</span>
+                <span className="text-gray-900">{state.websiteTotal}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span>📺</span>
                 <span className="text-gray-600">YouTube</span>
-                <span className="text-gray-900">{state.youtubeViewers ?? '—'}</span>
+                <span className="text-gray-900">{state.youtubePeak ?? '—'}</span>
               </div>
             </div>
 
@@ -297,7 +297,7 @@ const LiveStreamSection: React.FC = () => {
               className="flex items-center justify-between border-b border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 lg:hidden"
             >
               <span>{chatCollapsed ? `▸ ${t('liveChat.expandChat')}` : `▾ ${t('liveChat.collapseChat')}`}</span>
-              <span className="text-gray-400">{state.viewersOnline} {t('liveChat.onlineCountSuffix')}</span>
+              <span className="text-gray-400">{t('liveChat.countLabelTotal')} {state.totalOnline}</span>
             </button>
 
             {(!chatCollapsed) && (
