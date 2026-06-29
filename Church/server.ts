@@ -2820,16 +2820,20 @@ async function buildPublicLiveStreamState(env: Env) {
   const activeVideoId = resolveActiveVideoId(config, state);
 
   let viewersOnline = 0;
+  let websiteTotal = 0;
   let viewerList: Array<{ displayName: string; isAdmin: boolean; isGuest: boolean; guestNumber: number | null }> = [];
   if (activeVideoId) {
     try {
       viewersOnline = await countViewersOnline(env, activeVideoId);
       viewerList = await getViewerList(env, activeVideoId);
+      websiteTotal = await countWebsiteUnique(env, activeVideoId);
     } catch { /* tables may be missing */ }
   }
   const youtubeViewers = (state as any).youtube_viewers != null ? Number((state as any).youtube_viewers) : null;
+  const youtubePeak = (state as any).youtube_peak != null ? Number((state as any).youtube_peak) : null;
+  const totalOnline = computeTotalOnline(websiteTotal, youtubePeak);
 
-  const baseExtras = { viewersOnline, youtubeViewers, viewerList };
+  const baseExtras = { viewersOnline, youtubeViewers, viewerList, websiteTotal, youtubePeak, totalOnline };
 
   // 三態決策（注意：真正的「直播中」優先級 > manual override 的「回放」）
   //   1. state.is_live + state.video_id   → 真正直播中（status='live'，啟用聊天）
@@ -2889,6 +2893,9 @@ async function handleLiveStreamPublic(env: Env): Promise<Response> {
       viewersOnline: 0,
       youtubeViewers: null,
       viewerList: [],
+      websiteTotal: 0,
+      youtubePeak: null,
+      totalOnline: 0,
       degraded: true,
       degradedReason: err instanceof Error ? err.message : String(err),
     });
