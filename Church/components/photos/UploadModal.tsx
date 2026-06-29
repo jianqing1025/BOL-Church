@@ -79,6 +79,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const yearOptions = uploadCollection !== 'All' && !collections.includes(uploadCollection) ? [uploadCollection, ...collections] : collections;
   const albumOptions = uploadAlbum && !albums.includes(uploadAlbum) ? [uploadAlbum, ...albums] : albums;
   const doneCount = useMemo(() => statuses.filter(s => s.stage === 'done').length, [statuses]);
+  const selectedFilesText = queue.length === 0
+    ? t('photosPage.noFileChosen')
+    : queue.length === 1
+      ? queue[0].name
+      : `${queue.length} \u5f35\u5716\u7247\u5df2\u9078\u53d6`;
 
   const reset = () => {
     setQueue([]);
@@ -203,27 +208,32 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           {/* File picker */}
           <div>
             <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-gray-400">{t('photosPage.selectImages')}</div>
-            <div className="flex items-center gap-4">
-              <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-full bg-rose-50 px-5 text-sm font-bold text-rose-500 transition-colors hover:bg-rose-100">
-                {t('photosPage.chooseFiles')}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="sr-only"
-                  onChange={(e) => {
-                    const picked = (e.target.files ? Array.from(e.target.files) : []) as File[];
-                    setQueue(picked.filter((f) => f.type.startsWith('image/')));
-                    setStatuses([]);
-                  }}
-                />
-              </label>
-              <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
-                {queue.length === 0
-                  ? t('photosPage.noFileChosen')
-                  : `${queue.length} ${t(queue.length === 1 ? 'photosPage.fileSelected' : 'photosPage.filesSelected')}`}
-              </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                const picked = (e.target.files ? Array.from(e.target.files) : []) as File[];
+                setQueue(picked.filter((f) => f.type.startsWith('image/')));
+                setStatuses([]);
+              }}
+            />
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <input
+                value={selectedFilesText}
+                readOnly
+                className="h-[47px] min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-4 text-sm font-semibold text-gray-700 outline-none"
+                title={selectedFilesText}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-[47px] items-center justify-center gap-1 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 hover:shadow-lg"
+              >
+                <span>{'\u9078\u64c7\u5716\u7247'}</span><span className="font-black">{'[批量]'}</span>
+              </button>
             </div>
           </div>
 
@@ -299,7 +309,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <label className={`flex items-center gap-2 ${canEditResize ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
               <input type="checkbox" checked={resizeEnabled} disabled={!canEditResize} onChange={(e) => setResizeEnabled(e.target.checked)} className="h-4 w-4 accent-rose-500 disabled:cursor-not-allowed" />
               <span className="text-sm font-semibold text-gray-700">{t('photosPage.resizeBeforeUpload')}</span>
-              {!canEditResize && <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.adminOnly')}</span>}
             </label>
             {resizeEnabled && (
               <div className="mt-3 grid grid-cols-2 gap-3">
@@ -343,7 +352,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           {error && <div className="text-center text-sm font-semibold text-red-600">{error}</div>}
 
-          <button type="submit" disabled={!canSubmit} className="mt-2 inline-flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[#dda7ba] text-base font-extrabold text-white shadow-sm transition-colors hover:bg-[#d895ad] disabled:cursor-not-allowed disabled:bg-gray-300">
+          <button type="submit" disabled={!canSubmit} className="mt-2 inline-flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-blue-600 text-base font-extrabold text-white shadow-md transition-all hover:bg-blue-700 hover:shadow-lg disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none">
             {uploading ? <Loader2 size={18} className="animate-spin" /> : null}
             {t('photosPage.uploadPhotos')}
           </button>

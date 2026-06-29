@@ -13,6 +13,7 @@ interface HeaderProps {
   isTransparent: boolean;
   useHeroBackground?: boolean;
   isPhotosPage?: boolean;
+  photoGateActive?: boolean;
 }
 
 type NavSubLink =
@@ -58,7 +59,7 @@ const useHeaderStyle = (isTransparent: boolean, useHeroBackground: boolean) => {
     };
 }
 
-const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = false, isPhotosPage = false }) => {
+const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = false, isPhotosPage = false, photoGateActive = false }) => {
   const { language, toggleLanguage, t } = useLocalization();
   const { images } = useAdmin();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -164,9 +165,11 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
   const uploadLabel = t('photosPage.uploadPhotos');
   const churchTitle = language === Language.EN ? t('header.logo') : '\u4fe1\u671b\u611b\u9748\u7ce7\u5802';
   const openPhotoUpload = () => {
+    if (photoGateActive) return;
     window.dispatchEvent(new CustomEvent('bolccop:open-photo-upload'));
   };
   const startPhotoSlideshow = (mode: SlideshowMode) => {
+    if (photoGateActive) return;
     setPhotoSlideshowOpen(false);
     window.dispatchEvent(new CustomEvent<SlideshowMode>('bolccop:start-photo-slideshow', { detail: mode }));
   };
@@ -227,10 +230,15 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               {language === Language.EN ? '\u4e2d\u6587' : 'English'}
             </button>
             <div className="relative">
-              <button type="button" onClick={() => setPhotoSlideshowOpen((open) => !open)} className="rounded-full bg-blue-600 px-5 py-2 text-base font-semibold text-white transition-all hover:bg-blue-700">
+              <button
+                type="button"
+                onClick={() => !photoGateActive && setPhotoSlideshowOpen((open) => !open)}
+                disabled={photoGateActive}
+                className={`rounded-full px-5 py-2 text-base font-semibold text-white transition-all ${photoGateActive ? 'cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
                 Slideshow
               </button>
-              {photoSlideshowOpen && (
+              {photoSlideshowOpen && !photoGateActive && (
                 <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border border-gray-100 bg-white py-1 shadow-xl">
                   {SLIDESHOW_MODES.map(({ id, label, Icon }) => (
                     <button key={id} type="button" onClick={() => startPhotoSlideshow(id)} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
@@ -240,7 +248,12 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                 </div>
               )}
             </div>
-            <button type="button" onClick={openPhotoUpload} className="rounded-full bg-blue-600 px-5 py-2 text-base font-semibold text-white transition-all hover:bg-blue-700">
+            <button
+              type="button"
+              onClick={openPhotoUpload}
+              disabled={photoGateActive}
+              className={`rounded-full px-5 py-2 text-base font-semibold transition-all ${photoGateActive ? 'cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
               {uploadLabel}
             </button>
           </div>
@@ -248,7 +261,8 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
             <button
               type="button"
               onClick={openPhotoUpload}
-              className="rounded-full bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700"
+              disabled={photoGateActive}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm transition-all ${photoGateActive ? 'cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
             >
               上传
             </button>

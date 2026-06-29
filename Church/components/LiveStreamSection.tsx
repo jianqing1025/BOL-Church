@@ -102,6 +102,8 @@ const LiveStreamSection: React.FC = () => {
   const [identity, setIdentity] = useState<StoredIdentity | null>(() => (typeof window !== 'undefined' ? readIdentity() : null));
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [selectedPastId, setSelectedPastId] = useState<string | null>(null);
+  const playerSectionRef = useRef<HTMLDivElement>(null);
 
   const isLoggedInAdmin = !!currentUser;
   const isLive = state?.status === 'live' && !!state?.videoId;
@@ -198,6 +200,17 @@ const LiveStreamSection: React.FC = () => {
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       .slice(0, 12);
   }, [sermons]);
+  const selectedPastBroadcast = useMemo(
+    () => pastBroadcasts.find(sermon => sermon.id === selectedPastId) ?? null,
+    [pastBroadcasts, selectedPastId],
+  );
+
+  const handlePastBroadcastClick = (id: string) => {
+    setSelectedPastId(id);
+    window.setTimeout(() => {
+      playerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
 
   const renderPastBroadcasts = () => {
     if (pastBroadcasts.length === 0) return null;
@@ -216,10 +229,13 @@ const LiveStreamSection: React.FC = () => {
               : '';
             const duration = formatLiveDuration(sermon.durationSeconds);
             return (
-              <a
+              <button
                 key={sermon.id}
-                href={`/sermons/${sermon.id}`}
-                className="group block overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+                type="button"
+                onClick={() => handlePastBroadcastClick(sermon.id)}
+                className={`group block overflow-hidden rounded-lg border bg-white text-left shadow-sm transition-shadow hover:shadow-md ${
+                  selectedPastId === sermon.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
+                }`}
               >
                 <div className="relative aspect-video w-full overflow-hidden bg-black">
                   <img
@@ -249,7 +265,7 @@ const LiveStreamSection: React.FC = () => {
                     <div className="mt-0.5 text-[11px] text-gray-400" title={t('liveChat.countLabelTotal')}>👥 {sermon.liveOnlineTotal}</div>
                   )}
                 </div>
-              </a>
+              </button>
             );
           })}
         </div>
@@ -273,7 +289,12 @@ const LiveStreamSection: React.FC = () => {
         )}
         <div className="flex flex-col gap-4 lg:flex-row">
           {/* Left: player —— 取剩下的所有寬度（chat 固定後，player 自動大約 +20%） */}
-          <div className="flex-1 min-w-0">
+          <div ref={playerSectionRef} className="flex-1 min-w-0 scroll-mt-32">
+            {selectedPastBroadcast ? (
+              <div className="mb-3 rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+                {language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
+              </div>
+            ) : (
             <div className="flex flex-wrap items-center gap-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 mb-3">
               <span className="flex items-center gap-2">
                 <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
@@ -285,8 +306,9 @@ const LiveStreamSection: React.FC = () => {
                 </span>
               )}
             </div>
+            )}
             <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
-              <LivePlayer videoId={state.videoId} />
+              <LivePlayer videoId={selectedPastBroadcast?.youtubeId || state.videoId} />
             </div>
           </div>
 
@@ -373,10 +395,15 @@ const LiveStreamSection: React.FC = () => {
             </span>
           )}
         </div>
-        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
+        {selectedPastBroadcast && (
+          <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+            {language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
+          </div>
+        )}
+        <div ref={playerSectionRef} className="aspect-video w-full scroll-mt-32 overflow-hidden rounded-lg bg-black shadow-lg">
           <iframe
-            key={state.videoId || 'replay'}
-            src={`https://www.youtube.com/embed/${state.videoId}?rel=0`}
+            key={selectedPastBroadcast?.youtubeId || state.videoId || 'replay'}
+            src={`https://www.youtube.com/embed/${selectedPastBroadcast?.youtubeId || state.videoId}?rel=0${selectedPastBroadcast ? '&autoplay=1' : ''}`}
             title="Last broadcast replay"
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -392,6 +419,24 @@ const LiveStreamSection: React.FC = () => {
   // Offline state — original layout (no chat, since chat is per-stream)
   return (
     <div className="space-y-8">
+      {selectedPastBroadcast && (
+        <div ref={playerSectionRef} className="space-y-3 scroll-mt-32">
+          <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+            {language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
+          </div>
+          <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
+            <iframe
+              key={selectedPastBroadcast.youtubeId}
+              src={`https://www.youtube.com/embed/${selectedPastBroadcast.youtubeId}?rel=0&autoplay=1`}
+              title={language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="h-full w-full"
+            />
+          </div>
+        </div>
+      )}
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold uppercase tracking-wide text-gray-500">

@@ -52,10 +52,10 @@ export const translations = {
     becomingAMemberContent: { en: 'Find out how you can become a member of our church community. More details coming soon.', zh: '了解如何成為我們教會社區的一員。更多詳情即將推出。' },
   },
   photoGate: {
-    title: { en: 'Welcome to the Bread of Life Christian Church Album', zh: '歡迎來到信望愛靈糧堂相冊' },
+    title: { en: 'Welcome to the Bread of Life Christian Church Album', zh: '歡迎來到信望愛靈糧堂活動相冊' },
     noticeSmall: {
       en: 'To respect the privacy of our brothers, sisters, and their families, the album is open only to church community members and invited guests. Please enter the access password.',
-      zh: '為尊重每位弟兄姊妹及家人的隱私，相冊僅向教會社區成員及受邀訪客開放，請輸入訪問密碼。',
+      zh: '為尊重每位弟兄姊妹及家人的隱私，相冊僅向信望愛社區成員及受邀訪客開放，請輸入訪問密碼。',
     },
     placeholder: { en: 'Enter access password', zh: '請輸入訪問密碼' },
     enter: { en: 'Enter Album', zh: '進入相冊' },
@@ -110,7 +110,7 @@ export const translations = {
     add: { en: 'Add', zh: '\u65b0\u589e' },
     uploadedBy: { en: 'Uploaded by', zh: '\u4e0a\u50b3\u4eba' },
     uploaderPlaceholder: { en: 'Your name (optional)', zh: '\u4f60\u7684\u540d\u5b57\uff08\u9078\u586b\uff09' },
-    resizeBeforeUpload: { en: 'Resize before upload', zh: '\u4e0a\u50b3\u524d\u58d3\u7e2e' },
+    resizeBeforeUpload: { en: 'Resize', zh: '\u8abf\u6574\u5c3a\u5bf8' },
     maxLongEdge: { en: 'Max long edge', zh: '\u6700\u9577\u908a' },
     jpegQuality: { en: 'JPEG quality', zh: 'JPEG \u8cea\u91cf' },
     processing: { en: 'Processing', zh: '\u8655\u7406\u4e2d' },

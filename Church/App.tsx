@@ -147,7 +147,7 @@ function App() {
 
   return (
     <div className="bg-white text-gray-800 antialiased min-h-screen flex flex-col">
-      <Header isTransparent={isHomePage || (isPhotosPage && photoGateActive)} useHeroBackground={isPhotosPage && !photoGateActive} isPhotosPage={isPhotosPage} />
+      <Header isTransparent={isHomePage || (isPhotosPage && photoGateActive)} useHeroBackground={isPhotosPage && !photoGateActive} isPhotosPage={isPhotosPage} photoGateActive={photoGateActive} />
       <main className="flex-grow">
         {renderPage()}
       </main>

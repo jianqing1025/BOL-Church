@@ -20,15 +20,19 @@ export const CascadeSlideshow = ({ photos, onClose }: { photos: ChurchPhoto[]; o
   return (
     <div className="fixed inset-0 z-[100] flex gap-2 overflow-hidden bg-black p-2 animate-fadeIn">
       <button onClick={onClose} className="absolute right-6 top-6 z-[110] rounded-full bg-black/20 p-2 text-white backdrop-blur-md transition-colors hover:bg-rose-500"><X size={24} /></button>
-      {columns.map((col, i) => (
-        <div key={i} className="flex flex-1 flex-col gap-2 animate-cascade-y" style={{ animationDuration: `${30 + i * 5}s`, animationDirection: i % 2 === 0 ? 'normal' : 'reverse' }}>
+      {columns.map((col, i) => {
+        const isUpward = i % 2 === 0;
+        const baseDuration = 30 + i * 5;
+        return (
+        <div key={i} className="flex flex-1 flex-col gap-2 animate-cascade-y" style={{ animationDuration: `${isUpward ? baseDuration / 1.5 : baseDuration}s`, animationDirection: isUpward ? 'normal' : 'reverse' }}>
           {[...col, ...col, ...col].map((img, idx) => (
             <div key={`${i}-${idx}`} className="relative aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg bg-gray-900">
               <img src={imgUrl(img, 'grid')} className="h-full w-full object-cover opacity-80 transition-opacity hover:opacity-100" alt="" />
             </div>
           ))}
         </div>
-      ))}
+        );
+      })}
       <style>{`
         @keyframes cascadeScrollY { 0% { transform: translateY(0); } 100% { transform: translateY(-50%); } }
         .animate-cascade-y { animation-name: cascadeScrollY; animation-timing-function: linear; animation-iteration-count: infinite; }
