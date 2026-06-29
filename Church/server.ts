@@ -66,6 +66,8 @@ async function ensureMetadataColumns(env: Env): Promise<void> {
   try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN view_count INTEGER').run(); } catch { /* already exists */ }
   try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN duration_seconds INTEGER').run(); } catch { /* already exists */ }
   try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN view_count INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN meta_refreshed_at INTEGER').run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE daily_manna ADD COLUMN meta_refreshed_at INTEGER').run(); } catch { /* already exists */ }
 }
 
 async function ensureCategoryColumn(env: Env): Promise<void> {
@@ -3365,6 +3367,54 @@ async function handleBackfillMetadata(request: Request, env: Env): Promise<Respo
   return json(result);
 }
 
+// 定时轮转刷新:每次取「最久未刷新」的 perTable 行(meta_refreshed_at NULL 最先),
+// 重新拉 YouTube 时长/播放数并写回 meta_refreshed_at。全量随时间轮流更新,控量护配额。
+async function refreshOldestMetadata(env: Env, perTable: number): Promise<{ updated: number; errors: string[] }> {
+  const result = { updated: 0, errors: [] as string[] };
+  const config = await getLiveStreamConfigRow(env);
+  if (!config.api_key) return result;
+  await ensureMetadataColumns(env);
+  const now = Date.now();
+
+  const tables: Array<'sermons' | 'daily_manna'> = ['sermons', 'daily_manna'];
+  for (const table of tables) {
+    let items: Array<{ id: string; youtube_id: string }> = [];
+    try {
+      // table 来自固定白名单,非用户输入,可安全内插。SQLite 中 NULL 排在最前 → 从未刷新者先刷。
+      const rows = await env.DB
+        .prepare(`SELECT id, youtube_id FROM ${table} ORDER BY meta_refreshed_at ASC LIMIT ?`)
+        .bind(perTable)
+        .all<{ id: string; youtube_id: string }>();
+      items = rows.results || [];
+    } catch (err) {
+      result.errors.push(`select ${table}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    for (let i = 0; i < items.length; i += 50) {
+      const chunk = items.slice(i, i + 50);
+      try {
+        const metaMap = await fetchVideoMetadata(config.api_key, chunk.map(r => r.youtube_id));
+        const stmts: D1PreparedStatement[] = [];
+        for (const row of chunk) {
+          const vm = metaMap.get(row.youtube_id);
+          if (vm) {
+            stmts.push(env.DB.prepare(`UPDATE ${table} SET duration_seconds = ?, view_count = ?, meta_refreshed_at = ? WHERE id = ?`)
+              .bind(vm.durationSeconds, vm.viewCount, now, row.id));
+            result.updated++;
+          } else {
+            // 拿不到(视频删/私有)也推进游标,避免一直卡在同几条
+            stmts.push(env.DB.prepare(`UPDATE ${table} SET meta_refreshed_at = ? WHERE id = ?`).bind(now, row.id));
+          }
+        }
+        if (stmts.length > 0) await env.DB.batch(stmts);
+      } catch (err) {
+        result.errors.push(`${table} batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  return result;
+}
+
 // ============================================================================
 // Live chat & viewers endpoints
 // ============================================================================
@@ -4044,6 +4094,7 @@ const worker: ExportedHandler<Env> = {
   async scheduled(event, env, ctx): Promise<void> {
     // 多個 cron trigger 分派：
     //  - "0 */4 * * *"  每 4 小時從所有頻道同步 YouTube uploads
+    //  - "0 * * * *"    每小時輪轉刷新一批 sermon/manna 的元數據(時長/播放數)
     //  - 其它（"*/5 17-22 * * SUN"） live 偵測
     if (event.cron === '0 */4 * * *') {
       ctx.waitUntil(
@@ -4051,6 +4102,8 @@ const worker: ExportedHandler<Env> = {
           .then(result => sendUploadsSyncNotification(env, result))
           .catch(() => undefined)
       );
+    } else if (event.cron === '0 * * * *') {
+      ctx.waitUntil(refreshOldestMetadata(env, 100).then(() => undefined).catch(() => undefined));
     } else {
       ctx.waitUntil(runProbeIfDue(env, false).then(() => undefined).catch(() => undefined));
     }
