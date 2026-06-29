@@ -25,7 +25,6 @@ export const ExifOverlay: React.FC<{ photo: ChurchPhoto }> = React.memo(
     const uploadedAt = fmtDate(photo.createdAt);
     const rows = (
       [
-        photo.uploaderName ? ['Uploader', photo.uploaderName] : null,
         shotAt ? ['Shot At', shotAt] : null,
         exif?.camera ? ['Camera', exif.camera] : null,
         exif?.lens ? ['Lens', exif.lens] : null,
@@ -36,6 +35,7 @@ export const ExifOverlay: React.FC<{ photo: ChurchPhoto }> = React.memo(
         photo.width && photo.height ? ['Pixels', `${photo.width}×${photo.height}`] : null,
         photo.sizeBytes != null ? ['Size', fmtBytes(photo.sizeBytes)] : null,
         uploadedAt ? ['Upload', uploadedAt] : null,
+        photo.uploaderName ? ['Upload by', photo.uploaderName] : null,
       ] as ([string, string] | null)[]
     ).filter((r): r is [string, string] => r !== null);
 

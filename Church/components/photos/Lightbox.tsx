@@ -196,12 +196,12 @@ export const Lightbox: React.FC<LightboxProps> = ({ photos, index, onClose, onNa
       </div>
 
       {showInfo && infoRows.length > 0 && (
-        <div className="absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-xl border border-white/10 bg-black/60 px-5 py-3 backdrop-blur-md" onClick={(e) => e.stopPropagation()}>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
+        <div className="absolute bottom-16 left-1/2 z-20 w-[min(92vw,520px)] -translate-x-1/2 rounded-xl border border-white/10 bg-black/60 px-5 py-3 backdrop-blur-md" onClick={(e) => e.stopPropagation()}>
+          <div className="grid grid-cols-1 gap-y-1">
             {infoRows.map(([label, value]) => (
-              <div key={label} className="grid grid-cols-[64px_minmax(0,1fr)] items-baseline gap-x-2">
+              <div key={label} className="grid grid-cols-[76px_minmax(0,1fr)] items-baseline gap-x-2">
                 <span className="text-[9px] uppercase tracking-wide text-white/45">{label}</span>
-                <span className="truncate text-[11px] font-medium text-white/90">{value}</span>
+                <span className="whitespace-normal break-words text-[11px] font-medium leading-snug text-white/90">{value}</span>
               </div>
             ))}
           </div>

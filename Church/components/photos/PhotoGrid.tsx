@@ -13,6 +13,7 @@ interface PhotoGridProps {
   isSelectMode: boolean;
   selectedIds: Set<string>;
   isDeleteMode: boolean;
+  isAdminUser?: boolean;
   favorites: Set<string>;
   uploaderId: string;
   deletingId: string;
@@ -31,7 +32,7 @@ interface PhotoGridProps {
 const DRAG_THRESHOLD = 5;
 
 export const PhotoGrid: React.FC<PhotoGridProps> = ({
-  items, viewMode, gridDisplayMode, columns, filter, isSelectMode, selectedIds, isDeleteMode,
+  items, viewMode, gridDisplayMode, columns, filter, isSelectMode, selectedIds, isDeleteMode, isAdminUser,
   favorites, uploaderId, deletingId, labels, onToggleSelection, onAddToSelection, onItemClick,
   onToggleFavorite, onDelete, onContextMenu, onAddTile, hasMore, isLoadingMore,
 }) => {
@@ -151,7 +152,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
               isSelected={selectedIds.has(photo.id) || dragVisualIds.has(photo.id)}
               isDeleteMode={isDeleteMode}
               isFav={favorites.has(photo.id)}
-              canDelete={photo.uploaderId === uploaderId}
+              canDelete={Boolean(isAdminUser) || photo.uploaderId === uploaderId}
               isDeleting={deletingId === photo.id}
               photoAlt={labels.photoAlt}
               favoriteLabel={labels.favorite}
@@ -183,7 +184,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
               isSelected={selectedIds.has(photo.id)}
               isDeleteMode={isDeleteMode}
               isFav={favorites.has(photo.id)}
-              canDelete={photo.uploaderId === uploaderId}
+              canDelete={Boolean(isAdminUser) || photo.uploaderId === uploaderId}
               isDeleting={deletingId === photo.id}
               photoAlt={labels.photoAlt}
               favoriteLabel={labels.favorite}

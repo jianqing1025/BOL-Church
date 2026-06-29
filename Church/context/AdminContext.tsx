@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import { produce } from 'immer';
 import { api } from '../api';
 import { DEFAULT_SITE_BOOTSTRAP, type AdminRole, type AdminUser, type Donation, type Message, type PrayerRequest, type Sermon } from '../data';
+import { churchAlert } from '../components/ChurchDialog';
 
 interface AdminContextType {
   isAdminMode: boolean;
@@ -191,7 +192,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const saveChanges = async () => {
     await api.saveContent(content);
     setHasUnsavedContent(false);
-    alert('所有文字更改已保存到 D1。');
+    await churchAlert('所有文字更改已保存到 D1。');
   };
 
   const submitMessage = async (data: Omit<Message, 'id' | 'date' | 'read'>) => {

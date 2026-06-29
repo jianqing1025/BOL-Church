@@ -15,6 +15,13 @@ export function shortDate(value: string): string {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+export function compactDate(value: string): string {
+  if (!value) return '-';
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return `${parsed.getFullYear()}-${parsed.getMonth() + 1}-${parsed.getDate()}`;
+}
+
 export function monthKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }

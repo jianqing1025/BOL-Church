@@ -146,12 +146,12 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
     };
 
     updateHeaderHeight();
-    const resizeObserver = new ResizeObserver(updateHeaderHeight);
-    resizeObserver.observe(header);
+    const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(updateHeaderHeight) : null;
+    resizeObserver?.observe(header);
     window.addEventListener('resize', updateHeaderHeight);
 
     return () => {
-      resizeObserver.disconnect();
+      resizeObserver?.disconnect();
       window.removeEventListener('resize', updateHeaderHeight);
     };
   }, []);
@@ -222,7 +222,14 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               {uploadLabel}
             </button>
           </div>
-          <div className={`md:hidden ${mobileIconColor}`}>
+          <div className={`flex items-center gap-2 md:hidden ${mobileIconColor}`}>
+            <button
+              type="button"
+              onClick={openPhotoUpload}
+              className="rounded-full bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700"
+            >
+              上传
+            </button>
             <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
               {isMenuOpen ? <CloseIcon /> : <MenuIcon />}
             </button>
@@ -318,11 +325,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               <button onClick={() => { toggleLanguage(); handleLinkClick(); }} className="text-base font-semibold text-gray-600 hover:text-blue-600 transition-colors py-2 mt-1">
                 {language === Language.EN ? '中文' : 'English'}
               </button>
-              {isPhotosPage ? (
-                <button type="button" onClick={() => { openPhotoUpload(); handleLinkClick(); }} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
-                  {uploadLabel}
-                </button>
-              ) : (
+              {!isPhotosPage && (
                 <a href="/contact/contact-us" onClick={event => navigateTo(event, '/contact/contact-us')} className="bg-blue-600 text-white px-5 py-2.5 rounded-full hover:bg-blue-700 transition-all text-base font-semibold mt-3">
                   {t('header.newHere')}
                 </a>

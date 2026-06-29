@@ -1014,6 +1014,13 @@ td small {
   font-size: 0.9rem;
 }
 
+.bar-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bar-track {
   display: grid;
   gap: 0.25rem;
@@ -1243,9 +1250,21 @@ td small {
 }
 
 .expense-status-op {
+  display: inline-grid;
+  gap: 0.12rem;
   font-size: 0.74rem;
   color: #68758a;
-  line-height: 1.1;
+  line-height: 1.15;
+}
+
+.expense-status-op-name,
+.expense-status-op-date {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.expense-status-op-date {
+  color: #6b7280;
 }
 
 .expense-status-actions {
@@ -1687,7 +1706,7 @@ td small {
 @media (max-width: 920px) {
   .desk-only { display: none; }
   .mob-only { display: revert; }
-  /* 標題文字收窄至內容寬度：财务系统 與 信望愛靈糧堂 右對齊 */
+  /* 標題文字收窄至內容寬度：財務系統 與 信望愛靈糧堂 右對齊 */
   .brand-text { width: auto; }
   .members-table { width: 385px !important; }
   .members-table .col-star { width: 35px !important; padding-left: 0.4rem !important; padding-right: 0.25rem !important; }
@@ -1912,6 +1931,23 @@ td small {
   .expenses-table tbody td[data-label="入賬"] .expense-status-cell {
     align-items: flex-start;
     min-width: 0;
+    width: 100%;
+  }
+  .expenses-table tbody td[data-label="狀態"] .expense-status-op,
+  .expenses-table tbody td[data-label="開票"] .expense-status-op,
+  .expenses-table tbody td[data-label="入賬"] .expense-status-op {
+    display: grid;
+    gap: 0.14rem;
+    width: 100%;
+  }
+  .expenses-table tbody td[data-label="狀態"] .expense-status-op-name,
+  .expenses-table tbody td[data-label="狀態"] .expense-status-op-date,
+  .expenses-table tbody td[data-label="開票"] .expense-status-op-name,
+  .expenses-table tbody td[data-label="開票"] .expense-status-op-date,
+  .expenses-table tbody td[data-label="入賬"] .expense-status-op-name,
+  .expenses-table tbody td[data-label="入賬"] .expense-status-op-date {
+    display: block;
+    line-height: 1.15;
   }
   .expenses-table tbody .expense-status-actions {
     flex-wrap: wrap;

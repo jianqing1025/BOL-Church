@@ -318,9 +318,13 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
     if (!node) return;
     const update = () => setGridWidth(node.clientWidth);
     update();
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => observer.disconnect();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
+    observer?.observe(node);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
   }, [rows.length]);
 
   return (

@@ -1,0 +1,1 @@
+ALTER TABLE photo_settings ADD COLUMN page_size INTEGER NOT NULL DEFAULT 100;

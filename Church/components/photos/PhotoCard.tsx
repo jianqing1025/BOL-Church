@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { CheckCircle, Heart, Loader2, Maximize2, Minus, Trash2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../data';
 import { ExifOverlay } from './ExifOverlay';
@@ -39,14 +39,17 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
     onToggleSelection, onItemClick, onToggleFavorite, onDelete, onContextMenu,
   }) => {
     const [isHovered, setIsHovered] = useState(false);
+    const canHover = useMemo(
+      () => typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches,
+      [],
+    );
     const sq = viewMode === 'square';
     const showRatio = sq && gridDisplayMode === 'ratio';
     const src = pickSrc(photo, sq, showRatio);
 
     const handleClick = useCallback(() => {
-      if (isSelectMode) onToggleSelection(photo.id);
-      else onItemClick(idx, photo.id);
-    }, [isSelectMode, onToggleSelection, onItemClick, photo.id, idx]);
+      onItemClick(idx, photo.id);
+    }, [onItemClick, photo.id, idx]);
 
     return (
       <div
@@ -59,8 +62,8 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
             onContextMenu(photo.id, e.clientX, e.clientY);
           }
         }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseEnter={() => { if (canHover) setIsHovered(true); }}
+        onMouseLeave={() => { if (canHover) setIsHovered(false); }}
         role="button"
         tabIndex={0}
         className={
@@ -84,9 +87,14 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
         {sq && <span className={`absolute inset-0 bg-black/0 transition-colors ${isSelectMode ? '' : 'group-hover:bg-black/15'}`} />}
 
         {isSelectMode && (
-          <span className={`absolute right-2 top-2 z-20 rounded-full p-1 ${isSelected ? 'bg-indigo-500 text-white' : 'border border-white/50 bg-black/30 text-white/70'}`}>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleSelection(photo.id); }}
+            className={`absolute right-2 top-2 z-20 rounded-full p-1 ${isSelected ? 'bg-indigo-500 text-white' : 'border border-white/50 bg-black/30 text-white/70'}`}
+            title="Select"
+          >
             <CheckCircle size={20} className={isSelected ? 'fill-indigo-500 text-white' : ''} />
-          </span>
+          </button>
         )}
 
         {!isSelectMode && (
@@ -130,7 +138,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
           </span>
         )}
 
-        {isHovered && !isSelectMode && <ExifOverlay photo={photo} />}
+        {canHover && isHovered && !isSelectMode && <ExifOverlay photo={photo} />}
       </div>
     );
   }

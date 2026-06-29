@@ -17,6 +17,7 @@ export interface PhotoUploadSettings {
   jpegQuality: number;
   defaultYear: string;
   defaultAlbum: string;
+  pageSize: number;
 }
 
 export interface SyncChannelAdmin {

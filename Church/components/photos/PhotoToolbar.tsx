@@ -74,6 +74,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
   const sortRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
   const collectionRef = useRef<HTMLDivElement>(null);
+  const albumRef = useRef<HTMLDivElement>(null);
 
   const collectionFilters = ['All', ...props.collections];
   const albumFilters = ['All', 'Favorites', ...props.albums];
@@ -126,9 +127,20 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </div>
   );
 
+  const albumExpandButton = (
+    <button
+      type="button"
+      onClick={() => setAlbumSheetOpen(true)}
+      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100"
+      title={t('photosPage.albums')}
+    >
+      <MoreVertical size={18} />
+    </button>
+  );
+
   const countBadge = (
-    <div className="flex-shrink-0 rounded-md border border-rose-100 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-600 shadow-sm">
-      {t('photosPage.allPhotos')}: {props.albumCount}
+    <div className="flex-shrink-0 rounded-md border border-rose-100 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-600 shadow-sm">
+      {props.albumCount}
     </div>
   );
 
@@ -140,13 +152,13 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Sort By</div>
           {([['shotAt', 'Shot Date'], ['uploadedAt', 'Upload Date'], ['sizeBytes', 'File Size'], ['title', 'Title']] as [SortField, string][]).map(([f, label]) => (
             <button key={f} type="button" onClick={() => props.onSetSortField(f)} className="flex w-full items-center px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50">
-              <span className="w-5 text-xs font-bold text-indigo-500">{props.sortField === f ? '✓' : ''}</span>{label}
+              <span className="w-5 text-xs font-bold text-indigo-500">{props.sortField === f ? '*' : ''}</span>{label}
             </button>
           ))}
           <div className="my-1 border-t border-gray-100" />
           {([['desc', 'Descending'], ['asc', 'Ascending']] as [SortDir, string][]).map(([d, label]) => (
             <button key={d} type="button" onClick={() => props.onSetSortDir(d)} className="flex w-full items-center px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50">
-              <span className="w-5 text-xs font-bold text-indigo-500">{props.sortDir === d ? '✓' : ''}</span>{label}
+              <span className="w-5 text-xs font-bold text-indigo-500">{props.sortDir === d ? '*' : ''}</span>{label}
             </button>
           ))}
         </div>
@@ -171,7 +183,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </div>
   );
 
-  // ── Desktop toolbar ──────────────────────────────────────────────────────
+  // Desktop toolbar
   const desktop = (
     <>
       <div className="flex min-h-[48px] flex-wrap items-center gap-3 px-4 py-1.5">
@@ -182,8 +194,8 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         {collectionChips(false)}
         <div className="ml-auto flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
-            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom In">＋</button>
-            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom Out">－</button>
+            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom In">+</button>
+            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom Out">-</button>
           </div>
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
             <button type="button" onClick={() => props.viewMode === 'square' ? props.onSetGridDisplayMode(props.gridDisplayMode === 'fill' ? 'ratio' : 'fill') : props.onSetViewMode('square')} className={`${iconBtn} ${props.viewMode === 'square' ? 'bg-white text-rose-500 shadow-sm' : 'text-gray-400'}`} title="Grid"><GridModeIcon mode={props.viewMode === 'square' ? props.gridDisplayMode : 'fill'} /></button>
@@ -209,7 +221,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </>
   );
 
-  // ── Compact toolbar (mobile / tablet) ────────────────────────────────────
+  // Compact toolbar (mobile / tablet)
   const compact = (
     <>
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
@@ -220,23 +232,23 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         {collectionChips(true)}
         <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
           {props.isDeleteMode && <span className="mr-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-500">DEL</span>}
-          {props.isSelectMode && <span className="mr-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500">{props.selectedCount > 0 ? `${props.selectedCount}✓` : 'SEL'}</span>}
-          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="p-2 text-gray-500 hover:text-rose-500" title="Zoom In">＋</button>
-          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="p-2 text-gray-500 hover:text-rose-500" title="Zoom Out">－</button>
+          {props.isSelectMode && <span className="mr-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500">{props.selectedCount > 0 ? `${props.selectedCount} selected` : 'SEL'}</span>}
+          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="px-2 py-1 text-lg font-black leading-none text-gray-600 hover:text-rose-500" title="Zoom In">+</button>
+          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="px-2 py-1 text-lg font-black leading-none text-gray-600 hover:text-rose-500" title="Zoom Out">-</button>
           <button type="button" onClick={() => setMoreOpen(true)} className={`rounded-lg p-2 ${moreOpen ? 'bg-rose-50 text-rose-500' : 'text-gray-600 hover:bg-gray-100'}`} title="More"><MoreVertical size={18} /></button>
         </div>
       </div>
-      <div className="relative border-b border-gray-100">
-        <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 pr-24" style={{ scrollbarWidth: 'none' }} onWheel={onWheelHorizontal}>
+      <div className="flex items-center gap-1 border-b border-gray-100 px-3 py-1.5">
+        <div ref={albumRef} className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none', flexWrap: 'nowrap' }} onWheel={onWheelHorizontal}>
           {albumFilters.map((a) => a === 'Favorites' ? (
             <button type="button" key="Favorites" onClick={() => props.onSetFilter('Favorites')} className={`flex flex-shrink-0 items-center rounded-md px-2 py-1 transition-all ${props.filter === 'Favorites' ? 'bg-rose-500 text-white' : 'border border-rose-200 bg-rose-50 text-rose-400'}`}><Heart size={13} className={props.filter === 'Favorites' ? 'fill-current' : ''} /></button>
           ) : (
             <button type="button" key={a} onClick={() => props.onSetFilter(a)} className={`flex-shrink-0 rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.filter === a ? 'bg-rose-500 text-white' : 'border border-gray-200 bg-white text-gray-500'}`}>{a === 'All' ? t('photosPage.all') : a}</button>
           ))}
-          <button type="button" onClick={() => setAlbumSheetOpen(true)} className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-400">···</button>
         </div>
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-          <div className="rounded-md border border-rose-100 bg-rose-50/95 px-2.5 py-1 text-[11px] font-bold text-rose-600 shadow-sm">{t('photosPage.allPhotos')}: {props.albumCount}</div>
+        <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+          {albumExpandButton}
+          {countBadge}
         </div>
       </div>
     </>
@@ -267,7 +279,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
 
               <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Sort</div>
               {([['shotAt', 'Shot Date'], ['uploadedAt', 'Upload Date'], ['sizeBytes', 'File Size'], ['title', 'Title']] as [SortField, string][]).map(([f, label]) => (
-                <button key={f} type="button" onClick={() => props.onSetSortField(f)} className={sheetRow}><span className="w-4 text-xs font-bold text-indigo-500">{props.sortField === f ? '✓' : ''}</span><span>{label}</span></button>
+                <button key={f} type="button" onClick={() => props.onSetSortField(f)} className={sheetRow}><span className="w-4 text-xs font-bold text-indigo-500">{props.sortField === f ? '*' : ''}</span><span>{label}</span></button>
               ))}
               <button type="button" onClick={() => props.onSetSortDir(props.sortDir === 'desc' ? 'asc' : 'desc')} className={sheetRow}><ArrowUpDown size={18} className="text-indigo-500" /><span>{props.sortDir === 'desc' ? 'Descending' : 'Ascending'}</span></button>
 
@@ -275,9 +287,9 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
               <button type="button" onClick={() => { props.onRefresh(); setMoreOpen(false); }} className={sheetRow}><RefreshCw size={18} className="text-sky-500" /><span>Refresh</span></button>
               <button type="button" onClick={() => { props.onScanDuplicates(); setMoreOpen(false); }} className={sheetRow}><FileWarning size={18} className="text-orange-500" /><span>Scan Duplicates</span></button>
               <button type="button" onClick={() => { props.onExportOrDownload(); setMoreOpen(false); }} className={sheetRow}><Download size={18} className="text-green-500" /><span>{hasSelection ? 'Download Selected' : 'Export'}</span></button>
+              {hasSelection && <button type="button" onClick={() => { props.onMoveSelected(); setMoreOpen(false); }} className={sheetRow}><FolderInput size={18} className="text-orange-500" /><span>{t('photosPage.moveSelected')}</span></button>}
               <button type="button" onClick={() => { props.onToggleDeleteMode(); setMoreOpen(false); }} className={sheetRow}><Trash2 size={18} className="text-red-500" /><span>{props.isDeleteMode ? 'Exit Delete Mode' : 'Delete Mode'}</span></button>
               <button type="button" onClick={() => { props.isSelectMode ? props.onToggleSelectMode() : props.onToggleSelectMode(); setMoreOpen(false); }} className={sheetRow}><CheckSquare size={18} className="text-indigo-500" /><span>{props.isSelectMode ? 'Exit Select Mode' : 'Select Mode'}</span></button>
-              <button type="button" onClick={() => { props.onUpload(); setMoreOpen(false); }} className={sheetRow}><CloudUpload size={18} className="text-blue-500" /><span>{t('photosPage.uploadPhotos')}</span></button>
 
               <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.slideshow')}</div>
               {SLIDESHOW_MODES.map(({ id, label, Icon }) => (
@@ -291,7 +303,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         </>
       )}
 
-      {/* Album overflow sheet (compact) */}
+      {/* Album list sheet (compact) */}
       {albumSheetOpen && isCompact && (
         <>
           <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm" onClick={() => setAlbumSheetOpen(false)} />
@@ -311,6 +323,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           </div>
         </>
       )}
+
     </>
   );
 };

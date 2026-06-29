@@ -66,7 +66,7 @@ export const translations = {
     uploadCollection: { en: 'Year / Collection', zh: '年份 / 集合' },
     uploadAlbum: { en: 'Album', zh: '相册' },
     upload: { en: 'Upload', zh: '上传' },
-    deleteMine: { en: 'Delete my photo', zh: '删除我的照片' },
+    deleteMine: { en: 'You can only delete photos you uploaded.', zh: '您只能删除自己上传的照片。' },
     uploadPhotos: { en: 'Upload Photos', zh: '\u4e0a\u50b3\u7167\u7247' },
     selectImages: { en: 'Select Images', zh: '\u9078\u64c7\u5716\u7247' },
     chooseFiles: { en: 'Choose Files', zh: '\u9078\u64c7\u6a94\u6848' },
@@ -93,6 +93,11 @@ export const translations = {
     download: { en: 'Download', zh: '\u4e0b\u8f09' },
     info: { en: 'Info', zh: '\u8cc7\u8a0a' },
     adminOnly: { en: 'Admin only', zh: '\u50c5\u7ba1\u7406\u54e1' },
+    moveSelected: { en: 'Move To', zh: '\u79fb\u52d5\u5230' },
+    moveCount: { en: 'Move {count} selected photo(s).', zh: '\u79fb\u52d5 {count} \u5f35\u5df2\u9078\u7167\u7247\u3002' },
+    movedSuffix: { en: 'moved.', zh: '\u5f35\u5df2\u79fb\u52d5\u3002' },
+    moveMine: { en: 'Only your uploaded photos can be moved.', zh: '只能移動自己上傳的照片。' },
+    deleteSelectedConfirm: { en: 'Delete {count} selected photo(s)?', zh: '\u522a\u9664 {count} \u5f35\u5df2\u9078\u7167\u7247\uff1f' },
   },
   eventsPage: {
     pageTitle: { en: 'MINISTRIES', zh: '教會事工' },
@@ -364,6 +369,7 @@ export const translations = {
     defaultsTitle: { en: 'Upload Defaults', zh: '上传默认值' },
     defaultsSubtitle: { en: 'Default year/album and compression applied to uploads; only admins can override per upload.', zh: '上传默认的年份/相册与压缩；仅管理员可在上传时调整。' },
     defaultsSaved: { en: 'Defaults saved.', zh: '默认值已保存。' },
+    pageSize: { en: 'Public photos per page', zh: '前台每页照片数' },
   },
   admin: {
     loginTitle: { en: 'Admin Login', zh: '管理員登入' },

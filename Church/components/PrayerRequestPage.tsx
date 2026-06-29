@@ -7,6 +7,7 @@ import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 import SecondaryNavBar from './SecondaryNavBar';
+import { churchAlert } from './ChurchDialog';
 
 const PrayerRequestForm = () => {
   const { t } = useLocalization();
@@ -24,7 +25,7 @@ const PrayerRequestForm = () => {
       setFormData({ firstName: '', lastName: '', email: '', phone: '', message: '' });
     } catch (error) {
       console.error("Prayer request submission failed", error);
-      alert("Submission failed. Please try again later.");
+      await churchAlert("Submission failed. Please try again later.");
     } finally {
       setIsSubmitting(false);
     }

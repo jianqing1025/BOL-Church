@@ -8,6 +8,7 @@ import Editable from './Editable';
 import { LockIcon } from './icons/Icons';
 import { useAdmin } from '../hooks/useAdmin';
 import SecondaryNavBar from './SecondaryNavBar';
+import { churchAlert } from './ChurchDialog';
 
 // This is the form from Giving.tsx
 const GivingForm: React.FC = () => {
@@ -22,11 +23,11 @@ const GivingForm: React.FC = () => {
     setAmount(String(presetAmount));
   };
   
-  const handleDonate = () => {
+  const handleDonate = async () => {
       // Mock donation process
       const numAmount = parseFloat(amount);
       if (isNaN(numAmount) || numAmount <= 0) {
-          alert('Please enter a valid amount.');
+          await churchAlert('Please enter a valid amount.');
           return;
       }
       

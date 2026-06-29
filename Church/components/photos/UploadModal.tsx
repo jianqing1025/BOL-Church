@@ -14,6 +14,14 @@ const CONCURRENCY = 3;
 const DEFAULT_MAX_LONG_EDGE = 1600;
 const DEFAULT_JPEG_QUALITY = 0.82;
 
+const readStoredUploaderName = (): string => {
+  try {
+    return localStorage.getItem(UPLOADER_NAME_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
 type FileStage = 'pending' | 'processing' | 'uploading' | 'done' | 'error';
 interface FileStatus { stage: FileStage; error?: string; }
 
@@ -44,7 +52,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [newCollection, setNewCollection] = useState('');
   const [uploadAlbum, setUploadAlbum] = useState('');
   const [newAlbum, setNewAlbum] = useState('');
-  const [uploaderName, setUploaderName] = useState(() => localStorage.getItem(UPLOADER_NAME_KEY) || '');
+  const [uploaderName, setUploaderName] = useState(readStoredUploaderName);
   const [resizeEnabled, setResizeEnabled] = useState(true);
   const [maxLongEdge, setMaxLongEdge] = useState(defaultMaxLongEdge ?? DEFAULT_MAX_LONG_EDGE);
   const [jpegQuality, setJpegQuality] = useState(defaultJpegQuality ?? DEFAULT_JPEG_QUALITY);
@@ -133,7 +141,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
     setUploading(true);
     setError('');
-    localStorage.setItem(UPLOADER_NAME_KEY, uploaderName.trim());
+    try {
+      localStorage.setItem(UPLOADER_NAME_KEY, uploaderName.trim());
+    } catch {
+      /* ignore unavailable storage */
+    }
 
     const files = queue;
     const next: FileStatus[] = files.map(() => ({ stage: 'pending' }));

@@ -7,6 +7,7 @@ import { api } from '../api';
 import type { Sermon, SermonCategory } from '../data';
 import { buildPaginationNumbers } from '../utils/pagination';
 import ChannelSyncManager from './ChannelSyncManager';
+import { churchAlert, churchConfirm } from './ChurchDialog';
 
 function formatDuration(seconds?: number | null): string {
   if (!seconds || seconds < 0) return '';
@@ -351,7 +352,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
       resetForm();
     } catch (error) {
       console.error(error);
-      alert(t('admin.saveFailed'));
+      await churchAlert(t('admin.saveFailed'));
     }
   };
 
@@ -363,7 +364,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm(t('admin.deleteSermonConfirm'))) {
+    if (!await churchConfirm(t('admin.deleteSermonConfirm'))) {
       return;
     }
     if (isManna) {
@@ -380,23 +381,23 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
   };
 
   const handleMoveSermon = async (id: string, to: SermonCategory | 'daily-manna' | 'live-override') => {
-    if (to === 'daily-manna' && !window.confirm(t('admin.confirmMoveToManna'))) return;
-    if (to === 'live-override' && !window.confirm(t('admin.confirmMoveToLive'))) return;
+    if (to === 'daily-manna' && !await churchConfirm(t('admin.confirmMoveToManna'))) return;
+    if (to === 'live-override' && !await churchConfirm(t('admin.confirmMoveToLive'))) return;
     try {
       await api.moveSermon(id, to);
       await refreshBootstrap();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      await churchAlert(err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleMoveDailyManna = async (id: string, to: SermonCategory) => {
-    if (!window.confirm(t('admin.confirmMoveToSermon'))) return;
+    if (!await churchConfirm(t('admin.confirmMoveToSermon'))) return;
     try {
       await api.moveDailyManna(id, to);
       await refreshBootstrap();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      await churchAlert(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -409,7 +410,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
       }
       await refreshBootstrap();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      await churchAlert(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -454,7 +455,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
   });
 
   const openBulkEdit = () => {
-    if (selectedIds.size === 0) { window.alert(t('admin.bulkSelectFirst')); return; }
+    if (selectedIds.size === 0) { void churchAlert(t('admin.bulkSelectFirst')); return; }
     setBulkEdit({
       applyCategory: false,
       category: defaultCategory,
@@ -468,7 +469,7 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
 
   const applyBulkEdit = async () => {
     if (!bulkEdit.applyCategory && !bulkEdit.applySpeakerEn && !bulkEdit.applySpeakerZh) {
-      window.alert(t('admin.bulkEditNoChange'));
+      await churchAlert(t('admin.bulkEditNoChange'));
       return;
     }
     const ids = Array.from(selectedIds);
@@ -500,14 +501,14 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
     });
     const results = await Promise.allSettled(updates);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed > 0) window.alert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
+    if (failed > 0) await churchAlert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
     clearSelection();
     setSelectMode(false);
   };
 
   const applyBulkMove = async (to: SermonCategory | 'daily-manna' | 'live-override') => {
-    if (selectedIds.size === 0) { window.alert(t('admin.bulkSelectFirst')); return; }
-    if (!window.confirm(t('admin.bulkConfirmMove').replace('{count}', String(selectedIds.size)))) return;
+    if (selectedIds.size === 0) { await churchAlert(t('admin.bulkSelectFirst')); return; }
+    if (!await churchConfirm(t('admin.bulkConfirmMove').replace('{count}', String(selectedIds.size)))) return;
     setBulkMoveOpen(false);
     const ids = Array.from(selectedIds);
     const ops = ids.map(async id => {
@@ -520,35 +521,35 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
     });
     const results = await Promise.allSettled(ops);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed > 0) window.alert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
+    if (failed > 0) await churchAlert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
     try { await refreshBootstrap(); } catch { /* ignore */ }
     clearSelection();
     setSelectMode(false);
   };
 
   const applyBulkHide = async () => {
-    if (selectedIds.size === 0) { window.alert(t('admin.bulkSelectFirst')); return; }
-    if (!window.confirm(t('admin.bulkConfirmHide').replace('{count}', String(selectedIds.size)))) return;
+    if (selectedIds.size === 0) { await churchAlert(t('admin.bulkSelectFirst')); return; }
+    if (!await churchConfirm(t('admin.bulkConfirmHide').replace('{count}', String(selectedIds.size)))) return;
     const ids = Array.from(selectedIds);
     const ops = ids.map(id => isManna
       ? api.setDailyMannaVisibility(id, true)
       : api.setSermonVisibility(id, true));
     const results = await Promise.allSettled(ops);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed > 0) window.alert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
+    if (failed > 0) await churchAlert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
     try { await refreshBootstrap(); } catch { /* ignore */ }
     clearSelection();
     setSelectMode(false);
   };
 
   const applyBulkDelete = async () => {
-    if (selectedIds.size === 0) { window.alert(t('admin.bulkSelectFirst')); return; }
-    if (!window.confirm(t('admin.bulkConfirmDelete').replace('{count}', String(selectedIds.size)))) return;
+    if (selectedIds.size === 0) { await churchAlert(t('admin.bulkSelectFirst')); return; }
+    if (!await churchConfirm(t('admin.bulkConfirmDelete').replace('{count}', String(selectedIds.size)))) return;
     const ids = Array.from(selectedIds);
     const ops = ids.map(id => isManna ? deleteDailyMannaRecord(id) : deleteSermonRecord(id));
     const results = await Promise.allSettled(ops);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed > 0) window.alert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
+    if (failed > 0) await churchAlert(t('admin.bulkPartialFail').replace('{failed}', String(failed)).replace('{total}', String(ids.length)));
     clearSelection();
     setSelectMode(false);
   };

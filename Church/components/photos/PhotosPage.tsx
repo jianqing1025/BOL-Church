@@ -6,21 +6,41 @@ import { useLocalization } from '../../hooks/useLocalization';
 import { PhotoToolbar } from './PhotoToolbar';
 import { PhotoGrid } from './PhotoGrid';
 import { UploadModal } from './UploadModal';
+import { MovePhotosModal } from './MovePhotosModal';
 import { Lightbox } from './Lightbox';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { SlideshowOverlay } from './slideshows/SlideshowOverlay';
 import type { GridDisplayMode, SlideshowMode, SortDir, SortField, ViewMode } from './types';
+import { churchConfirm } from '../ChurchDialog';
+import { buildPaginationNumbers } from '../../utils/pagination';
+import { useAdmin } from '../../hooks/useAdmin';
 
 const FAVORITES_KEY = 'bolccop-photo-favorites';
 const UPLOADER_KEY = 'bolccop-photo-uploader-id';
 const YEAR_PATTERN = /^\d{4}$/;
-const PAGE_SIZE = 80;
+const defaultPhotoColumns = () => {
+  if (typeof window === 'undefined') return 6;
+  return window.matchMedia?.('(max-width: 767px)').matches ? 4 : 6;
+};
+
+const createBrowserId = (): string => {
+  const cryptoApi = globalThis.crypto;
+  const randomUUID = cryptoApi?.randomUUID;
+  if (typeof randomUUID === 'function') return randomUUID.call(cryptoApi).replace(/-/g, '');
+  const randomPart = Math.random().toString(36).slice(2);
+  const timePart = Date.now().toString(36);
+  return `${timePart}${randomPart}`;
+};
 
 const getUploaderId = (): string => {
-  const existing = localStorage.getItem(UPLOADER_KEY);
-  if (existing) return existing;
-  const next = crypto.randomUUID().replace(/-/g, '');
-  localStorage.setItem(UPLOADER_KEY, next);
+  const next = createBrowserId();
+  try {
+    const existing = localStorage.getItem(UPLOADER_KEY);
+    if (existing) return existing;
+    localStorage.setItem(UPLOADER_KEY, next);
+  } catch {
+    return next;
+  }
   return next;
 };
 
@@ -38,6 +58,7 @@ const fileBaseName = (url: string) => decodeURIComponent(url.split('/').pop() ||
 
 const PhotosPage: React.FC = () => {
   const { t } = useLocalization();
+  const { currentUser } = useAdmin();
   const [uploaderId] = useState(getUploaderId);
 
   const [photos, setPhotos] = useState<ChurchPhoto[]>([]);
@@ -49,7 +70,7 @@ const PhotosPage: React.FC = () => {
   const [selectedAlbum, setSelectedAlbum] = useState('All');
   const [viewMode, setViewMode] = useState<ViewMode>('square');
   const [gridDisplayMode, setGridDisplayMode] = useState<GridDisplayMode>('fill');
-  const [columns, setColumns] = useState(5);
+  const [columns, setColumns] = useState(defaultPhotoColumns);
   const [sortField, setSortField] = useState<SortField>('uploadedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -62,13 +83,15 @@ const PhotosPage: React.FC = () => {
   const [slideshowMode, setSlideshowMode] = useState<SlideshowMode | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(1);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); } catch { return new Set(); }
   });
-  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string }>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' });
+  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number }>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 });
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
@@ -92,7 +115,13 @@ const PhotosPage: React.FC = () => {
     window.addEventListener('bolccop:open-photo-upload', open);
     return () => window.removeEventListener('bolccop:open-photo-upload', open);
   }, []);
-  useEffect(() => { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); }, [favorites]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites]));
+    } catch {
+      /* ignore unavailable storage */
+    }
+  }, [favorites]);
 
   // ── Derived filters ──────────────────────────────────────────────────────
   const collections = useMemo(
@@ -124,22 +153,16 @@ const PhotosPage: React.FC = () => {
     });
   }, [collectionPhotos, favorites, selectedAlbum, sortField, sortDir]);
 
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [selectedCollection, selectedAlbum, sortField, sortDir]);
+  const pageSize = uploadSettings.pageSize || 100;
+  const totalPages = Math.max(1, Math.ceil(filteredPhotos.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginationNumbers = useMemo(() => buildPaginationNumbers(totalPages, safePage), [totalPages, safePage]);
+  const visiblePhotos = useMemo(
+    () => filteredPhotos.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filteredPhotos, pageSize, safePage],
+  );
 
-  const visiblePhotos = useMemo(() => filteredPhotos.slice(0, visibleCount), [filteredPhotos, visibleCount]);
-  const hasMore = visibleCount < filteredPhotos.length;
-
-  // Infinite scroll on window
-  useEffect(() => {
-    if (!hasMore) return;
-    const onScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900) {
-        setVisibleCount((c) => Math.min(c + PAGE_SIZE, filteredPhotos.length));
-      }
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [hasMore, filteredPhotos.length]);
+  useEffect(() => { setPage(1); }, [selectedCollection, selectedAlbum, sortField, sortDir, pageSize]);
 
   const selectedPhotos = useMemo(() => filteredPhotos.filter((p) => selectedIds.has(p.id)), [filteredPhotos, selectedIds]);
 
@@ -166,10 +189,14 @@ const PhotosPage: React.FC = () => {
 
   // ── Mutations ────────────────────────────────────────────────────────────
   const deleteOwnPhoto = useCallback(async (photo: ChurchPhoto) => {
-    if (photo.uploaderId !== uploaderId) { showNotice(t('photosPage.deleteMine')); return; }
+    if (!currentUser && photo.uploaderId !== uploaderId) { showNotice(t('photosPage.deleteMine')); return; }
     setDeletingId(photo.id);
     try {
-      await api.deleteOwnPhoto(photo.id, uploaderId);
+      if (currentUser) {
+        await api.adminDeletePhoto(photo.id);
+      } else {
+        await api.deleteOwnPhoto(photo.id, uploaderId);
+      }
       setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
       setSelectedIds((prev) => { const n = new Set(prev); n.delete(photo.id); return n; });
     } catch (err) {
@@ -177,31 +204,45 @@ const PhotosPage: React.FC = () => {
     } finally {
       setDeletingId('');
     }
-  }, [uploaderId, showNotice, t]);
+  }, [currentUser, uploaderId, showNotice, t]);
 
   const bulkDelete = useCallback(async () => {
-    const own = selectedPhotos.filter((p) => p.uploaderId === uploaderId);
-    if (own.length === 0) { showNotice(t('photosPage.deleteMine')); return; }
-    if (!confirm(`${t('photosPage.deleteMine')} (${own.length})?`)) return;
-    for (const p of own) await deleteOwnPhoto(p);
-    showNotice(`${own.length} ${t('photosPage.uploadedSuffix')}`);
-  }, [selectedPhotos, uploaderId, deleteOwnPhoto, showNotice, t]);
+    const deletable = currentUser ? selectedPhotos : selectedPhotos.filter((p) => p.uploaderId === uploaderId);
+    if (deletable.length === 0) { showNotice(t('photosPage.deleteMine')); return; }
+    if (!await churchConfirm(t('photosPage.deleteSelectedConfirm').replace('{count}', String(deletable.length)))) return;
+    for (const p of deletable) await deleteOwnPhoto(p);
+    showNotice(`${deletable.length} ${t('photosPage.uploadedSuffix')}`);
+  }, [currentUser, selectedPhotos, uploaderId, deleteOwnPhoto, showNotice, t]);
 
-  const moveSelected = useCallback(async () => {
-    const own = selectedPhotos.filter((p) => p.uploaderId === uploaderId);
-    if (own.length === 0) { showNotice(t('photosPage.deleteMine')); return; }
-    const collection = prompt(t('photosPage.year'), selectedCollection === 'All' ? '' : selectedCollection);
-    if (collection === null) return;
-    const album = prompt(t('photosPage.uploadAlbum'), selectedAlbum === 'All' || selectedAlbum === 'Favorites' ? '' : selectedAlbum);
-    if (album === null) return;
+  const openMoveSelected = useCallback(() => {
+    const movable = currentUser ? selectedPhotos : selectedPhotos.filter((p) => p.uploaderId === uploaderId);
+    if (movable.length === 0) { showNotice(t('photosPage.moveMine')); return; }
+    setMoveOpen(true);
+  }, [currentUser, selectedPhotos, uploaderId, showNotice, t]);
+
+  const moveSelected = useCallback(async ({ collection, album }: { collection: string; album: string }) => {
+    const movable = currentUser ? selectedPhotos : selectedPhotos.filter((p) => p.uploaderId === uploaderId);
+    if (movable.length === 0) { showNotice(t('photosPage.moveMine')); return; }
+    setMoving(true);
     const updated: ChurchPhoto[] = [];
-    for (const p of own) {
-      const res = await api.updateOwnPhoto(p.id, uploaderId, { collection, album });
-      updated.push(res.photo);
+    try {
+      for (const p of movable) {
+        const res = currentUser
+          ? await api.adminUpdatePhoto(p.id, { collection, album })
+          : await api.updateOwnPhoto(p.id, uploaderId, { collection, album });
+        updated.push(res.photo);
+      }
+      setPhotos((prev) => prev.map((p) => updated.find((u) => u.id === p.id) || p));
+      setSelectedIds(new Set());
+      setIsSelectMode(false);
+      setMoveOpen(false);
+      showNotice(`${updated.length} ${t('photosPage.movedSuffix')}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMoving(false);
     }
-    setPhotos((prev) => prev.map((p) => updated.find((u) => u.id === p.id) || p));
-    showNotice(`${updated.length}`);
-  }, [selectedPhotos, uploaderId, selectedCollection, selectedAlbum, showNotice, t]);
+  }, [currentUser, selectedPhotos, uploaderId, showNotice, t]);
 
   const downloadPhotos = useCallback((items: ChurchPhoto[]) => {
     items.forEach((photo, i) => window.setTimeout(() => {
@@ -250,7 +291,10 @@ const PhotosPage: React.FC = () => {
     setSlideshowMode(mode);
   }, [filteredPhotos.length, showNotice, t]);
 
-  const handleItemClick = useCallback((idx: number) => setLightboxIndex(idx), []);
+  const handleItemClick = useCallback((_idx: number, id: string) => {
+    const index = filteredPhotos.findIndex((photo) => photo.id === id);
+    if (index >= 0) setLightboxIndex(index);
+  }, [filteredPhotos]);
 
   const onUploaded = useCallback((created: ChurchPhoto[]) => {
     setPhotos((prev) => [...created, ...prev]);
@@ -303,7 +347,7 @@ const PhotosPage: React.FC = () => {
         onScanDuplicates={scanDuplicates}
         onExportOrDownload={() => (isSelectMode && selectedIds.size > 0 ? downloadPhotos(selectedPhotos) : exportMetadata())}
         onBulkDelete={bulkDelete}
-        onMoveSelected={moveSelected}
+        onMoveSelected={openMoveSelected}
         onUpload={() => setUploadOpen(true)}
         onInfo={() => showNotice(`${selectedCollection} / ${selectedAlbum}: ${filteredPhotos.length}`)}
         onSlideshow={startSlideshow}
@@ -331,6 +375,7 @@ const PhotosPage: React.FC = () => {
           isDeleteMode={isDeleteMode}
           favorites={favorites}
           uploaderId={uploaderId}
+          isAdminUser={Boolean(currentUser)}
           deletingId={deletingId}
           labels={labels}
           onToggleSelection={toggleSelection}
@@ -340,8 +385,45 @@ const PhotosPage: React.FC = () => {
           onDelete={deleteOwnPhoto}
           onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
           onAddTile={() => setUploadOpen(true)}
-          hasMore={hasMore}
+          hasMore={false}
         />
+      )}
+
+      {!loading && totalPages > 1 && (
+        <nav className="mx-auto mt-6 flex max-w-5xl flex-wrap items-center justify-center gap-1.5 px-4 pb-8" aria-label="pagination">
+          <button
+            type="button"
+            onClick={() => setPage(Math.max(1, safePage - 1))}
+            disabled={safePage <= 1}
+            className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t('admin.prev')}
+          </button>
+          {paginationNumbers.map((n, idx) => n === 'gap' ? (
+            <span key={`gap-${idx}`} className="px-2 text-gray-400">...</span>
+          ) : (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setPage(n)}
+              aria-current={n === safePage ? 'page' : undefined}
+              className={`min-w-[2.25rem] rounded-md px-2 py-1.5 text-sm font-semibold ${n === safePage ? 'bg-blue-600 text-white' : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              {n}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+            disabled={safePage >= totalPages}
+            className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t('admin.next')}
+          </button>
+          <span className="ml-2 text-xs text-gray-500">
+            {t('admin.pageInfo').replace('{page}', String(safePage)).replace('{total}', String(totalPages)).replace('{count}', String(filteredPhotos.length))}
+          </span>
+        </nav>
       )}
 
       {/* Floating selection action bar */}
@@ -349,7 +431,7 @@ const PhotosPage: React.FC = () => {
         <div className="fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-2xl backdrop-blur-md">
           <div className="mr-1 border-r border-gray-200 px-3 text-sm font-bold text-gray-600">{selectedIds.size}</div>
           <button type="button" onClick={() => void copyLinks()} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-blue-50 hover:text-blue-600"><Copy size={18} /><span className="text-[9px] font-bold uppercase">Copy</span></button>
-          <button type="button" onClick={() => void moveSelected()} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-orange-50 hover:text-orange-600"><FolderInput size={18} /><span className="text-[9px] font-bold uppercase">Move</span></button>
+          <button type="button" onClick={openMoveSelected} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-orange-50 hover:text-orange-600"><FolderInput size={18} /><span className="text-[9px] font-bold uppercase">{t('photosPage.moveSelected')}</span></button>
           <button type="button" onClick={() => downloadPhotos(selectedPhotos)} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-green-50 hover:text-green-600"><Download size={18} /><span className="text-[9px] font-bold uppercase">{t('photosPage.download')}</span></button>
           <button type="button" onClick={() => void bulkDelete()} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-red-50 hover:text-red-600"><Trash2 size={18} /><span className="text-[9px] font-bold uppercase">Delete</span></button>
           <button type="button" onClick={clearSelection} className="ml-1 rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-500"><X size={18} /></button>
@@ -367,6 +449,18 @@ const PhotosPage: React.FC = () => {
         defaultMaxLongEdge={uploadSettings.maxLongEdge}
         defaultJpegQuality={uploadSettings.jpegQuality}
         onUploaded={onUploaded}
+      />
+
+      <MovePhotosModal
+        isOpen={moveOpen}
+        count={(currentUser ? selectedPhotos : selectedPhotos.filter((p) => p.uploaderId === uploaderId)).length}
+        collections={collections}
+        albums={albums}
+        defaultYear={selectedCollection}
+        defaultAlbum={selectedAlbum}
+        isMoving={moving}
+        onClose={() => setMoveOpen(false)}
+        onMove={moveSelected}
       />
 
       {lightboxIndex != null && filteredPhotos[lightboxIndex] && (
@@ -389,7 +483,7 @@ const PhotosPage: React.FC = () => {
         <ContextMenu
           state={contextMenu}
           isFavorite={favorites.has(contextMenu.id)}
-          canDelete={contextPhoto.uploaderId === uploaderId}
+          canDelete={Boolean(currentUser) || contextPhoto.uploaderId === uploaderId}
           labels={{ favorite: t('photosPage.favorite'), download: t('photosPage.download'), deleteMine: t('photosPage.deleteMine'), select: t('photosPage.add') }}
           onClose={() => setContextMenu(null)}
           onFavorite={() => toggleFavorite(contextMenu.id)}

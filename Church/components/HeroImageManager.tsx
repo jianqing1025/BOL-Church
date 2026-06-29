@@ -3,6 +3,7 @@ import { useAdmin } from '../hooks/useAdmin';
 import { useLocalization } from '../hooks/useLocalization';
 import { resizeImageToBlob } from '../imageUpload';
 import { buildMediaSlots, nextMediaKey, type MediaKind, type MediaSlot } from '../media';
+import { churchAlert, churchConfirm } from './ChurchDialog';
 
 type MediaSectionProps = {
   kind: MediaKind;
@@ -86,7 +87,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
     } catch (error) {
       console.error('Image processing failed', error);
       const message = error instanceof Error ? error.message : t('admin.imageUploadFailed');
-      alert(message);
+      await churchAlert(message);
     } finally {
       setUploadingKey(null);
     }
@@ -101,7 +102,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
   };
 
   const handleDelete = async (slot: MediaSlot) => {
-    if (!window.confirm(t('admin.deleteImageConfirm'))) {
+    if (!await churchConfirm(t('admin.deleteImageConfirm'))) {
       return;
     }
     try {
@@ -109,7 +110,7 @@ const MediaSection: React.FC<MediaSectionProps> = ({ kind, title, description, a
     } catch (error) {
       console.error('Image delete failed', error);
       const message = error instanceof Error ? error.message : t('admin.imageDeleteFailed');
-      alert(message);
+      await churchAlert(message);
     }
   };
 

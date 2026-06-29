@@ -3,7 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
 import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
-import { currency, dateTime, shortDate, tinyDate } from './utils/format';
+import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import {
   DEFAULT_REPLY_TO,
@@ -137,9 +137,19 @@ function expenseOperatorDisplay(memberById: Map<string, Member>, id: string | nu
   if (!id && !name && !at) return null;
   const member = id ? memberById.get(id) : null;
   const display = member ? memberDisplayName(member) : (name || '');
-  const formattedAt = at ? shortDate(at.slice(0, 10)) : '';
+  const formattedAt = at ? compactDate(at.slice(0, 10)) : '';
   if (!display && !formattedAt) return null;
   return { name: display, at: formattedAt };
+}
+
+function ExpenseStatusOperator({ op }: { op: { name: string; at: string } | null }) {
+  if (!op) return null;
+  return (
+    <span className="expense-status-op">
+      {op.name && <span className="expense-status-op-name">{op.name}</span>}
+      {op.at && <span className="expense-status-op-date">{op.at}</span>}
+    </span>
+  );
 }
 
 // 成員顯示格式：First Name Last Name (中文名)
@@ -180,7 +190,7 @@ function LoginPage() {
         <div className="login-form-panel">
           <div>
             <p className="eyebrow">BOLCCOP Finance 2.0</p>
-            <h1>信望愛靈糧堂财务系统</h1>
+            <h1>信望愛靈糧堂財務系統</h1>
             <p className="muted">
               各人要照所得的恩賜彼此服事， 作 神百般恩賜的好管家。
               <span className="bible-reference">— 彼得前书 4:10  </span>
@@ -319,12 +329,12 @@ function ClaimPage() {
           <div className="brand-mark">財</div>
           <div>
             <strong>信望愛靈糧堂</strong>
-            <span>请款申请</span>
+            <span>請款申請</span>
           </div>
         </div>
         {done ? (
           <div className="claim-success">
-            <h1>已提交请款单</h1>
+            <h1>已提交請款單</h1>
             <p>謝謝，財務同工已收到申請通知。</p>
             <button className="primary" onClick={() => { setDone(false); setForm(current => ({ ...current, description: '', amount: '', notes: '', receiptUrl: '' })); }}>
               提交另一張
@@ -333,7 +343,7 @@ function ClaimPage() {
         ) : (
           <form onSubmit={submit} className="claim-form">
             <div>
-              <h1>请款申请</h1>
+              <h1>請款申請</h1>
               <p>請填寫支出資料並上傳憑證。</p>
             </div>
             {error && <p className="error">{error}</p>}
@@ -360,7 +370,7 @@ function ClaimPage() {
                 </datalist>
               </label>
               <label>Email<input type="email" value={form.claimantEmail} onChange={event => update('claimantEmail', event.target.value)} /></label>
-              <label className="wide">请款内容<input value={form.description} onChange={event => update('description', event.target.value)} required /></label>
+              <label className="wide">請款內容<input value={form.description} onChange={event => update('description', event.target.value)} required /></label>
               <label>金額<input type="number" min="0.01" step="0.01" value={form.amount} onChange={event => update('amount', event.target.value)} required /></label>
               <label>日期<input type="date" value={form.date} onChange={event => update('date', event.target.value)} required /></label>
               <label>
@@ -382,7 +392,7 @@ function ClaimPage() {
               <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
               <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? '上傳中...' : form.receiptUrl ? '重新上傳憑證' : '上傳憑證'}</button>
               {form.receiptUrl && <a href={form.receiptUrl} target="_blank" rel="noreferrer">查看憑證</a>}
-              <button className="primary" disabled={saving}>{saving ? '提交中...' : '提交请款单'}</button>
+              <button className="primary" disabled={saving}>{saving ? '提交中...' : '提交請款單'}</button>
             </div>
           </form>
         )}
@@ -412,7 +422,7 @@ function Shell({ page, setPage, onOpenAccount }: {
         <span className="brand-mark">財</span>
         <div className="brand-text">
           <strong>信望愛靈糧堂</strong>
-          <small><span className="desk-only">财务管理系统</span><span className="mob-only">财务系统</span></small>
+          <small><span className="desk-only">財務管理系統</span><span className="mob-only">財務系統</span></small>
         </div>
         {user && (
           <details className="brand-account mob-only">
@@ -488,17 +498,33 @@ function MiniBars({ data }: { data: Array<{ label: string; amount?: number; offe
 
 function DashboardPage() {
   const { dashboard, lookups, offerings, expenses } = useFinance();
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of [...offerings, ...expenses]) {
+      const y = (item.date || '').slice(0, 4);
+      if (y) set.add(y);
+    }
+    return Array.from(set).sort().reverse();
+  }, [offerings, expenses]);
+  const [year, setYear] = useState<number>(() => {
+    const current = new Date().getFullYear();
+    const present = new Set([...offerings, ...expenses].map(item => (item.date || '').slice(0, 4)).filter(Boolean));
+    if (present.has(String(current))) return current;
+    const sorted = Array.from(present).sort();
+    return sorted.length ? Number(sorted[sorted.length - 1]) : current;
+  });
   if (!dashboard) return <Empty title="正在載入數據看板" />;
 
-  // 计算收入统计
+  const yearStr = String(year);
+
+  // 計算收入統計
   const now = new Date();
   const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const yearStart = new Date(now.getFullYear(), 0, 1);
 
-  const weekOfferings = offerings.filter(o => new Date(o.date) >= weekStart);
-  const monthOfferings = offerings.filter(o => new Date(o.date) >= monthStart);
-  const yearOfferings = offerings.filter(o => new Date(o.date) >= yearStart);
+  const yearOfferings = offerings.filter(o => (o.date || '').slice(0, 4) === yearStr);
+  const weekOfferings = yearOfferings.filter(o => new Date(o.date) >= weekStart);
+  const monthOfferings = yearOfferings.filter(o => new Date(o.date) >= monthStart);
   const totalOfferings = offerings;
 
   const weekOfferingTotal = weekOfferings.reduce((sum, o) => sum + o.amount, 0);
@@ -506,30 +532,59 @@ function DashboardPage() {
   const yearOfferingTotal = yearOfferings.reduce((sum, o) => sum + o.amount, 0);
   const totalOfferingAmount = totalOfferings.reduce((sum, o) => sum + o.amount, 0);
 
-  // 计算支出统计
-  const monthExpenses = expenses.filter(e => new Date(e.date) >= monthStart);
-  const yearExpenses = expenses.filter(e => new Date(e.date) >= yearStart);
+  // 計算支出統計
+  const yearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === yearStr);
+  const monthExpenses = yearExpenses.filter(e => new Date(e.date) >= monthStart);
   const totalExpenses = expenses;
 
   const monthExpenseTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
   const yearExpenseTotal = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
   const totalExpenseAmount = totalExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-  const pendingExpenses = expenses.filter(e => e.status === 'pending');
-  const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly, 0);
-  const approvedTotal = expenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
+  const pendingExpenses = yearExpenses.filter(e => e.status === 'pending');
+  const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly * 12, 0);
+  const approvedTotal = yearExpenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
   const budgetUsed = budgetTotal ? Math.min(100, Math.round((approvedTotal / budgetTotal) * 100)) : 0;
+  const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
+  const incomeExpenseTrend = monthLabels.map((label, index) => {
+    const month = `${yearStr}-${String(index + 1).padStart(2, '0')}`;
+    return {
+      label,
+      offerings: yearOfferings.filter(item => (item.date || '').startsWith(month)).reduce((sum, item) => sum + item.amount, 0),
+      expenses: yearExpenses.filter(item => (item.date || '').startsWith(month) && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
+    };
+  });
+  const offeringTrend = monthLabels.map((label, index) => {
+    const month = `${yearStr}-${String(index + 1).padStart(2, '0')}`;
+    return {
+      label,
+      amount: yearOfferings.filter(item => (item.date || '').startsWith(month)).reduce((sum, item) => sum + item.amount, 0)
+    };
+  });
+  const dashboardYearAction = (
+    <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+      {years.length
+        ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
+        : <option value={year}>{year} 年度</option>}
+    </select>
+  );
 
   return (
     <section className="page">
-      <PageTitle title="數據看板" subtitle="本週、本月與待處理財務事項總覽" />
+      <PageTitle title="數據看板" subtitle={`${year} 年度與待處理財務事項總覽`} />
+      <Toolbar>
+        <strong>{year} 年度資料</strong>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {dashboardYearAction}
+        </div>
+      </Toolbar>
 
       {/* 收入部分 */}
       <Panel title="收入統計">
         <div className="stats-grid">
           <StatCard title="本週奉獻" value={currency(weekOfferingTotal)} />
           <StatCard title="本月奉獻" value={currency(monthOfferingTotal)} />
-          <StatCard title="本年奉獻" value={currency(yearOfferingTotal)} />
+          <StatCard title="年度奉獻" value={currency(yearOfferingTotal)} />
           <StatCard title="所有奉獻" value={currency(totalOfferingAmount)} />
         </div>
       </Panel>
@@ -537,23 +592,23 @@ function DashboardPage() {
       {/* 支出部分 */}
       <Panel title="支出統計">
         <div className="stats-grid">
-          <StatCard title="本月支出" value={currency(monthExpenseTotal)} note={`預算剩餘 ${currency(dashboard.monthBudgetRemaining)}`} />
-          <StatCard title="本年支出" value={currency(yearExpenseTotal)} />
+          <StatCard title="本月支出" value={currency(monthExpenseTotal)} note={`年度預算剩餘 ${currency(Math.max(0, budgetTotal - approvedTotal))}`} />
+          <StatCard title="年度支出" value={currency(yearExpenseTotal)} />
           <StatCard title="所有支出" value={currency(totalExpenseAmount)} />
-          <StatCard title="待批准支出" value={`${dashboard.pendingExpenseCount}`} note="需要財務同工處理" />
+          <StatCard title="待審批支出" value={`${pendingExpenses.length}`} note="需要財務同工處理" />
         </div>
       </Panel>
 
-      {/* 动态部分 */}
+      {/* 動態部分 */}
       <div className="two-col finance-overview">
         <Panel title="預算 vs 實際">
           <div className="budget-overview">
             <div>
-              <span>Approved Expenses</span>
+              <span>已審批支出</span>
               <strong>{currency(approvedTotal)}</strong>
             </div>
             <div>
-              <span>Monthly Budget</span>
+              <span>年度預算</span>
               <strong>{currency(budgetTotal)}</strong>
             </div>
           </div>
@@ -562,29 +617,29 @@ function DashboardPage() {
           </div>
           <p className="panel-note">已使用 {budgetUsed}% · 剩餘 {currency(Math.max(0, budgetTotal - approvedTotal))}</p>
           <MiniBars data={(lookups?.expenseCategories ?? []).map(category => ({
-            label: category.name,
-            offerings: category.budgetMonthly,
-            expenses: expenses.filter(item => item.categoryId === category.id && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
+            label: category.shortName?.trim() || category.name,
+            offerings: category.budgetMonthly * 12,
+            expenses: yearExpenses.filter(item => item.categoryId === category.id && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
           }))} />
         </Panel>
         <Panel title="現金流">
-          <p className="panel-note">最近月份收入與核准支出對比</p>
-          <MiniBars data={dashboard.incomeExpense} />
+          <p className="panel-note">{year} 年度收入與核准支出對比</p>
+          <MiniBars data={incomeExpenseTrend} />
         </Panel>
       </div>
 
       <div className="two-col">
         <Panel title="最近奉獻">
-          <SimpleList items={offerings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
+          <SimpleList items={yearOfferings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
         </Panel>
         <Panel title="最近支出">
-          <SimpleList items={expenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
+          <SimpleList items={yearExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
         </Panel>
       </div>
 
       <div className="two-col">
         <Panel title="奉獻趨勢">
-          <MiniBars data={dashboard.offeringTrend} />
+          <MiniBars data={offeringTrend} />
         </Panel>
         <Panel title="待審核支出">
           <SimpleList items={pendingExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description} ${currency(item.amount)}`)} />
@@ -1356,9 +1411,7 @@ function ExpensesPage() {
                 <td data-label="狀態">
                   <div className="expense-status-cell">
                     <Badge>{expenseStatusLabels[item.status]}</Badge>
-                    {approvalOp && (
-                      <span className="expense-status-op">{approvalOp.name && approvalOp.at ? `${approvalOp.name} · ${approvalOp.at}` : (approvalOp.name || approvalOp.at)}</span>
-                    )}
+                    <ExpenseStatusOperator op={approvalOp} />
                     {canEdit && item.status === 'pending' && (
                       <div className="expense-status-actions">
                         <button className="primary" onClick={() => approveExpense(item.id)}>批准</button>
@@ -1370,9 +1423,7 @@ function ExpensesPage() {
                 <td data-label="開票">
                   <div className="expense-status-cell">
                     <Badge>{invoiceBadge}</Badge>
-                    {invoiceOp && (
-                      <span className="expense-status-op">{invoiceOp.name && invoiceOp.at ? `${invoiceOp.name} · ${invoiceOp.at}` : (invoiceOp.name || invoiceOp.at)}</span>
-                    )}
+                    <ExpenseStatusOperator op={invoiceOp} />
                     {showInvoiceBtn && (
                       <div
                         className="expense-status-actions"
@@ -1392,9 +1443,7 @@ function ExpensesPage() {
                 <td data-label="入賬">
                   <div className="expense-status-cell">
                     <Badge>{accountBadge}</Badge>
-                    {accountOp && (
-                      <span className="expense-status-op">{accountOp.name && accountOp.at ? `${accountOp.name} · ${accountOp.at}` : (accountOp.name || accountOp.at)}</span>
-                    )}
+                    <ExpenseStatusOperator op={accountOp} />
                     {showAccountBtn && (
                       <div className="expense-status-actions">
                         <button className="primary" onClick={() => setAccountingExpense(item)}>入賬</button>
@@ -2604,12 +2653,12 @@ function OfferingForm({
 }) {
   const [form, setForm] = useState<Offering>(() => {
     if (offering.id) return offering; // 編輯既有記錄：保留原值
-    // 新增記錄：套用預設值（支付方式=支票、分類=主日奉献、日期=上一個星期日）
+    // 新增記錄：套用預設值（支付方式=支票、分類=主日奉獻、日期=上一個星期日）
     return {
       ...offering,
       date: lastSundayStr(),
       methodId: offering.methodId ?? methods.find(m => m.name === '支票')?.id ?? null,
-      categoryId: offering.categoryId ?? categories.find(c => c.name === '主日奉献')?.id ?? null
+      categoryId: offering.categoryId ?? categories.find(c => c.name === '主日奉獻' || c.name === '主日奉献')?.id ?? null
     };
   });
   const [uploading, setUploading] = useState(false);
@@ -2731,7 +2780,7 @@ function ExpenseForm({
   return (
     <FormModal title="支出記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
       <input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="支出描述" required />
-      <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="支出金额" required />
+      <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="支出金額" required />
       <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required />
       <select value={form.categoryId ?? ''} onChange={event => setForm({ ...form, categoryId: event.target.value || null })}>
         <option value="">選擇分類</option>

@@ -1507,30 +1507,35 @@ async function ensurePhotoTables(env: Env): Promise<void> {
       max_long_edge INTEGER NOT NULL DEFAULT 1600,
       jpeg_quality REAL NOT NULL DEFAULT 0.82,
       default_year TEXT NOT NULL DEFAULT '',
-      default_album TEXT NOT NULL DEFAULT ''
+      default_album TEXT NOT NULL DEFAULT '',
+      page_size INTEGER NOT NULL DEFAULT 100
     )`
   ).run();
   await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_year TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_album TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN page_size INTEGER NOT NULL DEFAULT 100').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare(
-    'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality) VALUES (1, 1600, 0.82)'
+    'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality, page_size) VALUES (1, 1600, 0.82, 100)'
   ).run();
 }
 
-const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' };
+const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 };
+const PHOTO_PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000];
 
-type PhotoSettings = { maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string };
+type PhotoSettings = { maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number };
 
 async function readPhotoSettings(env: Env): Promise<PhotoSettings> {
   const row = await env.PHOTOS_DB
-    .prepare('SELECT max_long_edge, jpeg_quality, default_year, default_album FROM photo_settings WHERE id = 1')
-    .first<{ max_long_edge: number | null; jpeg_quality: number | null; default_year: string | null; default_album: string | null }>();
+    .prepare('SELECT max_long_edge, jpeg_quality, default_year, default_album, page_size FROM photo_settings WHERE id = 1')
+    .first<{ max_long_edge: number | null; jpeg_quality: number | null; default_year: string | null; default_album: string | null; page_size: number | null }>();
   if (!row) return { ...PHOTO_SETTINGS_DEFAULT };
+  const pageSize = Number(row.page_size) || PHOTO_SETTINGS_DEFAULT.pageSize;
   return {
     maxLongEdge: Number(row.max_long_edge) || PHOTO_SETTINGS_DEFAULT.maxLongEdge,
     jpegQuality: Number(row.jpeg_quality) || PHOTO_SETTINGS_DEFAULT.jpegQuality,
     defaultYear: row.default_year || '',
     defaultAlbum: row.default_album || '',
+    pageSize: PHOTO_PAGE_SIZE_OPTIONS.includes(pageSize) ? pageSize : PHOTO_SETTINGS_DEFAULT.pageSize,
   };
 }
 
@@ -1551,11 +1556,13 @@ async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Re
   const rawYear = payload.defaultYear === undefined ? current.defaultYear : String(payload.defaultYear).trim();
   const defaultYear = /^\d{4}$/.test(rawYear) ? rawYear : '';
   const defaultAlbum = (payload.defaultAlbum === undefined ? current.defaultAlbum : String(payload.defaultAlbum).trim()).slice(0, 80);
+  const requestedPageSize = Number(payload.pageSize) || current.pageSize;
+  const pageSize = PHOTO_PAGE_SIZE_OPTIONS.includes(requestedPageSize) ? requestedPageSize : current.pageSize;
   await env.PHOTOS_DB
-    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ?, default_year = ?, default_album = ? WHERE id = 1')
-    .bind(maxLongEdge, jpegQuality, defaultYear, defaultAlbum)
+    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ?, default_year = ?, default_album = ?, page_size = ? WHERE id = 1')
+    .bind(maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize)
     .run();
-  return json({ maxLongEdge, jpegQuality, defaultYear, defaultAlbum });
+  return json({ maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize });
 }
 
 async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {

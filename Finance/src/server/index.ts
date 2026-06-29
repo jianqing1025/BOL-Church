@@ -1504,7 +1504,7 @@ const worker: ExportedHandler<Env> = {
           if (!reviewTarget) return error('Expense not found', 404);
           if (!sameTestScope(user.role, reviewTarget.isTest)) return error('Forbidden', 403);
 
-          // 校验：approve/reject 需要 pending；invoice 需要已批准且未开票；account 需要已开票且未入账
+          // 校驗：approve/reject 需要 pending；invoice 需要已批准且未開票；account 需要已開票且未入賬
           if (action === 'approve' || action === 'reject') {
             if (reviewTarget.status !== 'pending') return error('當前狀態無法執行此操作', 400);
           } else if (action === 'invoice') {

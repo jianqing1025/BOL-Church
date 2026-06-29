@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { resizeImageToBlob } from '../imageUpload';
+import { churchAlert, churchPrompt } from './ChurchDialog';
 
 interface RichTextEditorProps {
   value: string;
@@ -130,8 +131,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     });
   };
 
-  const handleLink = () => {
-    const url = window.prompt('Enter link URL:');
+  const handleLink = async () => {
+    const url = await churchPrompt('Enter link URL:');
     if (!url) return;
     const { start, end } = getSelection();
     const current = valueRef.current;
@@ -185,7 +186,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     } catch (error) {
       console.error('Markdown image upload failed', error);
       const message = error instanceof Error ? error.message : 'Image upload failed.';
-      alert(message);
+      await churchAlert(message);
     } finally {
       setIsUploadingImage(false);
     }

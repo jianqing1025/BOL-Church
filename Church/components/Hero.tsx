@@ -4,6 +4,7 @@ import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 import { resizeImageToBlob } from '../imageUpload';
 import { buildMediaSlots } from '../media';
+import { churchAlert } from './ChurchDialog';
 
 const Hero: React.FC = () => {
   const { t } = useLocalization();
@@ -40,7 +41,7 @@ const Hero: React.FC = () => {
           } catch (error) {
               console.error("Image processing failed", error);
               const message = error instanceof Error ? error.message : 'Image upload failed.';
-              alert(message);
+              await churchAlert(message);
           }
       }
   };

@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import type { LiveChatMessage } from '../types';
+import { churchConfirm } from './ChurchDialog';
 
 interface LiveChatPanelProps {
   videoId: string | null;
@@ -85,7 +86,7 @@ const LiveChatPanel: React.FC<LiveChatPanelProps> = ({ videoId, sessionId, displ
 
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
-    if (!window.confirm(t('liveChat.confirmDelete'))) return;
+    if (!await churchConfirm(t('liveChat.confirmDelete'))) return;
     try {
       await api.liveChatDelete(id);
       setMessages(prev => prev.filter(m => m.id !== id));

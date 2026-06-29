@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { LockIcon } from './icons/Icons';
 import { useAdmin } from '../hooks/useAdmin';
+import { churchAlert } from './ChurchDialog';
 
 const Giving: React.FC = () => {
   const { t } = useLocalization();
@@ -16,10 +17,10 @@ const Giving: React.FC = () => {
     setAmount(String(presetAmount));
   };
 
-  const handleDonate = () => {
+  const handleDonate = async () => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
-        alert('Please enter a valid amount.');
+        await churchAlert('Please enter a valid amount.');
         return;
     }
     

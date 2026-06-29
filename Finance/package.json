@@ -10,6 +10,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "cf:deploy": "npm run build && wrangler deploy",
+    "deploy:dev": "npm run build && wrangler deploy --name church-finance-dev",
+    "deploy:prod": "npm run build && wrangler deploy --name church-finance",
     "d1:migrate:local": "wrangler d1 migrations apply church-finance --local",
     "d1:migrate:remote": "wrangler d1 migrations apply church-finance --remote",
     "import:members:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/import-members-from-access.ps1",

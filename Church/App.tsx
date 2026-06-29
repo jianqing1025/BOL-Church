@@ -18,6 +18,7 @@ import ContactPage from './components/ContactPage';
 import AdminDashboard from './components/AdminDashboard';
 import PrayerRequestPage from './components/PrayerRequestPage';
 import PhotosPage from './components/photos/PhotosPage';
+import { ChurchDialogHost } from './components/ChurchDialog';
 import { SubPage, MinistrySubPage, SermonSubPage, GivingSubPage, ContactSubPage, PrayerRequestSubPage } from './types';
 import { APP_NAVIGATION_EVENT, currentRoute, redirectLegacyHashRoute } from './utils/routes';
 
@@ -147,6 +148,7 @@ function App() {
         {renderPage()}
       </main>
       <Footer />
+      <ChurchDialogHost />
     </div>
   );
 }

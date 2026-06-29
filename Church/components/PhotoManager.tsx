@@ -4,6 +4,7 @@ import { api, type PhotoUploadSettings } from '../api';
 import type { ChurchPhoto } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
 import { buildPaginationNumbers } from '../utils/pagination';
+import { churchConfirm } from './ChurchDialog';
 
 const YEAR_PATTERN = /^\d{4}$/;
 
@@ -16,7 +17,7 @@ const PhotoManager: React.FC = () => {
   const [pageSize, setPageSize] = useState(100);
   const [page, setPage] = useState(1);
 
-  const [settings, setSettings] = useState<PhotoUploadSettings>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '' });
+  const [settings, setSettings] = useState<PhotoUploadSettings>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState('');
   const [newDefaultYear, setNewDefaultYear] = useState('');
@@ -99,7 +100,7 @@ const PhotoManager: React.FC = () => {
   };
 
   const deletePhoto = async (photo: ChurchPhoto) => {
-    if (!confirm(t('adminPhotos.confirmDelete'))) return;
+    if (!await churchConfirm(t('adminPhotos.confirmDelete'))) return;
     setSavingId(photo.id);
     setError('');
     try {
@@ -143,9 +144,7 @@ const PhotoManager: React.FC = () => {
             onChange={(e) => setPageSize(Number(e.target.value))}
             className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm font-semibold"
           >
-            <option value={100}>100</option>
-            <option value={500}>500</option>
-            <option value={1000}>1000</option>
+            {[50, 100, 200, 500, 1000].map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
           <span className="text-gray-500">{t('admin.perPageUnit')}</span>
           <button
@@ -226,6 +225,16 @@ const PhotoManager: React.FC = () => {
               className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
             >
               {[1280, 1600, 1920, 2560, 3840].map((v) => <option key={v} value={v}>{v}px</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">{t('adminPhotos.pageSize')}</span>
+            <select
+              value={settings.pageSize}
+              onChange={(e) => setSettings((s) => ({ ...s, pageSize: Number(e.target.value) }))}
+              className="h-10 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
+            >
+              {[50, 100, 200, 500, 1000].map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label className="block flex-1">
