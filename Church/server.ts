@@ -2145,21 +2145,38 @@ async function fetchYouTubeVideoSnippet(apiKey: string, videoId: string): Promis
 
 async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
   try {
+    await ensureLiveStatsSchema(env);
+    const stateForSnapshot = await getLiveStreamStateRow(env);
+    const websiteUnique = await countWebsiteUnique(env, videoId);
+    const onlineTotal = websiteUnique + Number((stateForSnapshot as any).youtube_peak ?? 0);
+    let archivedViewCount: number | null = null;
+    let archivedDuration: number | null = null;
+    if (config.api_key) {
+      const vm = (await fetchVideoMetadata(config.api_key, [videoId])).get(videoId);
+      if (vm) { archivedViewCount = vm.viewCount; archivedDuration = vm.durationSeconds; }
+    }
+
     // 已存在（多半是每日同步先把這支影片從 Uploads 匯入了）→ 認領為 live-broadcast，
-    // 確保它出現在歷史直播區，並設為回放影片，然後清除 pending 狀態。
+    // 確保它出現在歷史直播區，並設為回放影片，寫入在线/播放数快照,然後清除 pending 狀態。
     const exists = await env.DB.prepare("SELECT id, category FROM sermons WHERE youtube_id = ? LIMIT 1")
       .bind(videoId).first<{ id: string; category: string }>();
     if (exists) {
+      const sets: string[] = ['live_online_total = ?'];
+      const binds: unknown[] = [onlineTotal];
       if (exists.category !== 'live-broadcast') {
         await ensureCategoryColumn(env);
-        await env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE id = ?")
-          .bind(new Date().toISOString(), exists.id).run();
+        sets.push("category = 'live-broadcast'");
       }
+      if (archivedViewCount != null) { sets.push('view_count = ?'); binds.push(archivedViewCount); }
+      sets.push('updated_at = ?'); binds.push(new Date().toISOString());
+      binds.push(exists.id);
+      await env.DB.prepare(`UPDATE sermons SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
       try {
         await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
           .bind(videoId, Date.now()).run();
       } catch { /* ignore */ }
       await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
+      await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
       return;
     }
 
@@ -2184,16 +2201,16 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     // 不報錯、不破壞 cron 主流程；隨後再認領分類。
     const insertRes = await env.DB
       .prepare(
-        `INSERT OR IGNORE INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', 'live-broadcast', ?, ?)`
+        `INSERT OR IGNORE INTO sermons (id, title_en, title_zh, speaker_en, speaker_zh, date, series_en, series_zh, passage_en, passage_zh, youtube_id, image_url, type, category, duration_seconds, view_count, live_online_total, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sermon', 'live-broadcast', ?, ?, ?, ?, ?)`
       )
-      .bind(sermonId, titleEn, titleZh, speakerEn, speakerZh, today, '', '', '', '', videoId, imageUrl, nowIso, nowIso)
+      .bind(sermonId, titleEn, titleZh, speakerEn, speakerZh, today, '', '', '', '', videoId, imageUrl, archivedDuration, archivedViewCount, onlineTotal, nowIso, nowIso)
       .run();
     const didInsert = (insertRes.meta?.changes ?? 0) > 0;
     if (!didInsert) {
-      // 併發競態：那行已被同步插入 → 認領為 live-broadcast，保證進入歷史直播區。
-      await env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE youtube_id = ? AND category <> 'live-broadcast'")
-        .bind(nowIso, videoId).run();
+      // 併發競態：那行已被同步插入 → 認領為 live-broadcast，並寫入快照,保證進入歷史直播區。
+      await env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', live_online_total = ?, updated_at = ? WHERE youtube_id = ? AND category <> 'live-broadcast'")
+        .bind(onlineTotal, nowIso, videoId).run();
     }
 
     // 歸檔成功 → 清除 pending video_id
@@ -2210,6 +2227,9 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     if (didInsert) {
       await sendLiveStreamArchiveNotification(env, { sermonId, titleZh, titleEn, videoId, date: today });
     }
+
+    // 歸檔完成 → 清掉這場直播的 seen 記錄
+    await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
   } catch (err) {
     // 不影響 cron 主流程
     console.error('Archive sermon failed', err);
@@ -2800,6 +2820,9 @@ async function cleanupLiveData(env: Env): Promise<void> {
   } catch { /* table may not exist yet */ }
   try {
     await env.DB.prepare('DELETE FROM live_chat_messages WHERE created_at < ?').bind(chatCutoff).run();
+  } catch { /* table may not exist yet */ }
+  try {
+    await env.DB.prepare('DELETE FROM live_session_seen WHERE joined_at < ?').bind(chatCutoff).run();
   } catch { /* table may not exist yet */ }
 }
 
