@@ -21,14 +21,29 @@ export const SlideshowOverlay: React.FC<{
 
   // Run once on open: lock scroll, enter native fullscreen, restore on close.
   useEffect(() => {
+    const enterFullscreen = () => {
+      if (document.fullscreenElement) return;
+      void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    // Launched from a click gesture, so requestFullscreen is usually allowed; best-effort.
-    void document.documentElement.requestFullscreen?.().catch(() => undefined);
+
+    // Best-effort immediate fullscreen (works when launched with a user gesture,
+    // e.g. the "Current Window" path).
+    enterFullscreen();
+    // A popup opened programmatically on another display has no user activation,
+    // so requestFullscreen is blocked on load. Fall back to the first user gesture
+    // inside the slideshow window (a single click/keypress flips it to fullscreen).
+    const onGesture = () => enterFullscreen();
+    window.addEventListener('pointerdown', onGesture);
+    window.addEventListener('keydown', onGesture);
+
     return () => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onGesture);
+      window.removeEventListener('keydown', onGesture);
       document.body.style.overflow = prevOverflow;
       if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
     };

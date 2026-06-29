@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowUpDown, CheckSquare, CloudUpload, Download, Expand, FileWarning, Film, FolderInput,
-  Grid2X2, Heart, Image as ImageIcon, Info, LayoutDashboard, LayoutTemplate, Loader2,
-  MoreVertical, Play, RefreshCw, Shrink, Trash2, Waves, X,
+  ArrowUpDown, CheckSquare, Download, Expand, Film, FolderInput,
+  Grid2X2, Heart, Image as ImageIcon, LayoutDashboard, LayoutTemplate,
+  MoreVertical, Shrink, Trash2, Waves, X,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -16,7 +16,7 @@ const GridModeIcon: React.FC<{ mode: GridDisplayMode; size?: number; className?:
   </svg>
 );
 
-const SLIDESHOW_MODES: { id: SlideshowMode; label: string; Icon: typeof Film }[] = [
+export const SLIDESHOW_MODES: { id: SlideshowMode; label: string; Icon: typeof Film }[] = [
   { id: 'cascade', label: 'Cascade', Icon: Film },
   { id: 'tiles-shifting', label: 'Tiles Shifting', Icon: Grid2X2 },
   { id: 'sliding-tiles', label: 'Sliding Tiles', Icon: Grid2X2 },
@@ -51,15 +51,9 @@ export interface PhotoToolbarProps {
   onToggleDeleteMode: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  onScanDuplicates: () => void;
   onExportOrDownload: () => void;
   onBulkDelete: () => void;
   onMoveSelected: () => void;
-  onUpload: () => void;
-  onInfo: () => void;
-  onSlideshow: (mode: SlideshowMode) => void;
 }
 
 const iconBtn = 'inline-flex h-7 w-7 items-center justify-center rounded-md transition-all';
@@ -68,11 +62,9 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
   const { t } = useLocalization();
   const isCompact = useBreakpoint();
   const [sortOpen, setSortOpen] = useState(false);
-  const [slideOpen, setSlideOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [albumSheetOpen, setAlbumSheetOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
-  const slideRef = useRef<HTMLDivElement>(null);
   const collectionRef = useRef<HTMLDivElement>(null);
   const albumRef = useRef<HTMLDivElement>(null);
 
@@ -83,7 +75,6 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
-      if (slideRef.current && !slideRef.current.contains(e.target as Node)) setSlideOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -166,23 +157,6 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </div>
   );
 
-  const slideshowMenu = (
-    <div ref={slideRef} className="relative">
-      <button type="button" onClick={() => setSlideOpen((o) => !o)} className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-rose-500 text-white shadow-sm hover:bg-rose-600" title={t('photosPage.slideshow')}>
-        <Play size={16} className="fill-current" />
-      </button>
-      {slideOpen && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border border-gray-100 bg-white py-1 shadow-xl">
-          {SLIDESHOW_MODES.map(({ id, label, Icon }) => (
-            <button key={id} type="button" onClick={() => { setSlideOpen(false); props.onSlideshow(id); }} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
-              <Icon size={14} /> {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
   // Desktop toolbar
   const desktop = (
     <>
@@ -191,26 +165,21 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <ImageIcon size={20} className="text-rose-500" />
           <h1 className="text-lg font-extrabold text-gray-800">{t('photosPage.title')}</h1>
         </div>
-        {collectionChips(false)}
+          {collectionChips(false)}
         <div className="ml-auto flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
-            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom In">+</button>
-            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="p-1.5 text-gray-500 hover:text-rose-500" title="Zoom Out">-</button>
+            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className={`${iconBtn} font-bold text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom In">+</button>
+            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className={`${iconBtn} font-bold text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom Out">-</button>
           </div>
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
             <button type="button" onClick={() => props.viewMode === 'square' ? props.onSetGridDisplayMode(props.gridDisplayMode === 'fill' ? 'ratio' : 'fill') : props.onSetViewMode('square')} className={`${iconBtn} ${props.viewMode === 'square' ? 'bg-white text-rose-500 shadow-sm' : 'text-gray-400'}`} title="Grid"><GridModeIcon mode={props.viewMode === 'square' ? props.gridDisplayMode : 'fill'} /></button>
             <button type="button" onClick={() => props.onSetViewMode('masonry')} className={`${iconBtn} ${props.viewMode === 'masonry' ? 'bg-white text-rose-500 shadow-sm' : 'text-gray-400'}`} title="Masonry"><LayoutDashboard size={16} /></button>
           </div>
-          <button type="button" onClick={props.onRefresh} disabled={props.isRefreshing} className={`${iconBtn} border border-gray-200 bg-white text-gray-500 hover:bg-gray-100`} title="Refresh">{props.isRefreshing ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}</button>
-          <button type="button" onClick={props.onScanDuplicates} className={`${iconBtn} border border-gray-200 bg-white text-gray-500 hover:bg-orange-50 hover:text-orange-500`} title="Scan Duplicates"><FileWarning size={18} /></button>
           {sortMenu}
           <button type="button" onClick={props.onExportOrDownload} className={`${iconBtn} border ${hasSelection ? 'border-green-500 bg-green-500 text-white' : 'border-gray-200 bg-white text-gray-500 hover:text-rose-500'}`} title={hasSelection ? 'Download selected' : 'Export'}><Download size={18} /></button>
           <button type="button" onClick={hasSelection ? props.onBulkDelete : props.onToggleDeleteMode} className={`${iconBtn} border ${hasSelection || props.isDeleteMode ? 'border-red-500 bg-red-500 text-white' : 'border-gray-200 bg-white text-gray-500 hover:text-red-500'}`} title={hasSelection ? 'Delete selected' : 'Delete mode'}><Trash2 size={18} /></button>
           {hasSelection && <button type="button" onClick={props.onMoveSelected} className={`${iconBtn} border border-orange-500 bg-orange-500 text-white`} title="Move selected"><FolderInput size={18} /></button>}
           <button type="button" onClick={() => props.isSelectMode && props.selectedCount < props.totalSelectable ? props.onSelectAll() : props.onToggleSelectMode()} className={`${iconBtn} border ${props.isSelectMode ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-gray-200 bg-white text-gray-500 hover:text-indigo-500'}`} title="Select"><CheckSquare size={18} /></button>
-          <button type="button" onClick={props.onUpload} className={`${iconBtn} border border-gray-200 bg-white text-gray-600 hover:bg-gray-100`} title={t('photosPage.uploadPhotos')}><CloudUpload size={18} /></button>
-          <button type="button" onClick={props.onInfo} className={`${iconBtn} border border-gray-200 bg-white text-gray-600 hover:bg-gray-100`} title="Info"><Info size={18} /></button>
-          {slideshowMenu}
           <button type="button" onClick={props.onToggleFullscreen} className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gray-800 text-white shadow-sm hover:bg-black" title="Fullscreen">{props.isFullscreen ? <Shrink size={16} /> : <Expand size={16} />}</button>
         </div>
       </div>
@@ -233,8 +202,8 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
           {props.isDeleteMode && <span className="mr-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-500">DEL</span>}
           {props.isSelectMode && <span className="mr-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500">{props.selectedCount > 0 ? `${props.selectedCount} selected` : 'SEL'}</span>}
-          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="px-2 py-1 text-lg font-black leading-none text-gray-600 hover:text-rose-500" title="Zoom In">+</button>
-          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="px-2 py-1 text-lg font-black leading-none text-gray-600 hover:text-rose-500" title="Zoom Out">-</button>
+          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-base font-bold leading-none text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom In">+</button>
+          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-base font-bold leading-none text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom Out">-</button>
           <button type="button" onClick={() => setMoreOpen(true)} className={`rounded-lg p-2 ${moreOpen ? 'bg-rose-50 text-rose-500' : 'text-gray-600 hover:bg-gray-100'}`} title="More"><MoreVertical size={18} /></button>
         </div>
       </div>
@@ -284,17 +253,10 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
               <button type="button" onClick={() => props.onSetSortDir(props.sortDir === 'desc' ? 'asc' : 'desc')} className={sheetRow}><ArrowUpDown size={18} className="text-indigo-500" /><span>{props.sortDir === 'desc' ? 'Descending' : 'Ascending'}</span></button>
 
               <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Actions</div>
-              <button type="button" onClick={() => { props.onRefresh(); setMoreOpen(false); }} className={sheetRow}><RefreshCw size={18} className="text-sky-500" /><span>Refresh</span></button>
-              <button type="button" onClick={() => { props.onScanDuplicates(); setMoreOpen(false); }} className={sheetRow}><FileWarning size={18} className="text-orange-500" /><span>Scan Duplicates</span></button>
               <button type="button" onClick={() => { props.onExportOrDownload(); setMoreOpen(false); }} className={sheetRow}><Download size={18} className="text-green-500" /><span>{hasSelection ? 'Download Selected' : 'Export'}</span></button>
               {hasSelection && <button type="button" onClick={() => { props.onMoveSelected(); setMoreOpen(false); }} className={sheetRow}><FolderInput size={18} className="text-orange-500" /><span>{t('photosPage.moveSelected')}</span></button>}
               <button type="button" onClick={() => { props.onToggleDeleteMode(); setMoreOpen(false); }} className={sheetRow}><Trash2 size={18} className="text-red-500" /><span>{props.isDeleteMode ? 'Exit Delete Mode' : 'Delete Mode'}</span></button>
               <button type="button" onClick={() => { props.isSelectMode ? props.onToggleSelectMode() : props.onToggleSelectMode(); setMoreOpen(false); }} className={sheetRow}><CheckSquare size={18} className="text-indigo-500" /><span>{props.isSelectMode ? 'Exit Select Mode' : 'Select Mode'}</span></button>
-
-              <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.slideshow')}</div>
-              {SLIDESHOW_MODES.map(({ id, label, Icon }) => (
-                <button key={id} type="button" onClick={() => { setMoreOpen(false); props.onSlideshow(id); }} className={`${sheetRow} hover:bg-rose-50 hover:text-rose-600`}><Icon size={18} className="text-rose-400" /><span>{label}</span></button>
-              ))}
 
               <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Display</div>
               <button type="button" onClick={() => { props.onToggleFullscreen(); setMoreOpen(false); }} className={sheetRow}><Expand size={18} className="text-gray-600" /><span>{props.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span></button>

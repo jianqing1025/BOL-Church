@@ -14,10 +14,47 @@ import type { GridDisplayMode, SlideshowMode, SortDir, SortField, ViewMode } fro
 import { churchConfirm } from '../ChurchDialog';
 import { buildPaginationNumbers } from '../../utils/pagination';
 import { useAdmin } from '../../hooks/useAdmin';
+import { buildMediaSlots } from '../../media';
+import { PhotoGate, PHOTO_UNLOCK_KEY } from './PhotoGate';
 
-const FAVORITES_KEY = 'bolccop-photo-favorites';
 const UPLOADER_KEY = 'bolccop-photo-uploader-id';
 const YEAR_PATTERN = /^\d{4}$/;
+const SLIDESHOW_WINDOW_PARAM = 'photoSlideshowWindow';
+const SLIDESHOW_TOKEN_PARAM = 'photoSlideshowToken';
+const SLIDESHOW_PAYLOAD_PREFIX = 'bolccop-photo-slideshow:';
+
+// Diagnostic logger — multi-monitor placement can only be debugged from the
+// real machine, so trace every step on both the opener and the popup.
+const slideshowLog = (...args: unknown[]) => {
+  try { console.info('[slideshow]', ...args); } catch { /* ignore */ }
+};
+
+type SlideshowSelection = {
+  type: 'photo';
+  mode: SlideshowMode;
+  data: ChurchPhoto[];
+};
+
+type BrowserDisplay = {
+  id: number;
+  label: string;
+  isPrimary: boolean;
+  isCurrent: boolean;
+  bounds: { x: number; y: number; width: number; height: number };
+  screen?: Screen;
+};
+
+type ScreenDetailsLike = {
+  screens: Screen[];
+  currentScreen?: Screen;
+};
+
+declare global {
+  interface Window {
+    getScreenDetails?: () => Promise<ScreenDetailsLike>;
+  }
+}
+
 const defaultPhotoColumns = () => {
   if (typeof window === 'undefined') return 6;
   return window.matchMedia?.('(max-width: 767px)').matches ? 4 : 6;
@@ -56,9 +93,57 @@ const uniqueLabels = (values: string[]): string[] => {
 };
 const fileBaseName = (url: string) => decodeURIComponent(url.split('/').pop() || 'photo.jpg').replace(/\?.*$/, '');
 
-const PhotosPage: React.FC = () => {
+const screenNumber = (screen: Screen, index: number, isCurrent: boolean): BrowserDisplay => {
+  // ScreenDetailed exposes full-screen origin via left/top; availLeft/availTop are
+  // the work area. For a fullscreen slideshow window we want the FULL screen origin,
+  // so prefer left/top and fall back to availLeft/availTop.
+  const s = screen as Screen & { left?: number; top?: number; availLeft?: number; availTop?: number; isPrimary?: boolean };
+  const width = Math.round(screen.width || window.screen.width || window.innerWidth);
+  const height = Math.round(screen.height || window.screen.height || window.innerHeight);
+  const x = Math.round(s.left ?? s.availLeft ?? 0);
+  const y = Math.round(s.top ?? s.availTop ?? 0);
+  const isPrimary = typeof s.isPrimary === 'boolean' ? s.isPrimary : (x === 0 && y === 0);
+  return {
+    id: index + 1,
+    label: `Display ${index + 1}${isPrimary ? ' (Primary)' : ''} - ${width}x${height}`,
+    isPrimary,
+    isCurrent,
+    bounds: { x, y, width, height },
+    screen,
+  };
+};
+
+const listBrowserDisplays = async (): Promise<BrowserDisplay[]> => {
+  if (!window.getScreenDetails) {
+    slideshowLog('getScreenDetails unavailable (non-Chromium or unsupported) — single-window only');
+    return [];
+  }
+  // Surface the window-management permission state so a denied/prompt case is visible.
+  try {
+    const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
+    if (perms?.query) {
+      const status = await perms.query({ name: 'window-management' as PermissionName }).catch(() => null);
+      if (status) slideshowLog('window-management permission:', status.state);
+    }
+  } catch { /* permission name may be unknown in some browsers */ }
+  try {
+    const details = await window.getScreenDetails();
+    const current = details.currentScreen;
+    const displays = details.screens.map((screen, index) => screenNumber(screen, index, screen === current));
+    slideshowLog('getScreenDetails ok — screens:', displays.map(d => ({ id: d.id, bounds: d.bounds, isPrimary: d.isPrimary, isCurrent: d.isCurrent })));
+    return displays;
+  } catch (error) {
+    slideshowLog('getScreenDetails failed/denied:', error);
+    return [];
+  }
+};
+
+const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ onGateChange }) => {
   const { t } = useLocalization();
-  const { currentUser } = useAdmin();
+  const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const slideshowWindowToken = searchParams.get(SLIDESHOW_TOKEN_PARAM);
+  const isStandaloneSlideshowWindow = searchParams.get(SLIDESHOW_WINDOW_PARAM) === '1' && Boolean(slideshowWindowToken);
+  const { currentUser, images } = useAdmin();
   const [uploaderId] = useState(getUploaderId);
 
   const [photos, setPhotos] = useState<ChurchPhoto[]>([]);
@@ -67,7 +152,7 @@ const PhotosPage: React.FC = () => {
   const [notice, setNotice] = useState('');
 
   const [selectedCollection, setSelectedCollection] = useState('All');
-  const [selectedAlbum, setSelectedAlbum] = useState('All');
+  const [selectedAlbum, setSelectedAlbum] = useState('Favorites');
   const [viewMode, setViewMode] = useState<ViewMode>('square');
   const [gridDisplayMode, setGridDisplayMode] = useState<GridDisplayMode>('fill');
   const [columns, setColumns] = useState(defaultPhotoColumns);
@@ -80,18 +165,41 @@ const PhotosPage: React.FC = () => {
   const [deletingId, setDeletingId] = useState('');
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [slideshowMode, setSlideshowMode] = useState<SlideshowMode | null>(null);
+  const [activeSlideshow, setActiveSlideshow] = useState<SlideshowSelection | null>(null);
+  const [standaloneSlideshow, setStandaloneSlideshow] = useState<SlideshowSelection | null>(null);
+  const [standaloneSlideshowLoading, setStandaloneSlideshowLoading] = useState(isStandaloneSlideshowWindow);
+  const [slideshowDisplayPicker, setSlideshowDisplayPicker] = useState<{
+    open: boolean;
+    displays: BrowserDisplay[];
+    pending: SlideshowSelection | null;
+  }>({ open: false, displays: [], pending: null });
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const lastPageViewKeyRef = useRef('');
+  const lastLightboxViewIdRef = useRef('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [page, setPage] = useState(1);
 
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); } catch { return new Set(); }
+  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number; accessRequired?: boolean }>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [unlocked, setUnlocked] = useState<boolean>(() => {
+    try { return localStorage.getItem(PHOTO_UNLOCK_KEY) === '1'; } catch { return false; }
   });
-  const [uploadSettings, setUploadSettings] = useState<{ maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number }>({ maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 });
+  const heroUrl = useMemo(() => {
+    const slot = buildMediaSlots('hero', images)[0];
+    return slot ? (images[slot.key] || slot.placeholder) : '';
+  }, [images]);
+
+  // Soft gate is shown to non-admin visitors when a password is set and they
+  // haven't unlocked this browser yet. Notify App so it can switch the header to
+  // homepage (transparent) style for a seamless header+hero background.
+  const showGate = !isStandaloneSlideshowWindow && !currentUser && settingsLoaded && uploadSettings.accessRequired === true && !unlocked;
+  useEffect(() => {
+    onGateChange?.(showGate);
+    return () => onGateChange?.(false);
+  }, [showGate, onGateChange]);
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
@@ -106,24 +214,46 @@ const PhotosPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { void loadPhotos(); }, [loadPhotos]);
   useEffect(() => {
-    api.photoSettings().then(setUploadSettings).catch(() => undefined);
+    if (isStandaloneSlideshowWindow) {
+      setLoading(false);
+      return;
+    }
+    void loadPhotos();
+  }, [isStandaloneSlideshowWindow, loadPhotos]);
+  useEffect(() => {
+    slideshowLog('popup mount — standalone?', isStandaloneSlideshowWindow, 'token:', slideshowWindowToken, 'search:', window.location.search);
+    if (!isStandaloneSlideshowWindow || !slideshowWindowToken) {
+      setStandaloneSlideshowLoading(false);
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(`${SLIDESHOW_PAYLOAD_PREFIX}${slideshowWindowToken}`);
+      const parsed = raw ? JSON.parse(raw) as SlideshowSelection : null;
+      slideshowLog('payload from localStorage:', raw ? `found (${parsed?.data?.length ?? 0} items, mode=${parsed?.mode})` : 'MISSING');
+      setStandaloneSlideshow(parsed);
+    } catch (error) {
+      slideshowLog('payload parse failed:', error);
+      setStandaloneSlideshow(null);
+    } finally {
+      setStandaloneSlideshowLoading(false);
+    }
+  }, [isStandaloneSlideshowWindow, slideshowWindowToken]);
+  useEffect(() => {
+    api.photoSettings()
+      .then(setUploadSettings)
+      .catch(() => undefined)
+      .finally(() => setSettingsLoaded(true));
   }, []);
   useEffect(() => {
     const open = () => setUploadOpen(true);
     window.addEventListener('bolccop:open-photo-upload', open);
     return () => window.removeEventListener('bolccop:open-photo-upload', open);
   }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites]));
-    } catch {
-      /* ignore unavailable storage */
-    }
-  }, [favorites]);
-
   // ── Derived filters ──────────────────────────────────────────────────────
+  const favorites = useMemo(() => new Set(photos.filter((photo) => photo.isFavorite).map((photo) => photo.id)), [photos]);
+
   const collections = useMemo(
     () => uniqueLabels(photos.map((p) => p.collection)).filter((l) => YEAR_PATTERN.test(l)).sort((a, b) => Number(b) - Number(a)),
     [photos],
@@ -166,6 +296,43 @@ const PhotosPage: React.FC = () => {
 
   const selectedPhotos = useMemo(() => filteredPhotos.filter((p) => selectedIds.has(p.id)), [filteredPhotos, selectedIds]);
 
+  const incrementLocalViewCounts = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    setPhotos((prev) => prev.map((photo) => (
+      idSet.has(photo.id) ? { ...photo, viewCount: (photo.viewCount ?? 0) + 1 } : photo
+    )));
+  }, []);
+
+  const reportPhotoViews = useCallback(async (ids: string[]) => {
+    const uniqueIds = [...new Set(ids)].filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    try {
+      const res = await api.incrementPhotoViews(uniqueIds);
+      incrementLocalViewCounts(res.ids);
+    } catch {
+      /* View counts are best-effort and should never interrupt the gallery. */
+    }
+  }, [incrementLocalViewCounts]);
+
+  useEffect(() => {
+    if (loading) return;
+    const ids = visiblePhotos.map((photo) => photo.id);
+    if (ids.length === 0) return;
+    const key = `${selectedCollection}|${selectedAlbum}|${sortField}|${sortDir}|${safePage}|${ids.join(',')}`;
+    if (lastPageViewKeyRef.current === key) return;
+    lastPageViewKeyRef.current = key;
+    const timer = window.setTimeout(() => { void reportPhotoViews(ids); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [loading, reportPhotoViews, safePage, selectedAlbum, selectedCollection, sortDir, sortField, visiblePhotos]);
+
+  useEffect(() => {
+    if (lightboxIndex == null) return;
+    const id = filteredPhotos[lightboxIndex]?.id;
+    if (!id || lastLightboxViewIdRef.current === id) return;
+    lastLightboxViewIdRef.current = id;
+    void reportPhotoViews([id]);
+  }, [filteredPhotos, lightboxIndex, reportPhotoViews]);
+
   const showNotice = useCallback((msg: string) => {
     setNotice(msg);
     window.setTimeout(() => setNotice(''), 3500);
@@ -173,8 +340,30 @@ const PhotosPage: React.FC = () => {
 
   // ── Selection ────────────────────────────────────────────────────────────
   const toggleFavorite = useCallback((id: string) => {
-    setFavorites((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }, []);
+    const current = photos.find((photo) => photo.id === id);
+    if (!current) return;
+    const nextFavorite = !current.isFavorite;
+    const previous = current;
+    setPhotos((prev) => prev.map((photo) => photo.id === id
+      ? {
+          ...photo,
+          isFavorite: nextFavorite,
+          favoriteCount: nextFavorite ? 1 : 0,
+        }
+      : photo
+    ));
+    api.setPhotoFavorite(id, nextFavorite)
+      .then((res) => {
+        setPhotos((prev) => prev.map((photo) => photo.id === id
+          ? { ...photo, isFavorite: res.isFavorite, favoriteCount: res.isFavorite ? 1 : 0 }
+          : photo
+        ));
+      })
+      .catch((err) => {
+        setPhotos((prev) => prev.map((photo) => photo.id === id ? previous : photo));
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  }, [photos]);
   const toggleSelection = useCallback((id: string) => {
     setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
@@ -286,10 +475,89 @@ const PhotosPage: React.FC = () => {
   }, [selectedPhotos, showNotice]);
 
   // ── Slideshow / Lightbox ─────────────────────────────────────────────────
-  const startSlideshow = useCallback((mode: SlideshowMode) => {
+  const startSlideshow = useCallback(async (mode: SlideshowMode) => {
     if (filteredPhotos.length === 0) { showNotice(t('photosPage.empty')); return; }
-    setSlideshowMode(mode);
-  }, [filteredPhotos.length, showNotice, t]);
+    const nextSelection: SlideshowSelection = { type: 'photo', mode, data: filteredPhotos };
+
+    try {
+      const displays = await listBrowserDisplays();
+      if (displays.length > 1) {
+        setSlideshowDisplayPicker({ open: true, displays, pending: nextSelection });
+        return;
+      }
+    } catch (error) {
+      console.warn('[slideshow] Failed to list displays:', error);
+    }
+
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch((error) => {
+        console.warn('[slideshow] Failed to enter fullscreen:', error);
+      });
+    }
+    setActiveSlideshow(nextSelection);
+  }, [filteredPhotos, showNotice, t]);
+
+  useEffect(() => {
+    const open = (event: Event) => {
+      const mode = (event as CustomEvent<SlideshowMode>).detail;
+      void startSlideshow(mode || 'cascade');
+    };
+    window.addEventListener('bolccop:start-photo-slideshow', open);
+    return () => window.removeEventListener('bolccop:start-photo-slideshow', open);
+  }, [startSlideshow]);
+
+  const handleCloseSlideshow = useCallback(() => {
+    setActiveSlideshow(null);
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch((error) => {
+        console.warn('[slideshow] Failed to exit fullscreen:', error);
+      });
+    }
+  }, []);
+
+  const handleCloseStandaloneSlideshow = useCallback(() => {
+    if (slideshowWindowToken) {
+      localStorage.removeItem(`${SLIDESHOW_PAYLOAD_PREFIX}${slideshowWindowToken}`);
+    }
+    window.close();
+  }, [slideshowWindowToken]);
+
+  const handleLaunchSlideshowOnCurrentScreen = useCallback(() => {
+    const pending = slideshowDisplayPicker.pending;
+    if (!pending) return;
+
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch((error) => {
+        console.warn('[slideshow] Failed to enter fullscreen:', error);
+      });
+    }
+    setActiveSlideshow(pending);
+    setSlideshowDisplayPicker({ open: false, displays: [], pending: null });
+  }, [slideshowDisplayPicker.pending]);
+
+  const handleLaunchSlideshowOnDisplay = useCallback(async (displayId: number) => {
+    const pending = slideshowDisplayPicker.pending;
+    if (!pending) return;
+    const display = slideshowDisplayPicker.displays.find((item) => item.id === displayId);
+    if (!display) return;
+
+    // Fullscreen the CURRENT window onto the chosen screen using the Window
+    // Management API (FullscreenOptions.screen). This runs inside the click
+    // gesture, so it reliably enters real fullscreen on that display — unlike a
+    // programmatically-opened popup, which browsers refuse to auto-fullscreen.
+    try {
+      const target = display.screen;
+      slideshowLog('requestFullscreen on display', display.label, 'screen?', !!target);
+      await document.documentElement.requestFullscreen?.(
+        target ? ({ screen: target } as unknown as FullscreenOptions) : undefined,
+      );
+    } catch (error) {
+      slideshowLog('requestFullscreen({screen}) failed:', error);
+      showNotice('Could not enter fullscreen on that display. Allow fullscreen for this site and retry.');
+    }
+    setActiveSlideshow(pending);
+    setSlideshowDisplayPicker({ open: false, displays: [], pending: null });
+  }, [showNotice, slideshowDisplayPicker.displays, slideshowDisplayPicker.pending]);
 
   const handleItemClick = useCallback((_idx: number, id: string) => {
     const index = filteredPhotos.findIndex((photo) => photo.id === id);
@@ -312,6 +580,45 @@ const PhotosPage: React.FC = () => {
     add: t('photosPage.add'),
     empty: t('photosPage.empty'),
   };
+
+  if (isStandaloneSlideshowWindow) {
+    if (standaloneSlideshowLoading) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-black text-sm font-semibold text-white">
+          Loading slideshow...
+        </div>
+      );
+    }
+
+    if (!standaloneSlideshow) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-white">
+          <div className="text-lg font-semibold">Slideshow Payload Unavailable</div>
+          <button
+            type="button"
+            onClick={() => window.close()}
+            className="rounded-md bg-white px-4 py-2 text-sm font-bold text-gray-900 hover:bg-gray-100"
+          >
+            Close
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <SlideshowOverlay
+        mode={standaloneSlideshow.mode}
+        photos={standaloneSlideshow.data}
+        onClose={handleCloseStandaloneSlideshow}
+      />
+    );
+  }
+
+  // Soft access gate: blurred Hero background + floating password card, rendered
+  // within the normal layout (header/footer preserved). Admins bypass it.
+  if (showGate) {
+    return <PhotoGate heroUrl={heroUrl} onUnlocked={() => setUnlocked(true)} />;
+  }
 
   return (
     <div className={`min-h-screen bg-white ${isFullscreen ? 'fixed inset-0 z-40 overflow-y-auto' : ''}`}>
@@ -342,15 +649,9 @@ const PhotosPage: React.FC = () => {
         onToggleDeleteMode={() => setIsDeleteMode((v) => !v)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={() => setIsFullscreen((v) => !v)}
-        isRefreshing={loading}
-        onRefresh={loadPhotos}
-        onScanDuplicates={scanDuplicates}
         onExportOrDownload={() => (isSelectMode && selectedIds.size > 0 ? downloadPhotos(selectedPhotos) : exportMetadata())}
         onBulkDelete={bulkDelete}
         onMoveSelected={openMoveSelected}
-        onUpload={() => setUploadOpen(true)}
-        onInfo={() => showNotice(`${selectedCollection} / ${selectedAlbum}: ${filteredPhotos.length}`)}
-        onSlideshow={startSlideshow}
       />
 
       {(notice || error) && (
@@ -475,8 +776,56 @@ const PhotosPage: React.FC = () => {
         />
       )}
 
-      {slideshowMode && (
-        <SlideshowOverlay mode={slideshowMode} photos={filteredPhotos} onClose={() => setSlideshowMode(null)} />
+      {activeSlideshow && (
+        <SlideshowOverlay
+          mode={activeSlideshow.mode}
+          photos={activeSlideshow.data}
+          onClose={handleCloseSlideshow}
+        />
+      )}
+
+      {slideshowDisplayPicker.open && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <div className="text-lg font-bold text-gray-900">Choose Slideshow Screen</div>
+                <div className="text-sm text-gray-500">Multi-monitor detected. Pick where the slideshow should open.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSlideshowDisplayPicker({ open: false, displays: [], pending: null })}
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-3 p-5">
+              <button
+                type="button"
+                onClick={handleLaunchSlideshowOnCurrentScreen}
+                className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left hover:border-blue-400 hover:bg-blue-100"
+              >
+                <div className="font-bold text-blue-900">Current Window</div>
+                <div className="text-sm text-blue-700">Use this browser tab and enter fullscreen.</div>
+              </button>
+              {slideshowDisplayPicker.displays.filter((display: BrowserDisplay) => !display.isCurrent).map((display: BrowserDisplay) => (
+                <button
+                  key={display.id}
+                  type="button"
+                  onClick={() => handleLaunchSlideshowOnDisplay(display.id)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left hover:border-gray-400 hover:bg-gray-50"
+                >
+                  <div className="font-bold text-gray-900">{display.label}</div>
+                  <div className="text-sm text-gray-500">
+                    {display.bounds.width}x{display.bounds.height} at {display.bounds.x}, {display.bounds.y}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {contextMenu && contextPhoto && (

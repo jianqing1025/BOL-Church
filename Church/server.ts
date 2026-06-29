@@ -197,6 +197,9 @@ type PhotoRow = {
   uploader_name: string | null;
   sort_order: number;
   hidden: number;
+  view_count: number | null;
+  favorite_count: number | null;
+  is_favorite?: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -353,6 +356,9 @@ function mapPhoto(row: PhotoRow) {
     uploaderId: row.uploader_id || undefined,
     uploaderName: row.uploader_name || undefined,
     hidden: Boolean(row.hidden),
+    viewCount: Number(row.view_count ?? 0),
+    favoriteCount: Number(row.favorite_count ?? 0),
+    isFavorite: Boolean(row.is_favorite),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -374,6 +380,9 @@ function mapPhotoSlim(row: PhotoRow) {
     uploaderId: row.uploader_id || undefined,
     uploaderName: row.uploader_name || undefined,
     hidden: Boolean(row.hidden),
+    viewCount: Number(row.view_count ?? 0),
+    favoriteCount: Number(row.favorite_count ?? 0),
+    isFavorite: Boolean(row.is_favorite),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -1506,6 +1515,9 @@ async function ensurePhotoTables(env: Env): Promise<void> {
       uploader_name TEXT NOT NULL DEFAULT '',
       sort_order INTEGER NOT NULL DEFAULT 0,
       hidden INTEGER NOT NULL DEFAULT 0,
+      view_count INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      is_favorite INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`
@@ -1527,6 +1539,30 @@ async function ensurePhotoTables(env: Env): Promise<void> {
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN iso INTEGER').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_object_key TEXT').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN thumb_src TEXT').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN favorite_count INTEGER NOT NULL DEFAULT 0').run().catch(() => undefined);
+  await env.PHOTOS_DB.prepare('ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0').run().catch(() => undefined);
+
+  await env.PHOTOS_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS photo_favorites (
+      photo_id TEXT NOT NULL,
+      user_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (photo_id, user_key)
+    )`
+  ).run();
+  await env.PHOTOS_DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_photo_favorites_user ON photo_favorites(user_key, created_at DESC)'
+  ).run();
+  await env.PHOTOS_DB.prepare(
+    `UPDATE photos
+     SET is_favorite = 1
+     WHERE COALESCE(is_favorite, 0) = 0
+       AND (
+         COALESCE(favorite_count, 0) > 0
+         OR EXISTS(SELECT 1 FROM photo_favorites WHERE photo_favorites.photo_id = photos.id)
+       )`
+  ).run().catch(() => undefined);
 
   await env.PHOTOS_DB.prepare(
     `CREATE TABLE IF NOT EXISTS photo_settings (
@@ -1535,27 +1571,31 @@ async function ensurePhotoTables(env: Env): Promise<void> {
       jpeg_quality REAL NOT NULL DEFAULT 0.82,
       default_year TEXT NOT NULL DEFAULT '',
       default_album TEXT NOT NULL DEFAULT '',
-      page_size INTEGER NOT NULL DEFAULT 100
+      page_size INTEGER NOT NULL DEFAULT 100,
+      access_password TEXT NOT NULL DEFAULT '110550'
     )`
   ).run();
   await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_year TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN default_album TEXT NOT NULL DEFAULT ""').run().catch(() => undefined);
   await env.PHOTOS_DB.prepare('ALTER TABLE photo_settings ADD COLUMN page_size INTEGER NOT NULL DEFAULT 100').run().catch(() => undefined);
+  // Seeds the album access password to 110550 on existing installs (SQLite fills the
+  // new column with the default for the existing row). Admin can change it later.
+  await env.PHOTOS_DB.prepare("ALTER TABLE photo_settings ADD COLUMN access_password TEXT NOT NULL DEFAULT '110550'").run().catch(() => undefined);
   await env.PHOTOS_DB.prepare(
     'INSERT OR IGNORE INTO photo_settings (id, max_long_edge, jpeg_quality, page_size) VALUES (1, 1600, 0.82, 100)'
   ).run();
   photoSchemaEnsured = true;
 }
 
-const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100 };
+const PHOTO_SETTINGS_DEFAULT = { maxLongEdge: 1600, jpegQuality: 0.82, defaultYear: '', defaultAlbum: '', pageSize: 100, accessPassword: '110550' };
 const PHOTO_PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000];
 
-type PhotoSettings = { maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number };
+type PhotoSettings = { maxLongEdge: number; jpegQuality: number; defaultYear: string; defaultAlbum: string; pageSize: number; accessPassword: string };
 
 async function readPhotoSettings(env: Env): Promise<PhotoSettings> {
   const row = await env.PHOTOS_DB
-    .prepare('SELECT max_long_edge, jpeg_quality, default_year, default_album, page_size FROM photo_settings WHERE id = 1')
-    .first<{ max_long_edge: number | null; jpeg_quality: number | null; default_year: string | null; default_album: string | null; page_size: number | null }>();
+    .prepare('SELECT max_long_edge, jpeg_quality, default_year, default_album, page_size, access_password FROM photo_settings WHERE id = 1')
+    .first<{ max_long_edge: number | null; jpeg_quality: number | null; default_year: string | null; default_album: string | null; page_size: number | null; access_password: string | null }>();
   if (!row) return { ...PHOTO_SETTINGS_DEFAULT };
   const pageSize = Number(row.page_size) || PHOTO_SETTINGS_DEFAULT.pageSize;
   return {
@@ -1564,12 +1604,25 @@ async function readPhotoSettings(env: Env): Promise<PhotoSettings> {
     defaultYear: row.default_year || '',
     defaultAlbum: row.default_album || '',
     pageSize: PHOTO_PAGE_SIZE_OPTIONS.includes(pageSize) ? pageSize : PHOTO_SETTINGS_DEFAULT.pageSize,
+    accessPassword: row.access_password ?? '',
+  };
+}
+
+// Public-safe view: never leak the password — only whether the gate is on.
+function toPublicPhotoSettings(s: PhotoSettings) {
+  return {
+    maxLongEdge: s.maxLongEdge,
+    jpegQuality: s.jpegQuality,
+    defaultYear: s.defaultYear,
+    defaultAlbum: s.defaultAlbum,
+    pageSize: s.pageSize,
+    accessRequired: Boolean((s.accessPassword || '').trim()),
   };
 }
 
 async function handlePhotoSettingsGet(env: Env): Promise<Response> {
   await ensurePhotoTables(env);
-  return json(await readPhotoSettings(env));
+  return json(toPublicPhotoSettings(await readPhotoSettings(env)));
 }
 
 async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Response> {
@@ -1586,26 +1639,47 @@ async function handlePhotoSettingsUpdate(request: Request, env: Env): Promise<Re
   const defaultAlbum = (payload.defaultAlbum === undefined ? current.defaultAlbum : String(payload.defaultAlbum).trim()).slice(0, 80);
   const requestedPageSize = Number(payload.pageSize) || current.pageSize;
   const pageSize = PHOTO_PAGE_SIZE_OPTIONS.includes(requestedPageSize) ? requestedPageSize : current.pageSize;
+  // Write-to-change: '__unchanged__' (or undefined) keeps the existing password;
+  // any other string (including '') sets it ('' clears the gate).
+  const rawPassword = (payload as { accessPassword?: string }).accessPassword;
+  const accessPassword = (rawPassword === undefined || rawPassword === '__unchanged__')
+    ? current.accessPassword
+    : String(rawPassword).trim().slice(0, 100);
   await env.PHOTOS_DB
-    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ?, default_year = ?, default_album = ?, page_size = ? WHERE id = 1')
-    .bind(maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize)
+    .prepare('UPDATE photo_settings SET max_long_edge = ?, jpeg_quality = ?, default_year = ?, default_album = ?, page_size = ?, access_password = ? WHERE id = 1')
+    .bind(maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize, accessPassword)
     .run();
-  return json({ maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize });
+  return json(toPublicPhotoSettings({ maxLongEdge, jpegQuality, defaultYear, defaultAlbum, pageSize, accessPassword }));
 }
 
-async function handlePhotosList(env: Env, includeHidden = false): Promise<Response> {
+async function handlePhotoUnlock(request: Request, env: Env): Promise<Response> {
+  await ensurePhotoTables(env);
+  const payload = await readJson<{ password?: string }>(request);
+  const settings = await readPhotoSettings(env);
+  const expected = (settings.accessPassword || '').trim();
+  // Empty stored password = gate disabled → always unlocked.
+  const ok = expected === '' || String(payload.password || '').trim() === expected;
+  return json({ ok });
+}
+
+function normalizePhotoViewerKey(value: string | null): string {
+  const key = String(value || '').trim();
+  return /^[a-zA-Z0-9_-]{16,120}$/.test(key) ? key : '';
+}
+
+async function handlePhotosList(request: Request, env: Env, includeHidden = false): Promise<Response> {
   await ensurePhotoTables(env);
   // 只取列表/筛选/排序需要的列(去掉 EXIF + object_key/thumb_object_key/sort_order),
   // 显著降低大相册下单次响应的 CPU/体积,避免 Worker 资源超限(1102)。
-  const result = await env.PHOTOS_DB
-    .prepare(
-      `SELECT id, src, title, collection, album, size_bytes, width, height,
-              thumb_src, shot_at, uploader_id, uploader_name, hidden, created_at, updated_at
-       FROM photos
-       ${includeHidden ? '' : 'WHERE hidden = 0'}
-       ORDER BY sort_order DESC, created_at DESC`
-    )
-    .all<PhotoRow>();
+  const query = env.PHOTOS_DB.prepare(
+    `SELECT id, src, title, collection, album, size_bytes, width, height,
+            thumb_src, shot_at, uploader_id, uploader_name, hidden, view_count, favorite_count, is_favorite,
+            created_at, updated_at
+     FROM photos
+     ${includeHidden ? '' : 'WHERE hidden = 0'}
+     ORDER BY sort_order DESC, created_at DESC`
+  );
+  const result = await query.all<PhotoRow>();
   return json({ photos: (result.results || []).map(mapPhotoSlim) });
 }
 
@@ -1615,6 +1689,52 @@ async function handlePhotoDetail(env: Env, id: string): Promise<Response> {
   const row = await env.PHOTOS_DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
   if (!row) return notFound('Photo not found');
   return json({ photo: mapPhoto(row) });
+}
+
+async function handlePhotoViewsIncrement(request: Request, env: Env): Promise<Response> {
+  await ensurePhotoTables(env);
+  const payload = await readJson<{ ids?: unknown }>(request);
+  const rawIds = Array.isArray(payload.ids) ? payload.ids : [];
+  const seen = new Set<string>();
+  const ids = rawIds
+    .map(id => String(id || '').trim())
+    .filter(id => {
+      if (!/^[0-9a-fA-F-]{20,64}$/.test(id) || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, 1000);
+
+  if (ids.length === 0) {
+    return json({ ok: true, ids: [] });
+  }
+
+  const statements = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    statements.push(
+      env.PHOTOS_DB
+        .prepare(`UPDATE photos SET view_count = COALESCE(view_count, 0) + 1 WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .bind(...chunk)
+    );
+  }
+  await env.PHOTOS_DB.batch(statements);
+  return json({ ok: true, ids });
+}
+
+async function handlePhotoFavoriteSet(request: Request, env: Env, id: string): Promise<Response> {
+  await ensurePhotoTables(env);
+  const payload = await readJson<{ favorite?: boolean }>(request);
+
+  const existing = await env.PHOTOS_DB.prepare('SELECT id FROM photos WHERE id = ?').bind(id).first<{ id: string }>();
+  if (!existing) return notFound('Photo not found');
+
+  const isFavorite = payload.favorite ? 1 : 0;
+  await env.PHOTOS_DB.prepare('UPDATE photos SET is_favorite = ?, favorite_count = ?, updated_at = ? WHERE id = ?')
+    .bind(isFavorite, isFavorite, Date.now(), id)
+    .run();
+
+  return json({ photoId: id, isFavorite: Boolean(isFavorite) });
 }
 
 async function handlePhotoObject(env: Env, key: string): Promise<Response> {
@@ -1744,6 +1864,7 @@ async function handleOwnPhotoDelete(request: Request, env: Env, id: string): Pro
 
   await env.CHURCH_PHOTOS_BUCKET.delete(row.object_key);
   if (row.thumb_object_key) await env.CHURCH_PHOTOS_BUCKET.delete(row.thumb_object_key);
+  await env.PHOTOS_DB.prepare('DELETE FROM photo_favorites WHERE photo_id = ?').bind(id).run();
   await env.PHOTOS_DB.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
   return json({ ok: true });
 }
@@ -1812,6 +1933,7 @@ async function handlePhotoDelete(request: Request, env: Env, id: string): Promis
   if (!row) return notFound('Photo not found');
   await env.CHURCH_PHOTOS_BUCKET.delete(row.object_key);
   if (row.thumb_object_key) await env.CHURCH_PHOTOS_BUCKET.delete(row.thumb_object_key);
+  await env.PHOTOS_DB.prepare('DELETE FROM photo_favorites WHERE photo_id = ?').bind(id).run();
   await env.PHOTOS_DB.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
   return json({ ok: true });
 }
@@ -3656,11 +3778,15 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === '/api/photos' && request.method === 'GET') {
-      return handlePhotosList(env);
+      return handlePhotosList(request, env);
     }
 
     if (url.pathname === '/api/photos/upload' && request.method === 'POST') {
       return handlePhotoUpload(request, env);
+    }
+
+    if (url.pathname === '/api/photos/views' && request.method === 'POST') {
+      return handlePhotoViewsIncrement(request, env);
     }
 
     if (url.pathname.startsWith('/api/photos/media/') && request.method === 'GET') {
@@ -3672,7 +3798,16 @@ const worker: ExportedHandler<Env> = {
       return handlePhotoSettingsGet(env);
     }
 
+    if (url.pathname === '/api/photos/unlock' && request.method === 'POST') {
+      return handlePhotoUnlock(request, env);
+    }
+
     {
+      const favoriteMatch = url.pathname.match(/^\/api\/photos\/([^/]+)\/favorite$/);
+      if (favoriteMatch && request.method === 'POST') {
+        return handlePhotoFavoriteSet(request, env, decodeURIComponent(favoriteMatch[1]));
+      }
+
       const ownPhotoMatch = url.pathname.match(/^\/api\/photos\/([^/]+)$/);
       if (ownPhotoMatch && request.method === 'GET') {
         return handlePhotoDetail(env, decodeURIComponent(ownPhotoMatch[1]));
@@ -3688,7 +3823,7 @@ const worker: ExportedHandler<Env> = {
     if (url.pathname === '/api/admin/photos' && request.method === 'GET') {
       const auth = await requireUser(request, env, 'contributor');
       if (auth instanceof Response) return auth;
-      return handlePhotosList(env, true);
+      return handlePhotosList(request, env, true);
     }
 
     if (url.pathname === '/api/admin/photos/settings' && request.method === 'PUT') {

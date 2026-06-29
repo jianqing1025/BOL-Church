@@ -73,7 +73,10 @@
       "Bash(grep -rn \"include\" vitest.config.* vite.config.*)",
       "Bash(node --no-warnings --input-type=module -e ' *)",
       "Bash(git commit -q -m 'feat\\(church\\): migration 0013 — live_session_seen + youtube_peak + live_online_total *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(ls -la \"//rev1005/Repo2/LocalVideo/GalleryHub\" 2>&1 | head -40 || echo \"=== UNC direct failed, trying alternatives ===\"; ls \"//rev1005/Repo2/LocalVideo\" 2>&1 | head; echo \"=== local GaryHub? ===\"; ls -la \"d:/Repo/bolccop/GaryHub\" 2>&1 | head -40)",
+      "Read(///rev1005/Repo2/LocalVideo/**)",
+      "Read(///rev1005/Repo2//**)"
     ]
   }
 }

@@ -38,7 +38,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       <button type="button" onClick={() => { onFavorite(); onClose(); }} className={row}><Heart size={15} className={isFavorite ? 'fill-rose-500 text-rose-500' : 'text-rose-400'} />{labels.favorite}</button>
       <button type="button" onClick={() => { onDownload(); onClose(); }} className={row}><Download size={15} className="text-green-500" />{labels.download}</button>
       <button type="button" onClick={() => { onSelect(); onClose(); }} className={row}><CheckSquare size={15} className="text-indigo-500" />{labels.select}</button>
-      {canDelete && <button type="button" onClick={() => { onDelete(); onClose(); }} className={`${row} text-red-600 hover:bg-red-50`}><Trash2 size={15} className="text-red-500" />{labels.deleteMine}</button>}
+      {canDelete && <button type="button" onClick={() => { onDelete(); onClose(); }} className={`${row} hidden text-red-600 hover:bg-red-50 md:flex`}><Trash2 size={15} className="text-red-500" />{labels.deleteMine}</button>}
     </div>
   );
 };

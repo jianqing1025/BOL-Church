@@ -6,6 +6,8 @@ import { Language } from '../types';
 import { navigateTo as navigateToRoute } from '../utils/routes';
 import { MenuIcon, CloseIcon, LogoIcon } from './icons/Icons';
 import { buildMediaSlots } from '../media';
+import { SLIDESHOW_MODES } from './photos/PhotoToolbar';
+import type { SlideshowMode } from './photos/types';
 
 interface HeaderProps {
   isTransparent: boolean;
@@ -61,6 +63,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
   const { images } = useAdmin();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [photoSlideshowOpen, setPhotoSlideshowOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const heroSlides = buildMediaSlots('hero', images);
   const headerBackgroundUrl = heroSlides[0] ? (images[heroSlides[0].key] || heroSlides[0].placeholder) : undefined;
@@ -129,6 +132,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
     const handleClickOutside = (event: MouseEvent) => {
       if (headerRef.current && !headerRef.current.contains(event.target as Node)) {
         setActiveDropdown(null);
+        setPhotoSlideshowOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -162,6 +166,10 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
   const openPhotoUpload = () => {
     window.dispatchEvent(new CustomEvent('bolccop:open-photo-upload'));
   };
+  const startPhotoSlideshow = (mode: SlideshowMode) => {
+    setPhotoSlideshowOpen(false);
+    window.dispatchEvent(new CustomEvent<SlideshowMode>('bolccop:start-photo-slideshow', { detail: mode }));
+  };
 
   return (
       <header
@@ -181,7 +189,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               'subLinks' in link ? (
                 <div
                   key={link.key}
-                  className="relative"
+                  className={`relative ${link.key === 'header.navGiving' || link.key === 'header.navContact' ? 'hidden xl:block' : ''}`}
                   onMouseEnter={() => setActiveDropdown(link.key)}
                   onMouseLeave={() => setActiveDropdown(null)}
                 >
@@ -208,16 +216,30 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                   )}
                 </div>
               ) : (
-                <a key={link.key} href={link.href!} onClick={handleLinkClick} className={`transition-colors text-lg font-bold ${navLinkClasses}`}>
+                <a key={link.key} href={link.href!} onClick={handleLinkClick} className={`transition-colors text-lg font-bold ${navLinkClasses} ${link.key === 'header.navGiving' || link.key === 'header.navContact' ? 'hidden xl:inline' : ''}`}>
                   {t(link.key)}
                 </a>
               )
             ))}
           </nav>
           <div className="ml-auto hidden flex-shrink-0 items-center gap-3 md:flex">
-            <button onClick={toggleLanguage} className={`text-base font-semibold transition-colors ${navLinkClasses}`}>
+            <button onClick={toggleLanguage} className={`hidden text-base font-semibold transition-colors xl:inline ${navLinkClasses}`}>
               {language === Language.EN ? '\u4e2d\u6587' : 'English'}
             </button>
+            <div className="relative">
+              <button type="button" onClick={() => setPhotoSlideshowOpen((open) => !open)} className="rounded-full bg-blue-600 px-5 py-2 text-base font-semibold text-white transition-all hover:bg-blue-700">
+                Slideshow
+              </button>
+              {photoSlideshowOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border border-gray-100 bg-white py-1 shadow-xl">
+                  {SLIDESHOW_MODES.map(({ id, label, Icon }) => (
+                    <button key={id} type="button" onClick={() => startPhotoSlideshow(id)} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
+                      <Icon size={14} /> {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="button" onClick={openPhotoUpload} className="rounded-full bg-blue-600 px-5 py-2 text-base font-semibold text-white transition-all hover:bg-blue-700">
               {uploadLabel}
             </button>

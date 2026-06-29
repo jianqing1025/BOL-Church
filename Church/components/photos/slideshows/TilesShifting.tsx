@@ -61,6 +61,16 @@ const getOnScreenUrls = (rows: ATile[][]): Set<string> => {
   return set;
 };
 
+const removeFromDecks = (
+  item: ChurchPhoto,
+  decksRef: React.MutableRefObject<{ portrait: ChurchPhoto[]; landscape: ChurchPhoto[] }>,
+  portraitTemplateDeckRef: React.MutableRefObject<ChurchPhoto[]>,
+) => {
+  decksRef.current.portrait = decksRef.current.portrait.filter((entry) => entry.src !== item.src);
+  decksRef.current.landscape = decksRef.current.landscape.filter((entry) => entry.src !== item.src);
+  portraitTemplateDeckRef.current = portraitTemplateDeckRef.current.filter((entry) => entry.src !== item.src);
+};
+
 const sharedStyles = `
     .tile-transition { transition: all 0.52s cubic-bezier(0.22, 1, 0.36, 1); }
     .exit-fade-out { opacity: 0; filter: blur(6px); }
@@ -156,12 +166,22 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
       else { decks.current[deckKey] = shuffle([...activePool]); candidates = decks.current[deckKey].filter((item) => !blocked(item)); }
     }
 
+    const fallbackPools = [
+      activePool,
+      primaryPool,
+      secondaryPool,
+      aspect === 'landscape' ? pools.current.landscape : pools.current.portrait,
+      aspect === 'landscape' ? pools.current.portrait : pools.current.landscape,
+      data,
+    ];
+    const uniqueFallback = fallbackPools
+      .flat()
+      .find((item) => item && !blocked(item) && !usedHistory.current.includes(item.src))
+      || fallbackPools.flat().find((item) => item && !blocked(item));
     const nextDeck = useTemplateDeck ? portraitTemplateDeck.current : decks.current[deckKey];
-    const selection = candidates[0] || nextDeck[0] || activePool[0] || data[0];
-    const selectedUrl = selection.src;
-    if (useTemplateDeck) portraitTemplateDeck.current = portraitTemplateDeck.current.filter((item) => item.src !== selectedUrl);
-    else decks.current[deckKey] = decks.current[deckKey].filter((item) => item.src !== selectedUrl);
-    rememberUsage(selectedUrl);
+    const selection = candidates[0] || uniqueFallback || nextDeck.find((item) => !batchExclusions.has(item.src)) || activePool.find((item) => !batchExclusions.has(item.src)) || data[0];
+    removeFromDecks(selection, decks, portraitTemplateDeck);
+    rememberUsage(selection.src);
     return selection;
   }, [data, rememberUsage]);
 

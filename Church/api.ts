@@ -18,6 +18,7 @@ export interface PhotoUploadSettings {
   defaultYear: string;
   defaultAlbum: string;
   pageSize: number;
+  accessRequired?: boolean;
 }
 
 export interface SyncChannelAdmin {
@@ -77,8 +78,10 @@ export const api = {
   photos: () => request<{ photos: ChurchPhoto[] }>('/api/photos'),
   photoDetail: (id: string) => request<{ photo: ChurchPhoto }>(`/api/photos/${encodeURIComponent(id)}`),
   photoSettings: () => request<PhotoUploadSettings>('/api/photos/settings'),
-  adminUpdatePhotoSettings: (payload: PhotoUploadSettings) =>
+  adminUpdatePhotoSettings: (payload: PhotoUploadSettings & { accessPassword?: string }) =>
     request<PhotoUploadSettings>('/api/admin/photos/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+  unlockPhotos: (password: string) =>
+    request<{ ok: boolean }>('/api/photos/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
   uploadPhoto: (payload: {
     file: Blob;
     fileName: string;
@@ -125,6 +128,13 @@ export const api = {
       body: JSON.stringify({ ...payload, uploaderId }),
     }),
   adminPhotos: () => request<{ photos: ChurchPhoto[] }>('/api/admin/photos'),
+  incrementPhotoViews: (ids: string[]) =>
+    request<{ ok: true; ids: string[] }>('/api/photos/views', { method: 'POST', body: JSON.stringify({ ids }) }),
+  setPhotoFavorite: (id: string, favorite: boolean) =>
+    request<{ photoId: string; isFavorite: boolean }>(`/api/photos/${encodeURIComponent(id)}/favorite`, {
+      method: 'POST',
+      body: JSON.stringify({ favorite }),
+    }),
   adminUpdatePhoto: (id: string, payload: Partial<{ title: string; collection: string; album: string; uploaderName: string; hidden: boolean; sortOrder: number }>) =>
     request<{ photo: ChurchPhoto }>(`/api/admin/photos/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeletePhoto: (id: string) =>

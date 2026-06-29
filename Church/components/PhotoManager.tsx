@@ -22,6 +22,7 @@ const PhotoManager: React.FC = () => {
   const [settingsNotice, setSettingsNotice] = useState('');
   const [newDefaultYear, setNewDefaultYear] = useState('');
   const [newDefaultAlbum, setNewDefaultAlbum] = useState('');
+  const [newAccessPassword, setNewAccessPassword] = useState('');
 
   const loadPhotos = async () => {
     setLoading(true);
@@ -41,15 +42,18 @@ const PhotoManager: React.FC = () => {
     setError('');
     setSettingsNotice('');
     try {
-      const payload: PhotoUploadSettings = {
+      const payload: PhotoUploadSettings & { accessPassword?: string } = {
         ...settings,
         defaultYear: (newDefaultYear.trim() || settings.defaultYear).trim(),
         defaultAlbum: (newDefaultAlbum.trim() || settings.defaultAlbum).trim(),
+        // Write-to-change: only send a new password when the field is filled.
+        accessPassword: newAccessPassword.trim() ? newAccessPassword.trim() : '__unchanged__',
       };
       const saved = await api.adminUpdatePhotoSettings(payload);
       setSettings(saved);
       setNewDefaultYear('');
       setNewDefaultAlbum('');
+      setNewAccessPassword('');
       setSettingsNotice(t('adminPhotos.defaultsSaved'));
       window.setTimeout(() => setSettingsNotice(''), 3000);
     } catch (err) {
@@ -258,6 +262,23 @@ const PhotoManager: React.FC = () => {
             {t('adminPhotos.save')}
           </button>
           {settingsNotice && <span className="text-sm font-semibold text-emerald-600">{settingsNotice}</span>}
+        </div>
+
+        {/* Album access password (soft gate) */}
+        <div className="border-t border-gray-100 pt-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase text-gray-500">
+              {t('adminPhotos.accessPassword')} · {settings.accessRequired ? t('adminPhotos.accessOn') : t('adminPhotos.accessOff')}
+            </span>
+            <input
+              type="text"
+              value={newAccessPassword}
+              onChange={(e) => setNewAccessPassword(e.target.value)}
+              placeholder={t('adminPhotos.accessPasswordPlaceholder')}
+              className="h-10 w-full max-w-xs rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-500"
+            />
+            <span className="mt-1 block text-xs text-gray-400">{t('adminPhotos.accessPasswordHint')}</span>
+          </label>
         </div>
       </div>
 

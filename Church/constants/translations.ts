@@ -51,6 +51,34 @@ export const translations = {
     becomingAMemberTitle: { en: 'Becoming a Member', zh: '成為會友' },
     becomingAMemberContent: { en: 'Find out how you can become a member of our church community. More details coming soon.', zh: '了解如何成為我們教會社區的一員。更多詳情即將推出。' },
   },
+  photoGate: {
+    title: { en: 'Welcome to the Bread of Life Christian Church Album', zh: '歡迎來到信望愛靈糧堂相冊' },
+    noticeSmall: {
+      en: 'To respect the privacy of our brothers, sisters, and their families, the album is open only to church community members and invited guests. Please enter the access password.',
+      zh: '為尊重每位弟兄姊妹及家人的隱私，相冊僅向教會社區成員及受邀訪客開放，請輸入訪問密碼。',
+    },
+    placeholder: { en: 'Enter access password', zh: '請輸入訪問密碼' },
+    enter: { en: 'Enter Album', zh: '進入相冊' },
+    unlocking: { en: 'Entering…', zh: '進入中…' },
+    error: { en: 'Incorrect password, please try again.', zh: '密碼錯誤，請重試。' },
+    helpToggle: { en: 'No password? How to get one', zh: '沒有密碼？如何獲取' },
+    helpTitle: { en: 'How to get the access password', zh: '如何獲取訪問密碼' },
+    helpIntro: { en: 'You can obtain the album access password in the following ways:', zh: '您可以通過以下方式獲取相冊訪問密碼：' },
+    method1Title: { en: '1. From a church group', zh: '1. 教會群組獲取' },
+    method1Body: { en: "Get it from the church's internal WeChat or LINE group. The password is the same as the internal Zoom meeting password.", zh: '通過教會內部 微信 或 LINE 群獲取。密碼與內部 Zoom 會議密碼相同。' },
+    method2Title: { en: '2. Contact a church member', zh: '2. 聯繫教會成員' },
+    method2Body: {
+      en: 'If you are a friend or family member of a church member, please contact someone you know, or a pastor, to get the password.',
+      zh: '如果您是教會成員的朋友或家人，請聯繫您認識的教會成員，或牧師、師母獲取訪問密碼。',
+    },
+    method3Title: { en: '3. Contact us', zh: '3. 聯繫我們' },
+    method3Body: {
+      en: "If this is your first visit, send us a message with a brief note about your purpose. Once approved, we'll email you the access password right away.",
+      zh: '如果您是第一次訪問，請向我們發送消息，並簡單說明來意。審核通過後，我們會第一時間將訪問密碼發送至您的郵箱。',
+    },
+    contact: { en: 'Contact Us', zh: '聯繫我們' },
+  },
+
   photosPage: {
     navChurchPhotos: { en: 'Church Photos', zh: '教會相冊' },
     title: { en: 'Photos', zh: '\u76f8\u518a' },
@@ -354,6 +382,11 @@ export const translations = {
   adminPhotos: {
     title: { en: 'Photo Management', zh: '相册管理' },
     subtitle: { en: 'Review, organize, hide, and delete church photos.', zh: '查看、整理、隐藏或删除教会相册照片。' },
+    accessPassword: { en: 'Album access password', zh: '相冊訪問密碼' },
+    accessOn: { en: 'On', zh: '已啟用' },
+    accessOff: { en: 'Off', zh: '未啟用' },
+    accessPasswordPlaceholder: { en: 'Type a new password to change', zh: '輸入新密碼以更改' },
+    accessPasswordHint: { en: 'Leave blank to keep the current password. Saved with Save above.', zh: '留空表示保持當前密碼不變。點上方「保存」生效。' },
     refresh: { en: 'Refresh', zh: '刷新' },
     loading: { en: 'Loading photos', zh: '正在载入照片' },
     empty: { en: 'No photos yet.', zh: '暂无照片' },

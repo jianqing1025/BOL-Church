@@ -35,6 +35,10 @@ const HomePage = () => (
 
 function App() {
   const [route, setRoute] = useState(currentRoute());
+  // When the photo album gate is showing, render the header in homepage style
+  // (transparent, floating over the full-bleed blurred hero) so header + hero
+  // read as one piece. The unlocked gallery keeps its hero-background header.
+  const [photoGateActive, setPhotoGateActive] = useState(false);
 
   useEffect(() => {
     const handleRouteChange = () => {
@@ -127,7 +131,7 @@ function App() {
         return <PrayerRequestPage activeSubPage={subPage} />;
     }
     if (route === '/photos' || route === '/photos/') {
-      return <PhotosPage />;
+      return <PhotosPage onGateChange={setPhotoGateActive} />;
     }
     if (route.startsWith('/about/')) {
       const subPageSegment = route.split('/')[2] || 'our-church';
@@ -143,7 +147,7 @@ function App() {
 
   return (
     <div className="bg-white text-gray-800 antialiased min-h-screen flex flex-col">
-      <Header isTransparent={isHomePage} useHeroBackground={isPhotosPage} isPhotosPage={isPhotosPage} />
+      <Header isTransparent={isHomePage || (isPhotosPage && photoGateActive)} useHeroBackground={isPhotosPage && !photoGateActive} isPhotosPage={isPhotosPage} />
       <main className="flex-grow">
         {renderPage()}
       </main>

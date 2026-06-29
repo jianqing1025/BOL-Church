@@ -73,6 +73,9 @@ export interface ChurchPhoto {
   uploaderId?: string;
   uploaderName?: string;
   hidden?: boolean;
+  viewCount?: number;
+  favoriteCount?: number;
+  isFavorite?: boolean;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { CheckCircle, Heart, Loader2, Maximize2, Minus, Trash2 } from 'lucide-react';
+import { CheckCircle, Eye, Heart, Loader2, Maximize2, Minus, Trash2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../data';
 import { ExifOverlay } from './ExifOverlay';
 import type { GridDisplayMode, ViewMode } from './types';
@@ -102,7 +102,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(photo.id); }}
             title={favoriteLabel}
-            className={`absolute right-2 top-2 z-10 rounded-full p-1.5 text-white shadow-sm backdrop-blur-md transition-opacity ${isFav ? 'bg-rose-500' : 'bg-black/25 opacity-0 group-hover:opacity-100'}`}
+            className={`absolute right-2 top-2 z-20 hidden h-7 w-7 items-center justify-center rounded-full text-white shadow-sm backdrop-blur-md transition-opacity md:inline-flex ${isFav ? 'bg-rose-500 opacity-100' : 'bg-black/25 opacity-0 group-hover:opacity-100'}`}
           >
             <Heart size={14} className={isFav ? 'fill-current' : ''} />
           </button>
@@ -114,7 +114,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
             onClick={(e) => { e.stopPropagation(); onDelete(photo); }}
             disabled={isDeleting}
             title={deleteLabel}
-            className="absolute left-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shadow-md transition-all hover:scale-110 hover:bg-red-700 disabled:bg-gray-400"
+            className="absolute left-2 top-2 z-20 hidden h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shadow-md transition-all hover:scale-110 hover:bg-red-700 disabled:bg-gray-400 md:flex"
           >
             {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Minus size={14} strokeWidth={4} />}
           </button>
@@ -126,17 +126,22 @@ export const PhotoCard: React.FC<PhotoCardProps> = React.memo(
             onClick={(e) => { e.stopPropagation(); onDelete(photo); }}
             disabled={isDeleting}
             title={deleteLabel}
-            className="absolute bottom-2 left-2 z-10 rounded-full bg-red-500 p-1.5 text-white opacity-0 shadow-sm backdrop-blur-md transition-opacity group-hover:opacity-100 disabled:bg-gray-400"
+            className="absolute bottom-2 left-2 z-10 hidden rounded-full bg-red-500 p-1.5 text-white opacity-0 shadow-sm backdrop-blur-md transition-opacity group-hover:opacity-100 disabled:bg-gray-400 md:block"
           >
             {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
           </button>
         )}
 
         {sq && !isSelectMode && (
-          <span className="absolute bottom-2 right-2 rounded-full bg-black/35 p-1.5 text-white opacity-0 backdrop-blur-md transition-opacity group-hover:opacity-100">
+          <span className="absolute bottom-2 right-2 hidden rounded-full bg-black/35 p-1.5 text-white opacity-0 backdrop-blur-md transition-opacity group-hover:opacity-100 md:bottom-8 md:block">
             <Maximize2 size={14} />
           </span>
         )}
+
+        <span className="absolute bottom-2 right-2 z-10 hidden items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-[10px] font-bold text-white shadow-sm backdrop-blur-md md:flex">
+          <Eye size={12} />
+          <span>{photo.viewCount ?? 0}</span>
+        </span>
 
         {canHover && isHovered && !isSelectMode && <ExifOverlay photo={photo} />}
       </div>
