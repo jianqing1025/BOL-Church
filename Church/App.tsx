@@ -87,6 +87,16 @@ function App() {
       );
   }
 
+  // The meeting room is a full-screen experience: no church Header/Footer.
+  if (route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/')) {
+      return (
+        <div className="h-screen w-screen overflow-hidden bg-gray-950">
+          <MeetingPage />
+          <ChurchDialogHost />
+        </div>
+      );
+  }
+
   const renderPage = () => {
     // 主日直播獨立路由
     if (route === '/live' || route === '/live/' || route.startsWith('/live/')) {

@@ -167,6 +167,11 @@ export const translations = {
     leave: { en: 'Leave', zh: '离开' },
     disconnected: { en: 'Disconnected. Return to entry.', zh: '连接已断开，请重新进入。' },
     back: { en: 'Back', zh: '返回' },
+    chat: { en: 'Chat', zh: '聊天' },
+    screenShare: { en: 'Share screen', zh: '共享屏幕' },
+    camera: { en: 'Camera', zh: '摄像头' },
+    microphone: { en: 'Microphone', zh: '麦克风' },
+    videoRoom: { en: 'Video room', zh: '视频房间' },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },

@@ -1,14 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Video } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
 import type { ServerMessage } from '../../meeting/chatProtocol';
-import { RoomList } from './RoomList';
-import { MessageList, type DisplayMessage } from './MessageList';
-import { MemberList } from './MemberList';
-import { ChatInput } from './ChatInput';
-import { VideoPanel } from './VideoPanel';
+import type { DisplayMessage } from './MessageList';
+import { MeetingRoomView } from './MeetingRoomView';
 
 type Stage = 'auth' | 'pick' | 'room';
 
@@ -92,26 +90,26 @@ export const MeetingPage: React.FC = () => {
   // ── Screen 1: auth ──
   if (stage === 'auth') {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center px-4 py-16">
-        <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
-          <h1 className="mb-6 text-center text-2xl font-bold text-gray-900">{t('meeting.pageTitle')}</h1>
+      <div className="flex h-full items-center justify-center bg-gray-950 px-4">
+        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gray-900 p-8 shadow-2xl">
+          <h1 className="mb-6 text-center text-2xl font-bold text-white">{t('meeting.pageTitle')}</h1>
           <input
             type="text" value={name} maxLength={30}
             onChange={(e) => { setName(e.target.value); setAuthError(''); }}
             placeholder={t('meeting.authName')}
-            className="mb-3 w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-3 w-full rounded-lg border border-white/15 bg-gray-800 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none"
           />
           <input
             type="password" value={password}
             onChange={(e) => { setPassword(e.target.value); setAuthError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter') void submitAuth(); }}
             placeholder={t('meeting.authPassword')}
-            className="mb-3 w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-3 w-full rounded-lg border border-white/15 bg-gray-800 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none"
           />
-          {authError && <div className="mb-3 text-sm font-medium text-red-600">{authError}</div>}
+          {authError && <div className="mb-3 text-sm font-medium text-red-400">{authError}</div>}
           <button
             type="button" onClick={() => void submitAuth()} disabled={verifying}
-            className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-60"
           >
             {t('meeting.authEnter')}
           </button>
@@ -123,46 +121,43 @@ export const MeetingPage: React.FC = () => {
   // ── Screen 2: room picker ──
   if (stage === 'pick') {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-16">
-        <h2 className="mb-6 text-center text-xl font-bold text-gray-900">{t('meeting.pickRoom')}</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {MEETING_ROOMS.map((r) => (
-            <button
-              key={r.id} type="button" onClick={() => enterRoom(r)}
-              className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm hover:shadow-md"
-            >
-              <span className="font-bold text-gray-900">{r.name}</span>
-              {r.hasVideo && <span className="text-xs font-semibold text-green-600">● 视频</span>}
-            </button>
-          ))}
+      <div className="flex h-full items-center justify-center bg-gray-950 px-6">
+        <div className="w-full max-w-2xl">
+          <h2 className="mb-6 text-center text-xl font-bold text-white">{t('meeting.pickRoom')}</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {MEETING_ROOMS.map((r) => (
+              <button
+                key={r.id} type="button" onClick={() => enterRoom(r)}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-gray-900 p-5 text-left transition-colors hover:border-blue-500/60 hover:bg-gray-800"
+              >
+                <span className="font-bold text-white">{r.name}</span>
+                {r.hasVideo && (
+                  <span className="flex items-center gap-1 text-xs font-semibold text-green-400">
+                    <Video size={14} /> {t('meeting.videoRoom')}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );
   }
 
   // ── Connected room ──
-  return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-6xl flex-col gap-3 p-3 md:flex-row">
-      <aside className="md:w-48 md:shrink-0">
-        <button type="button" onClick={leaveRoom} className="mb-2 text-sm font-semibold text-blue-600 hover:underline">
-          ← {t('meeting.changeRoom')}
-        </button>
-        <RoomList rooms={MEETING_ROOMS} activeId={room?.id ?? null} onSelect={enterRoom} />
-      </aside>
-
-      <section className="flex min-h-0 flex-1 flex-col gap-3">
-        {room && <div className="h-56 shrink-0 md:h-72"><VideoPanel key={room.id} room={room} name={normalizeDisplayName(name)} password={password} /></div>}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <MessageList messages={messages} ownUserId={ownUserId} />
-          <ChatInput onSend={send} />
-        </div>
-      </section>
-
-      <aside className="rounded-lg border border-gray-200 bg-white md:w-56 md:shrink-0">
-        <MemberList users={members} />
-      </aside>
-    </div>
-  );
+  return room ? (
+    <MeetingRoomView
+      key={room.id}
+      room={room}
+      name={normalizeDisplayName(name)}
+      password={password}
+      messages={messages}
+      members={members}
+      ownUserId={ownUserId}
+      onSend={send}
+      onLeave={leaveRoom}
+    />
+  ) : null;
 };
 
 export default MeetingPage;
