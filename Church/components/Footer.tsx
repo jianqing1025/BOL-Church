@@ -61,6 +61,14 @@ const Footer: React.FC = () => {
                         {t('footer.classicSite')}
                     </a>
                 </p>
+                <p className="mt-3 text-xs">
+                    <a
+                        href="/meeting"
+                        className="text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+                    >
+                        {t('footer.meeting')}
+                    </a>
+                </p>
             </div>
         </footer>
     );
