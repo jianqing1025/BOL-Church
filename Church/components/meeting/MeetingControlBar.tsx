@@ -8,6 +8,7 @@ interface MeetingControlBarProps {
   camOn: boolean;
   screenOn: boolean;
   chatOpen: boolean;
+  chatBadge: number;
   membersOpen: boolean;
   onToggleMic: () => void;
   onToggleCamera: () => void;
@@ -21,15 +22,16 @@ const CircleButton: React.FC<{
   label: string;
   active?: boolean;
   danger?: boolean;
+  badge?: number;
   onClick: () => void;
   children: React.ReactNode;
-}> = ({ label, active, danger, onClick, children }) => (
+}> = ({ label, active, danger, badge, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
     aria-label={label}
     aria-pressed={active}
-    className={`flex h-12 w-12 items-center justify-center rounded-full text-white transition-colors ${
+    className={`relative flex h-12 w-12 items-center justify-center rounded-full text-white transition-colors ${
       danger
         ? 'bg-red-600 hover:bg-red-700'
         : active
@@ -38,11 +40,16 @@ const CircleButton: React.FC<{
     }`}
   >
     {children}
+    {badge && badge > 0 ? (
+      <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
+        {badge > 99 ? '99+' : badge}
+      </span>
+    ) : null}
   </button>
 );
 
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
-  hasVideo, micOn, camOn, screenOn, chatOpen, membersOpen,
+  hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen,
   onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers, onLeave,
 }) => {
   const { t } = useLocalization();
@@ -59,11 +66,11 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           <CircleButton label={t('meeting.screenShare')} active={screenOn} onClick={onToggleScreenShare}>
             <ScreenShare size={20} />
           </CircleButton>
+          <CircleButton label={t('meeting.chat')} active={chatOpen} badge={chatBadge} onClick={onToggleChat}>
+            <MessageSquare size={20} />
+          </CircleButton>
         </>
       )}
-      <CircleButton label={t('meeting.chat')} active={chatOpen} onClick={onToggleChat}>
-        <MessageSquare size={20} />
-      </CircleButton>
       <CircleButton label={t('meeting.members')} active={membersOpen} onClick={onToggleMembers}>
         <Users size={20} />
       </CircleButton>

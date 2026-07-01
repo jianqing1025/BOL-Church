@@ -168,6 +168,7 @@ export const translations = {
     disconnected: { en: 'Disconnected. Return to entry.', zh: '连接已断开，请重新进入。' },
     back: { en: 'Back', zh: '返回' },
     chat: { en: 'Chat', zh: '聊天' },
+    close: { en: 'Close', zh: '关闭' },
     screenShare: { en: 'Share screen', zh: '共享屏幕' },
     camera: { en: 'Camera', zh: '摄像头' },
     microphone: { en: 'Microphone', zh: '麦克风' },

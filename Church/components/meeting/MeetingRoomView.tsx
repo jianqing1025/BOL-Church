@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Users } from 'lucide-react';
 import type { MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
@@ -7,6 +7,7 @@ import { VideoStage } from './VideoStage';
 import { MeetingControlBar } from './MeetingControlBar';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { ChatInput } from './ChatInput';
+import { ChatPanel } from './ChatPanel';
 import { MemberList } from './MemberList';
 
 interface MeetingRoomViewProps {
@@ -36,6 +37,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [unread, setUnread] = useState(0);
+  const prevLenRef = useRef(messages.length);
 
   useEffect(() => {
     const start = Date.now();
@@ -43,7 +46,19 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     return () => window.clearInterval(id);
   }, [room.id]);
 
-  const anyDrawer = chatOpen || membersOpen;
+  // Count incoming messages from others while the chat is closed → badge.
+  useEffect(() => {
+    const prev = prevLenRef.current;
+    prevLenRef.current = messages.length;
+    if (!room.hasVideo || chatOpen) return; // chat surface already visible
+    if (prev === 0) return;                  // initial history load is not "new"
+    const added = messages.slice(prev)
+      .filter((m) => m.type === 'message' && m.userId !== ownUserId).length;
+    if (added > 0) setUnread((u) => u + added);
+  }, [messages, chatOpen, ownUserId, room.hasVideo]);
+
+  // Clear the badge when the chat is opened.
+  useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-950 text-gray-100">
@@ -85,19 +100,18 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           )}
         </main>
 
-        {anyDrawer && (
+        {room.hasVideo && chatOpen && (
+          <ChatPanel
+            messages={messages}
+            ownUserId={ownUserId}
+            onSend={onSend}
+            onClose={() => setChatOpen(false)}
+          />
+        )}
+
+        {membersOpen && (
           <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
-            {chatOpen && (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <MessageList messages={messages} ownUserId={ownUserId} />
-                <ChatInput onSend={onSend} />
-              </div>
-            )}
-            {membersOpen && (
-              <div className={`min-h-0 ${chatOpen ? 'shrink-0 border-t border-white/10' : 'flex-1'}`}>
-                <MemberList users={members} />
-              </div>
-            )}
+            <MemberList users={members} />
           </aside>
         )}
       </div>
@@ -108,6 +122,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         camOn={lk.camOn}
         screenOn={lk.screenOn}
         chatOpen={chatOpen}
+        chatBadge={unread}
         membersOpen={membersOpen}
         onToggleMic={() => void lk.toggleMic()}
         onToggleCamera={() => void lk.toggleCamera()}
