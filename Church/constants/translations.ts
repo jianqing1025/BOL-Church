@@ -149,6 +149,36 @@ export const translations = {
     prayerTitle: { en: 'Prayer Meeting', zh: '禱告會' },
     prayerContent: { en: 'Join us for our weekly prayer meeting.', zh: '歡迎參加我們的每週禱告會。' },
   },
+  meeting: {
+    pageTitle: { en: 'Co-worker Meetings', zh: '同工會議' },
+    pageSubtitle: { en: 'Online Bible study & prayer rooms', zh: '線上查經與禱告聊天室' },
+    join: { en: 'Join', zh: '加入' },
+
+    gateTitle: { en: 'Co-worker Meeting Access', zh: '同工會議進入' },
+    gateNotice: { en: 'Enter the access code to join the meeting rooms.', zh: '請輸入通行碼以進入會議室。' },
+    gatePlaceholder: { en: 'Access code', zh: '通行碼' },
+    gateEnter: { en: 'Enter', zh: '進入' },
+    gateError: { en: 'Incorrect access code. Please try again.', zh: '通行碼錯誤，請再試一次。' },
+
+    nameTitle: { en: 'Enter your name', zh: '輸入您的名字' },
+    nameSubtitle: { en: 'Joining: {room}', zh: '正在加入：{room}' },
+    namePlaceholder: { en: 'Your name', zh: '您的名字' },
+    nameJoin: { en: 'Join Meeting', zh: '加入會議' },
+    nameCancel: { en: 'Cancel', zh: '取消' },
+    nameRequired: { en: 'Please enter your name.', zh: '請輸入您的名字。' },
+
+    back: { en: 'Back', zh: '返回' },
+    loadError: { en: 'Could not load the meeting. Check your connection and try again.', zh: '無法載入會議，請檢查網路後重試。' },
+    retry: { en: 'Retry', zh: '重試' },
+    openNewTab: { en: 'Open in new tab', zh: '在新分頁開啟' },
+
+    kidsDesc:   { en: 'Children Sunday school co-workers', zh: '兒童主日學同工' },
+    menDesc:    { en: 'Brothers small group', zh: '弟兄小組' },
+    womenDesc:  { en: 'Sisters small group', zh: '姐妹小組' },
+    jointDesc:  { en: 'Joint fellowship group', zh: '聯合小組' },
+    alphaDesc:  { en: 'Alpha course discussion', zh: 'Alpha 課程討論' },
+    prayerDesc: { en: 'Prayer meeting room', zh: '禱告會' },
+  },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },
     event1Title: { en: 'Joint Group Fellowship', zh: '聯合小組聚會' },
@@ -378,6 +408,7 @@ export const translations = {
   footer: {
     copyright: { en: '@2026 Bread of Life Christian Church. All Rights Reserved.', zh: '@2026 信望愛靈糧堂. 版權所有.' },
     classicSite: { en: 'Classic Website', zh: '訪問經典版網站' },
+    meeting: { en: 'Co-worker Meetings', zh: '同工會議' },
   },
   adminPhotos: {
     title: { en: 'Photo Management', zh: '相薄管理' },
