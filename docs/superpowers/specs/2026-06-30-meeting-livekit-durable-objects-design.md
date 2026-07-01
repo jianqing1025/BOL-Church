@@ -75,6 +75,10 @@ LIVEKIT_API_SECRET?: string;
 
 - `GET /api/meeting/health` → `{ ok: true }`.
 - `GET /api/meeting/rooms` → `MEETING_ROOMS` as JSON.
+- `POST /api/meeting/verify` → body `{ name, password }`. Validates `name`
+  non-empty ≤30 and `password === CHAT_PASSWORD`. Returns `{ ok: true }` (200) or
+  401. Backs the two-screen entry flow so the password is confirmed on screen 1
+  before the room picker is shown. Never echoes the password.
 - `GET /api/meeting/ws` → **WebSocket upgrade only**. Query: `roomId`, `name`,
   `password`. Worker validates: method GET + `Upgrade: websocket`; `roomId` in
   whitelist; `name` non-empty ≤30 (sanitized); `password === CHAT_PASSWORD`. On
@@ -132,11 +136,15 @@ prompt (see prompt); `presence.users` = `[{ id, name }]`.
   `POST /api/meeting/livekit-token`, then `Room.connect(url, token)`),
   `disconnect()`, `toggleMic()`, `toggleCamera()`, `toggleScreenShare()`, and
   track/participant event subscriptions exposed via callbacks.
-- **`components/meeting/MeetingPage.tsx`** — orchestrator. Entry form collects
-  **name + password + room** (spec steps 1–4); persists name to
-  `localStorage['bolccop-meeting-name']`. On join, opens the chat socket. Renders
-  the connected layout. Handles room switching (close + reopen socket + leave
-  video). Auth failure returns to the form with an error.
+- **`components/meeting/MeetingPage.tsx`** — orchestrator with a **two-screen
+  entry flow**:
+  - **Screen 1 — Auth:** name + password. On submit, `POST /api/meeting/verify`;
+    on 200 advance to screen 2, on 401 show an inline password error. Name
+    persists to `localStorage['bolccop-meeting-name']`.
+  - **Screen 2 — Room picker:** the room cards/list; selecting a room enters it.
+  - **Connected view:** opens the chat socket for the chosen room and renders the
+    layout. Room switching closes + reopens the socket and leaves any active video.
+    An unexpected auth failure on connect returns to Screen 1 with an error.
 - **`RoomList.tsx`** — room picker (desktop left rail / mobile top selector),
   shows a video badge when `hasVideo`.
 - **`MessageList.tsx`** — chat + system messages, auto-scroll.
@@ -208,5 +216,3 @@ Component/DO runtime and LiveKit are verified by manual smoke test (no jsdom in 
 - Set secrets: `wrangler secret put CHAT_PASSWORD` (and `LIVEKIT_URL`,
   `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `ALLOWED_ORIGIN`).
 - First deploy runs the DO migration (`new_sqlite_classes = ["ChatRoom"]`).
-- The LiveKit secrets were shared in plaintext during design; rotate them in the
-  LiveKit dashboard if that channel is considered exposed.
