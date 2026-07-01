@@ -145,12 +145,8 @@ function App() {
       const subPage = validSubPages.find(p => p === subPageSegment) ?? 'our-church';
       return <AboutPage activeSubPage={subPage} />;
     }
-    if (route === '/meeting' || route === '/meeting/') {
+    if (route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/')) {
       return <MeetingPage />;
-    }
-    if (route.startsWith('/meeting/')) {
-      const segment = (route.split('/')[2] || '').split('?')[0];
-      return <MeetingPage roomKey={segment} />;
     }
     return <HomePage />;
   };
