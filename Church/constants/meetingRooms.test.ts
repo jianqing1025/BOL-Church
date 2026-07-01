@@ -1,26 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { MEETING_ROOMS, MEETING_ROOM_KEYS, findMeetingRoom } from './meetingRooms';
+import { MEETING_ROOMS, MEETING_ROOM_IDS, findMeetingRoom, livekitRoomName } from './meetingRooms';
 
 describe('MEETING_ROOMS', () => {
-  it('defines the six ministry rooms', () => {
-    expect(MEETING_ROOM_KEYS).toEqual(['kids', 'men', 'women', 'joint', 'alpha', 'prayer']);
+  it('defines the five rooms with unique ids', () => {
+    expect(MEETING_ROOM_IDS).toEqual(['lobby', 'bible-study-1', 'bible-study-2', 'bible-study-3', 'prayer']);
+    expect(new Set(MEETING_ROOM_IDS).size).toBe(5);
   });
-  it('gives every room a unique, non-empty jitsi room name', () => {
-    const names = MEETING_ROOMS.map(r => r.jitsiRoom);
-    expect(names.every(n => n.length > 0)).toBe(true);
-    expect(new Set(names).size).toBe(names.length);
+  it('marks only lobby as no-video', () => {
+    expect(findMeetingRoom('lobby')?.hasVideo).toBe(false);
+    for (const id of ['bible-study-1', 'bible-study-2', 'bible-study-3', 'prayer']) {
+      expect(findMeetingRoom(id)?.hasVideo).toBe(true);
+    }
   });
 });
 
 describe('findMeetingRoom', () => {
-  it('resolves each known ministry slug', () => {
-    expect(findMeetingRoom('prayer')?.key).toBe('prayer');
-    expect(findMeetingRoom('kids')?.titleKey).toBe('eventsPage.navKids');
-  });
-  it('returns undefined for unknown or empty slugs', () => {
+  it('resolves known ids and rejects the rest', () => {
+    expect(findMeetingRoom('prayer')?.name).toBe('医治祷告');
     expect(findMeetingRoom('nope')).toBeUndefined();
     expect(findMeetingRoom('')).toBeUndefined();
     expect(findMeetingRoom(null)).toBeUndefined();
     expect(findMeetingRoom(undefined)).toBeUndefined();
+  });
+});
+
+describe('livekitRoomName', () => {
+  it('prefixes the room id', () => {
+    expect(livekitRoomName('bible-study-1')).toBe('bolccop-bible-study-1');
+    expect(livekitRoomName('prayer')).toBe('bolccop-prayer');
   });
 });

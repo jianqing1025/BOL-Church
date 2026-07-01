@@ -7,6 +7,7 @@ export default defineConfig({
       'live/**/*.test.ts',
       'constants/**/*.test.ts',
       'components/**/*.test.ts',
+      'meeting/**/*.test.ts',
     ],
     environment: 'node',
   },
