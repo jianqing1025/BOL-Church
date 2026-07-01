@@ -45,11 +45,16 @@ export class LiveKitService {
       .on(RoomEvent.ParticipantDisconnected, () => this.emit())
       .on(RoomEvent.TrackSubscribed, () => this.emit())
       .on(RoomEvent.TrackUnsubscribed, () => this.emit())
+      .on(RoomEvent.TrackMuted, () => this.emit())
+      .on(RoomEvent.TrackUnmuted, () => this.emit())
       .on(RoomEvent.LocalTrackPublished, () => this.emit())
       .on(RoomEvent.LocalTrackUnpublished, () => this.emit())
       .on(RoomEvent.Disconnected, () => this.emit());
 
     await room.connect(url, token);
+    // Browsers block autoplay of remote audio until a gesture; the click that
+    // brought the user into the room usually satisfies it. Best-effort resume.
+    await room.startAudio().catch(() => undefined);
     await room.localParticipant.setCameraEnabled(true).catch(() => undefined);
     await room.localParticipant.setMicrophoneEnabled(true).catch(() => undefined);
     this.emit();
@@ -87,12 +92,21 @@ export class LiveKitService {
     this.room = null;
   }
 
-  /** Attach a participant's first video track to an element; returns cleanup. */
-  static attachVideo(participant: Participant, el: HTMLVideoElement): () => void {
-    const pub = [...participant.videoTrackPublications.values()].find((p) => p.track && p.source === Track.Source.Camera)
-      || [...participant.videoTrackPublications.values()].find((p) => p.track);
-    const track = pub?.track;
-    if (track) track.attach(el);
-    return () => { try { track?.detach(el); } catch { /* ignore */ } };
+  /** The video track to display for a participant: screen share wins over camera. */
+  static videoTrack(participant: Participant): Track | undefined {
+    const pubs = [...participant.videoTrackPublications.values()];
+    const pub = pubs.find((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare)
+      || pubs.find((p) => p.track && !p.isMuted && p.source === Track.Source.Camera)
+      || pubs.find((p) => p.track && !p.isMuted);
+    return pub?.track ?? undefined;
+  }
+
+  /** The audio track to play for a participant (undefined for local, to avoid echo). */
+  static audioTrack(participant: Participant): Track | undefined {
+    if (participant.isLocal) return undefined;
+    const pubs = [...participant.audioTrackPublications.values()];
+    const pub = pubs.find((p) => p.track && p.source === Track.Source.Microphone)
+      || pubs.find((p) => p.track);
+    return pub?.track ?? undefined;
   }
 }

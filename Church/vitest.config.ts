@@ -8,6 +8,7 @@ export default defineConfig({
       'constants/**/*.test.ts',
       'components/**/*.test.ts',
       'meeting/**/*.test.ts',
+      'services/**/*.test.ts',
     ],
     environment: 'node',
   },

@@ -7,17 +7,47 @@ import { useLocalization } from '../../hooks/useLocalization';
 /** How many thumbnails to show before collapsing the rest into a +N chip. */
 const MAX_THUMBS = 6;
 
+const initials = (label: string): string => label.trim().slice(0, 2).toUpperCase() || '?';
+
 const ParticipantTile: React.FC<{ participant: Participant; large?: boolean }> = ({ participant, large }) => {
-  const ref = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Recomputed every render (participant objects are mutated in place by
+  // LiveKit, so we cannot rely on reference changes). The attach effects key on
+  // the track object, so they re-run whenever a track is published/subscribed.
+  const videoTrack = LiveKitService.videoTrack(participant);
+  const audioTrack = LiveKitService.audioTrack(participant);
+  const label = participant.name || participant.identity;
+
   useEffect(() => {
-    if (!ref.current) return;
-    return LiveKitService.attachVideo(participant, ref.current);
-  }, [participant]);
+    const el = videoRef.current;
+    if (!el || !videoTrack) return;
+    videoTrack.attach(el);
+    return () => { try { videoTrack.detach(el); } catch { /* ignore */ } };
+  }, [videoTrack]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !audioTrack) return;
+    audioTrack.attach(el);
+    return () => { try { audioTrack.detach(el); } catch { /* ignore */ } };
+  }, [audioTrack]);
+
   return (
     <div className={`relative overflow-hidden rounded-xl bg-black ${large ? 'h-full w-full' : 'aspect-video w-full'}`}>
-      <video ref={ref} autoPlay playsInline muted={participant.isLocal} className="h-full w-full object-cover" />
+      {videoTrack ? (
+        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-gray-800">
+          <span className={`flex items-center justify-center rounded-full bg-gray-600 font-bold text-gray-100 ${large ? 'h-24 w-24 text-3xl' : 'h-12 w-12 text-base'}`}>
+            {initials(label)}
+          </span>
+        </div>
+      )}
+      {audioTrack && <audio ref={audioRef} autoPlay />}
       <span className={`absolute left-2 bottom-1.5 rounded bg-black/40 px-1.5 py-0.5 font-semibold text-white drop-shadow ${large ? 'text-sm' : 'text-xs'}`}>
-        {participant.name || participant.identity}
+        {label}
       </span>
     </div>
   );
@@ -59,7 +89,10 @@ export const VideoStage: React.FC<VideoStageProps> = ({ participants, connecting
   const overflow = rest.length - thumbs.length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 md:flex-row">
+    <div className="relative flex h-full min-h-0 flex-col gap-3 md:flex-row">
+      {error && (
+        <p className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded bg-red-900/80 px-3 py-1 text-xs text-red-100">{error}</p>
+      )}
       <div className="min-h-0 flex-1">
         <ParticipantTile participant={featured} large />
       </div>

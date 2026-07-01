@@ -63,15 +63,38 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   }, []);
 
   const toggleMic = useCallback(async () => {
-    if (serviceRef.current) setMicOn(await serviceRef.current.toggleMic());
+    const svc = serviceRef.current;
+    if (!svc) return;
+    try {
+      setError('');
+      setMicOn(await svc.toggleMic());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
+    }
   }, []);
 
   const toggleCamera = useCallback(async () => {
-    if (serviceRef.current) setCamOn(await serviceRef.current.toggleCamera());
+    const svc = serviceRef.current;
+    if (!svc) return;
+    try {
+      setError('');
+      setCamOn(await svc.toggleCamera());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
+    }
   }, []);
 
   const toggleScreenShare = useCallback(async () => {
-    await serviceRef.current?.toggleScreenShare();
+    const svc = serviceRef.current;
+    if (!svc) return;
+    try {
+      setError('');
+      await svc.toggleScreenShare();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
   // Auto-join video rooms on mount; always disconnect on unmount / room change.
