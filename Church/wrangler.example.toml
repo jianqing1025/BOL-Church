@@ -39,3 +39,14 @@ CLOUDFLARE_ANALYTICS_API_TOKEN = "your-analytics-read-token"
 # Multi-channel upload sync — every 4 hours
 [triggers]
 crons = ["*/5 17-22 * * SUN", "0 */4 * * *"]
+
+# Meeting v2 secrets (set via `wrangler secret put` in prod, .dev.vars locally):
+#   CHAT_PASSWORD, ALLOWED_ORIGIN, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChatRoom"]

@@ -12,6 +12,8 @@ import {
   type TrainingRow,
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline } from './live/liveStats';
+import { ChatRoom } from './meeting/chatRoom';
+import { handleMeeting } from './meeting/meetingApi';
 
 type Env = {
   DB: D1Database;
@@ -27,6 +29,12 @@ type Env = {
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   ADMIN_BOOTSTRAP_NAME?: string;
   RESEND_API_KEY?: string;
+  CHAT_ROOM: DurableObjectNamespace;
+  CHAT_PASSWORD?: string;
+  ALLOWED_ORIGIN?: string;
+  LIVEKIT_URL?: string;
+  LIVEKIT_API_KEY?: string;
+  LIVEKIT_API_SECRET?: string;
 };
 
 type LocalizedText = { en: string; zh: string };
@@ -3729,6 +3737,9 @@ const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
 
+    const meetingResponse = await handleMeeting(request, env, url);
+    if (meetingResponse) return meetingResponse;
+
     if (url.pathname === '/api/auth/login' && request.method === 'POST') {
       return handleLogin(request, env);
     }
@@ -4271,3 +4282,4 @@ const worker: ExportedHandler<Env> = {
 };
 
 export default worker;
+export { ChatRoom };
