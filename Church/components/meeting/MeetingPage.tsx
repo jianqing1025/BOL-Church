@@ -151,7 +151,7 @@ export const MeetingPage: React.FC = () => {
       </aside>
 
       <section className="flex min-h-0 flex-1 flex-col gap-3">
-        {room && <div className="h-56 shrink-0 md:h-72"><VideoPanel room={room} name={normalizeDisplayName(name)} password={password} /></div>}
+        {room && <div className="h-56 shrink-0 md:h-72"><VideoPanel key={room.id} room={room} name={normalizeDisplayName(name)} password={password} /></div>}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
           <MessageList messages={messages} ownUserId={ownUserId} />
           <ChatInput onSend={send} />
