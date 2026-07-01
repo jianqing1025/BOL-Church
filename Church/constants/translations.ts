@@ -150,7 +150,8 @@ export const translations = {
     prayerContent: { en: 'Join us for our weekly prayer meeting.', zh: '歡迎參加我們的每週禱告會。' },
   },
   meeting: {
-    pageTitle: { en: 'BOLCCOP Online Gathering', zh: 'BOLCCOP 在线聚会' },
+    pageTitle: { en: 'Welcome to the BOLCCOP Online Gathering System', zh: '欢迎来到信望爱灵粮堂在线聚会系统' },
+    authSubtitle: { en: 'Enter your name or nickname and the password to join the meeting.', zh: '请输入您的名字或昵称和密码进入会议' },
     authName: { en: 'Your name', zh: '您的名字' },
     authPassword: { en: 'Room password', zh: '房间密码' },
     authEnter: { en: 'Continue', zh: '下一步' },

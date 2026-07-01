@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Video } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
@@ -7,14 +6,21 @@ import { MeetingSocket } from '../../services/meetingSocket';
 import type { ServerMessage } from '../../meeting/chatProtocol';
 import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
+import { MeetingSignIn } from './MeetingSignIn';
 
-type Stage = 'auth' | 'pick' | 'room';
+export type Stage = 'auth' | 'pick' | 'room';
+type RoomWithActivity = MeetingRoom & { activeCount?: number; imageUrl?: string; schedule?: string };
+
+interface MeetingPageProps {
+  /** Reports the current stage so the shell can hide chrome for the in-room view. */
+  onStageChange?: (stage: Stage | null) => void;
+}
 
 const readName = (): string => {
   try { return localStorage.getItem(MEETING_NAME_KEY) || ''; } catch { return ''; }
 };
 
-export const MeetingPage: React.FC = () => {
+export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const { t } = useLocalization();
   const [stage, setStage] = useState<Stage>('auth');
   const [name, setName] = useState(readName);
@@ -26,6 +32,7 @@ export const MeetingPage: React.FC = () => {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [ownUserId, setOwnUserId] = useState<string | null>(null);
+  const [pickerRooms, setPickerRooms] = useState<readonly RoomWithActivity[]>(MEETING_ROOMS);
   const socketRef = useRef<MeetingSocket | null>(null);
 
   const closeSocket = useCallback(() => {
@@ -35,7 +42,36 @@ export const MeetingPage: React.FC = () => {
 
   useEffect(() => () => closeSocket(), [closeSocket]);
 
-  // Screen 1: verify name + password with the server.
+  // Let the shell know which stage we are in (so it can hide header/footer for
+  // the full-screen in-room view) and reset when the page unmounts.
+  useEffect(() => { onStageChange?.(stage); }, [stage, onStageChange]);
+  useEffect(() => () => onStageChange?.(null), [onStageChange]);
+
+  useEffect(() => {
+    if (stage !== 'pick') return;
+    let cancelled = false;
+
+    const loadRooms = async () => {
+      try {
+        const res = await fetch('/api/meeting/rooms');
+        if (!res.ok) return;
+        const body = await res.json() as { rooms?: RoomWithActivity[] };
+        if (!cancelled && Array.isArray(body.rooms)) {
+          setPickerRooms(body.rooms);
+        }
+      } catch {
+        // Keep the built-in room list when the API is unavailable locally.
+      }
+    };
+
+    void loadRooms();
+    const interval = window.setInterval(() => void loadRooms(), 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [stage]);
+
   const submitAuth = async () => {
     if (!isValidDisplayName(name)) { setAuthError(t('meeting.nameRequired')); return; }
     setVerifying(true);
@@ -56,7 +92,6 @@ export const MeetingPage: React.FC = () => {
     }
   };
 
-  // Screen 2 → room: open the chat socket.
   const enterRoom = useCallback((target: MeetingRoom) => {
     closeSocket();
     setMessages([]);
@@ -87,56 +122,53 @@ export const MeetingPage: React.FC = () => {
   const leaveRoom = () => { closeSocket(); setRoom(null); setStage('pick'); };
   const send = (text: string) => socketRef.current?.send(text);
 
-  // ── Screen 1: auth ──
   if (stage === 'auth') {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-950 px-4">
-        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-gray-900 p-8 shadow-2xl">
-          <h1 className="mb-6 text-center text-2xl font-bold text-white">{t('meeting.pageTitle')}</h1>
-          <input
-            type="text" value={name} maxLength={30}
-            onChange={(e) => { setName(e.target.value); setAuthError(''); }}
-            placeholder={t('meeting.authName')}
-            className="mb-3 w-full rounded-lg border border-white/15 bg-gray-800 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none"
-          />
-          <input
-            type="password" value={password}
-            onChange={(e) => { setPassword(e.target.value); setAuthError(''); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') void submitAuth(); }}
-            placeholder={t('meeting.authPassword')}
-            className="mb-3 w-full rounded-lg border border-white/15 bg-gray-800 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none"
-          />
-          {authError && <div className="mb-3 text-sm font-medium text-red-400">{authError}</div>}
-          <button
-            type="button" onClick={() => void submitAuth()} disabled={verifying}
-            className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-60"
-          >
-            {t('meeting.authEnter')}
-          </button>
-        </div>
-      </div>
+      <MeetingSignIn
+        name={name}
+        password={password}
+        error={authError}
+        verifying={verifying}
+        onNameChange={(v) => { setName(v); setAuthError(''); }}
+        onPasswordChange={(v) => { setPassword(v); setAuthError(''); }}
+        onSubmit={() => void submitAuth()}
+      />
     );
   }
 
-  // ── Screen 2: room picker ──
   if (stage === 'pick') {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-950 px-6">
-        <div className="w-full max-w-2xl">
-          <h2 className="mb-6 text-center text-xl font-bold text-white">{t('meeting.pickRoom')}</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {MEETING_ROOMS.map((r) => (
-              <button
-                key={r.id} type="button" onClick={() => enterRoom(r)}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-gray-900 p-5 text-left transition-colors hover:border-blue-500/60 hover:bg-gray-800"
+      <div className="min-h-[70vh] bg-white px-4 py-8 sm:px-6 sm:py-16">
+        <div className="mx-auto w-full max-w-5xl">
+          <h2 className="mb-6 text-center text-2xl font-bold text-gray-800 sm:mb-10 sm:text-3xl">{t('meeting.pickRoom')}</h2>
+          <div className="grid gap-5 md:grid-cols-2 md:gap-8">
+            {pickerRooms.map((r) => (
+              <div
+                key={r.id}
+                className={`relative overflow-hidden rounded-lg border bg-white shadow-lg transition-transform duration-300 hover:-translate-y-1 ${
+                  (r.activeCount ?? 0) > 0 ? 'border-blue-500 ring-1 ring-blue-500/20' : 'border-transparent'
+                }`}
               >
-                <span className="font-bold text-white">{r.name}</span>
-                {r.hasVideo && (
-                  <span className="flex items-center gap-1 text-xs font-semibold text-green-400">
-                    <Video size={14} /> {t('meeting.videoRoom')}
-                  </span>
+                {(r.activeCount ?? 0) > 0 && (
+                  <div className="absolute right-4 top-4 z-10 rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white shadow">
+                    正在聚会
+                  </div>
                 )}
-              </button>
+                <img src={r.imageUrl} alt={r.name} className="h-36 w-full object-cover sm:h-48" />
+                <div className="flex min-h-24 items-center justify-between gap-4 p-4 sm:min-h-28 sm:p-6">
+                  <div className="min-w-0">
+                    <h3 className="mb-1 text-lg font-bold text-gray-900 sm:mb-2 sm:text-xl">{r.name}</h3>
+                    <p className="text-gray-600">{r.schedule}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => enterRoom(r)}
+                    className="shrink-0 rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    加入
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -144,19 +176,20 @@ export const MeetingPage: React.FC = () => {
     );
   }
 
-  // ── Connected room ──
   return room ? (
-    <MeetingRoomView
-      key={room.id}
-      room={room}
-      name={normalizeDisplayName(name)}
-      password={password}
-      messages={messages}
-      members={members}
-      ownUserId={ownUserId}
-      onSend={send}
-      onLeave={leaveRoom}
-    />
+    <div className="fixed inset-0 z-50 bg-gray-950">
+      <MeetingRoomView
+        key={room.id}
+        room={room}
+        name={normalizeDisplayName(name)}
+        password={password}
+        messages={messages}
+        members={members}
+        ownUserId={ownUserId}
+        onSend={send}
+        onLeave={leaveRoom}
+      />
+    </div>
   ) : null;
 };
 

@@ -40,6 +40,9 @@ function App() {
   // (transparent, floating over the full-bleed blurred hero) so header + hero
   // read as one piece. The unlocked gallery keeps its hero-background header.
   const [photoGateActive, setPhotoGateActive] = useState(false);
+  // Which meeting stage is active (null when not on /meeting). Drives whether the
+  // church header/footer are shown around the meeting page.
+  const [meetingStage, setMeetingStage] = useState<'auth' | 'pick' | 'room' | null>(null);
 
   useEffect(() => {
     const handleRouteChange = () => {
@@ -84,16 +87,6 @@ function App() {
           <AdminDashboard />
           <ChurchDialogHost />
         </>
-      );
-  }
-
-  // The meeting room is a full-screen experience: no church Header/Footer.
-  if (route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/')) {
-      return (
-        <div className="h-screen w-screen overflow-hidden bg-gray-950">
-          <MeetingPage />
-          <ChurchDialogHost />
-        </div>
       );
   }
 
@@ -156,21 +149,29 @@ function App() {
       return <AboutPage activeSubPage={subPage} />;
     }
     if (route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/')) {
-      return <MeetingPage />;
+      return <MeetingPage onStageChange={setMeetingStage} />;
     }
     return <HomePage />;
   };
-  
+
   const isPhotosPage = route.startsWith('/photos');
-  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !route.startsWith('/meeting') && !isPhotosPage;
+  const isMeetingPage = route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/');
+  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isMeetingPage && !isPhotosPage;
+
+  // The in-room view is full-screen (rendered as its own fixed overlay), so the
+  // church header/footer are hidden for it. Auth + room-picker keep the chrome.
+  const meetingRoomActive = isMeetingPage && meetingStage === 'room';
+  const meetingAuthActive = isMeetingPage && meetingStage === 'auth';
 
   return (
     <div className="bg-white text-gray-800 antialiased min-h-screen flex flex-col">
-      <Header isTransparent={isHomePage || (isPhotosPage && photoGateActive)} useHeroBackground={isPhotosPage && !photoGateActive} isPhotosPage={isPhotosPage} photoGateActive={photoGateActive} />
+      {!meetingRoomActive && (
+        <Header isTransparent={isHomePage || (isPhotosPage && photoGateActive) || meetingAuthActive} useHeroBackground={isPhotosPage && !photoGateActive} isPhotosPage={isPhotosPage} photoGateActive={photoGateActive} />
+      )}
       <main className="flex-grow">
         {renderPage()}
       </main>
-      <Footer />
+      {!meetingRoomActive && <Footer />}
       <ChurchDialogHost />
     </div>
   );
