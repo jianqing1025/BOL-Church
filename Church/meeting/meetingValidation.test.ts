@@ -34,6 +34,6 @@ describe('validateVideo', () => {
   it('rejects the lobby (no video) with status 403', () => {
     const r = validateVideo({ roomId: 'lobby', name: 'A', password: PW }, PW);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.status).toBe(403);
+    if (r.ok === false) expect(r.status).toBe(403);
   });
 });
