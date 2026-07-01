@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { Video as VideoIcon } from 'lucide-react';
-import type { Participant } from 'livekit-client';
+import { Track, type Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
 import { useLocalization } from '../../hooks/useLocalization';
+import { ScreenSharePanZoom } from './ScreenSharePanZoom';
 
 /** How many thumbnails to show before collapsing the rest into a +N chip. */
 const MAX_THUMBS = 6;
@@ -18,6 +19,7 @@ const ParticipantTile: React.FC<{ participant: Participant; large?: boolean }> =
   // the track object, so they re-run whenever a track is published/subscribed.
   const videoTrack = LiveKitService.videoTrack(participant);
   const audioTrack = LiveKitService.audioTrack(participant);
+  const isScreenShare = videoTrack?.source === Track.Source.ScreenShare;
   const label = participant.name || participant.identity;
 
   useEffect(() => {
@@ -37,7 +39,13 @@ const ParticipantTile: React.FC<{ participant: Participant; large?: boolean }> =
   return (
     <div className={`relative overflow-hidden rounded-xl bg-black ${large ? 'h-full w-full' : 'aspect-video w-full'}`}>
       {videoTrack ? (
-        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+        large && isScreenShare ? (
+          <ScreenSharePanZoom>
+            <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
+          </ScreenSharePanZoom>
+        ) : (
+          <video ref={videoRef} autoPlay playsInline muted className={`h-full w-full ${isScreenShare ? 'object-contain' : 'object-cover'}`} />
+        )
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-gray-800">
           <span className={`flex items-center justify-center rounded-full bg-gray-600 font-bold text-gray-100 ${large ? 'h-24 w-24 text-3xl' : 'h-12 w-12 text-base'}`}>
