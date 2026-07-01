@@ -1,17 +1,20 @@
 {
-  "worktree": {
-    "baseRef": "head"
-  },
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "allow": [
       "Read(//d/d/Repo/bolccop/Finance/**)",
       "Bash(npx vite *)",
       "Bash(npm run *)",
       "Bash(xxd public/Signature.png)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}  type=%{content_type}  bytes=%{size_download}\\\\n\" https://church-finance.bolccop.org/Signature/signature.png)",
-      "Bash(grep -nB1 \"stats-grid,$\" \"d:/Repo/bolccop/Finance/src/styles.css\")"
-    ]
+      "Bash(grep -nB1 \"stats-grid,$\" \"d:/Repo/bolccop/Finance/src/styles.css\")",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git log *)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "worktree": {
+    "baseRef": "head"
   },
   "skipDangerousModePermissionPrompt": true
 }

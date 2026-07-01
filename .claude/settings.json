@@ -76,7 +76,15 @@
       "Bash(git commit *)",
       "Bash(ls -la \"//rev1005/Repo2/LocalVideo/GalleryHub\" 2>&1 | head -40 || echo \"=== UNC direct failed, trying alternatives ===\"; ls \"//rev1005/Repo2/LocalVideo\" 2>&1 | head; echo \"=== local GaryHub? ===\"; ls -la \"d:/Repo/bolccop/GaryHub\" 2>&1 | head -40)",
       "Read(///rev1005/Repo2/LocalVideo/**)",
-      "Read(///rev1005/Repo2//**)"
+      "Read(///rev1005/Repo2//**)",
+      "Bash(python \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/fix_regex.py\")",
+      "Bash(python -c ' *)",
+      "Bash(python \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/fix2.py\")",
+      "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('D:/Repo/bolccop/Church/meeting/chatProtocol.test.ts', 'utf8'\\); const chars = [...s].map\\(\\(c,i\\) => \\({i, code: c.charCodeAt\\(0\\), ch: c}\\)\\).filter\\(x => x.code < 32\\); console.log\\(JSON.stringify\\(chars\\)\\);\")",
+      "Bash(python3 -c ' *)",
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/write_test.js\")",
+      "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('D:/Repo/bolccop/Church/meeting/chatProtocol.ts', 'utf8'\\); const bad = [...s].map\\(\\(c,i\\)=>\\({i,code:c.charCodeAt\\(0\\),ch:JSON.stringify\\(c\\)}\\)\\).filter\\(x=>x.code<32&&![9,10,13].includes\\(x.code\\)\\); console.log\\('bad chars:', JSON.stringify\\(bad.slice\\(0,10\\)\\)\\);\")",
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/write_protocol.js\")"
     ]
   }
 }
