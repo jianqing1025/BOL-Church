@@ -16,7 +16,7 @@ let minor = Number(match[2]);
 let patch = Number(match[3]);
 
 patch += 1;
-if (patch > 9) {
+if (patch > 99) {
   patch = 0;
   minor += 1;
 }

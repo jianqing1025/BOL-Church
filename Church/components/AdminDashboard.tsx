@@ -1236,12 +1236,14 @@ const AdminDashboard: React.FC = () => {
       case 'sermons':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-gray-900">{t('admin.sermons')}</h2>
-              <p className="text-sm text-gray-600">{t('admin.sermonSubtitle')}</p>
-            </div>
-            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              {sermons.filter(s => (s.category ?? 'sunday-worship') === 'sunday-worship').length} {t('admin.sermonCountStatus')}
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.sermons')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.sermonSubtitle')}</p>
+              </div>
+              <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800">
+                {sermons.filter(s => (s.category ?? 'sunday-worship') === 'sunday-worship').length} {t('admin.sermonCountStatus')}
+              </span>
             </div>
             <SermonManager entryType="sermon" category="sunday-worship" />
           </div>
@@ -1249,12 +1251,14 @@ const AdminDashboard: React.FC = () => {
       case 'worship-praise':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-gray-900">{t('admin.worshipPraise')}</h2>
-              <p className="text-sm text-gray-600">{t('admin.worshipPraiseSubtitle')}</p>
-            </div>
-            <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {sermons.filter(s => s.category === 'worship-praise').length} {t('admin.categoryCountStatus')}
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.worshipPraise')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.worshipPraiseSubtitle')}</p>
+              </div>
+              <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
+                {sermons.filter(s => s.category === 'worship-praise').length} {t('admin.categoryCountStatus')}
+              </span>
             </div>
             <SermonManager entryType="sermon" category="worship-praise" />
           </div>
@@ -1262,12 +1266,14 @@ const AdminDashboard: React.FC = () => {
       case 'healing-prayer':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-gray-900">{t('admin.healingPrayer')}</h2>
-              <p className="text-sm text-gray-600">{t('admin.healingPrayerSubtitle')}</p>
-            </div>
-            <div className="mb-4 rounded-lg border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-              {sermons.filter(s => s.category === 'healing-prayer').length} {t('admin.categoryCountStatus')}
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.healingPrayer')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.healingPrayerSubtitle')}</p>
+              </div>
+              <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-800">
+                {sermons.filter(s => s.category === 'healing-prayer').length} {t('admin.categoryCountStatus')}
+              </span>
             </div>
             <SermonManager entryType="sermon" category="healing-prayer" />
           </div>
@@ -1275,12 +1281,14 @@ const AdminDashboard: React.FC = () => {
       case 'testimony':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-gray-900">{t('admin.testimony')}</h2>
-              <p className="text-sm text-gray-600">{t('admin.testimonySubtitle')}</p>
-            </div>
-            <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              {sermons.filter(s => s.category === 'testimony').length} {t('admin.categoryCountStatus')}
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.testimony')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.testimonySubtitle')}</p>
+              </div>
+              <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
+                {sermons.filter(s => s.category === 'testimony').length} {t('admin.categoryCountStatus')}
+              </span>
             </div>
             <SermonManager entryType="sermon" category="testimony" />
           </div>
@@ -1288,12 +1296,14 @@ const AdminDashboard: React.FC = () => {
       case 'manna':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-gray-900">{t('admin.manna')}</h2>
-              <p className="text-sm text-gray-600">{t('admin.mannaSubtitle')}</p>
-            </div>
-            <div className="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-800">
-              {mannaCount} {t('admin.mannaCountStatus')}
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{t('admin.manna')}</h2>
+                <p className="text-sm text-gray-600">{t('admin.mannaSubtitle')}</p>
+              </div>
+              <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-purple-50 px-3 py-1 text-xs font-medium text-purple-800">
+                {mannaCount} {t('admin.mannaCountStatus')}
+              </span>
             </div>
             <SermonManager entryType="daily-manna" />
           </div>
@@ -1303,12 +1313,14 @@ const AdminDashboard: React.FC = () => {
           <div className="space-y-6">
             <LiveStreamManager />
             <div className="rounded-lg bg-white p-6 shadow-sm">
-              <div className="mb-5">
-                <h2 className="text-2xl font-bold text-gray-900">{t('admin.liveBroadcast')}</h2>
-                <p className="text-sm text-gray-600">{t('admin.liveBroadcastSubtitle')}</p>
-              </div>
-              <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-                {sermons.filter(s => s.category === 'live-broadcast').length} {t('admin.categoryCountStatus')}
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">{t('admin.liveBroadcast')}</h2>
+                  <p className="text-sm text-gray-600">{t('admin.liveBroadcastSubtitle')}</p>
+                </div>
+                <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-800">
+                  {sermons.filter(s => s.category === 'live-broadcast').length} {t('admin.categoryCountStatus')}
+                </span>
               </div>
               <SermonManager entryType="sermon" category="live-broadcast" />
             </div>

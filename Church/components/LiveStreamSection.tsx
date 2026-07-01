@@ -255,15 +255,17 @@ const LiveStreamSection: React.FC = () => {
                 </div>
                 <div className="p-2.5">
                   <div className="line-clamp-2 text-sm font-semibold text-gray-900">{title}</div>
-                  <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                    <span>{dateStr}</span>
-                    {formatViewCount(sermon.viewCount) && (
-                      <span className="text-gray-400 whitespace-nowrap">{formatViewCount(sermon.viewCount)} {t('admin.viewsLabel')}</span>
-                    )}
+                  <div className="mt-1 grid grid-cols-[max-content_minmax(0,1fr)_max-content] items-center gap-2 text-xs text-gray-500">
+                    <span className="flex-shrink-0 whitespace-nowrap">{dateStr}</span>
+                    <span className="min-w-0 text-center text-gray-400 whitespace-nowrap" title={t('liveChat.countLabelTotal')}>
+                      {language === Language.ZH ? '\u5728\u7dda' : 'Online'}: {formatViewCount(sermon.liveOnlineTotal ?? 0)}
+                    </span>
+                    <span className="text-right text-gray-400 whitespace-nowrap">
+                      {formatViewCount(sermon.viewCount)
+                        ? `${language === Language.ZH ? '\u89c0\u770b' : 'Views'}: ${formatViewCount(sermon.viewCount)}`
+                        : ''}
+                    </span>
                   </div>
-                  {typeof sermon.liveOnlineTotal === 'number' && (
-                    <div className="mt-0.5 text-[11px] text-gray-400" title={t('liveChat.countLabelTotal')}>👥 {sermon.liveOnlineTotal}</div>
-                  )}
                 </div>
               </button>
             );

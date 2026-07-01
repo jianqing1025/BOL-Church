@@ -78,7 +78,12 @@ function App() {
   }, [route]);
 
   if (route.startsWith('/admin')) {
-      return <AdminDashboard />;
+      return (
+        <>
+          <AdminDashboard />
+          <ChurchDialogHost />
+        </>
+      );
   }
 
   const renderPage = () => {

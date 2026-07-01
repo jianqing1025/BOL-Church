@@ -15,7 +15,7 @@ const fmtDate = (value?: string | number): string => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
 };
 
-// 列表响应已精简(不含 EXIF),hover 时按需拉取单张详情并缓存,避免大相册一次性加载 EXIF。
+// 列表响应已精简(不含 EXIF),hover 时按需拉取单张详情并缓存,避免大相薄一次性加载 EXIF。
 const detailCache = new Map<string, ChurchPhoto>();
 
 /**

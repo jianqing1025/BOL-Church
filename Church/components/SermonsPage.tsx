@@ -312,6 +312,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
               const isSelected = entry.id === selectedEntry.id;
               const duration = formatDuration(entry.durationSeconds ?? null);
               const views = formatViewCount(entry.viewCount ?? null);
+              const liveOnline = category === 'live-broadcast' ? formatViewCount(entry.liveOnlineTotal ?? null) : '';
 
               return (
                 <button
@@ -349,12 +350,22 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
                   </div>
                   <div className="flex flex-1 flex-col gap-1 p-3">
                     <h4 className="line-clamp-2 text-sm font-bold leading-tight text-gray-900 sm:text-base">{title}</h4>
-                    <p className="flex items-center justify-between text-xs text-gray-500">
-                      <span>{date.full}</span>
-                      {views && <span className="text-gray-400 whitespace-nowrap">{views} {t('admin.viewsLabel')}</span>}
-                    </p>
-                    {showSpeaker && speaker && (
-                      <p className="text-xs font-medium text-teal-700">{speaker}</p>
+                    {category === 'live-broadcast' ? (
+                      <p className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex-shrink-0 whitespace-nowrap">{date.full}</span>
+                        <span className="ml-auto flex items-center justify-end gap-3 text-right text-gray-400">
+                          <span className="whitespace-nowrap">{liveOnline ? `${language === Language.ZH ? '\u5728\u7dda' : 'Online'}: ${liveOnline}` : ''}</span>
+                          <span className="whitespace-nowrap">{views ? `${language === Language.ZH ? '\u89c0\u770b' : 'Views'}: ${views}` : ''}</span>
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="whitespace-nowrap">{date.full}</span>
+                        {showSpeaker && speaker && (
+                          <span className="min-w-0 flex-1 truncate text-center font-medium text-teal-700">{speaker}</span>
+                        )}
+                        {views && <span className="ml-auto whitespace-nowrap text-right text-gray-400">{`${language === Language.ZH ? '觀看' : 'Views'}: ${views}`}</span>}
+                      </p>
                     )}
                   </div>
                 </button>

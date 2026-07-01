@@ -18,6 +18,7 @@ import { buildMediaSlots } from '../../media';
 import { PhotoGate, PHOTO_UNLOCK_KEY } from './PhotoGate';
 
 const UPLOADER_KEY = 'bolccop-photo-uploader-id';
+const PHOTO_VIEWED_KEY = 'bolccop-photo-viewed-ids';
 const YEAR_PATTERN = /^\d{4}$/;
 const SLIDESHOW_WINDOW_PARAM = 'photoSlideshowWindow';
 const SLIDESHOW_TOKEN_PARAM = 'photoSlideshowToken';
@@ -79,6 +80,24 @@ const getUploaderId = (): string => {
     return next;
   }
   return next;
+};
+
+const loadViewedPhotoIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(PHOTO_VIEWED_KEY);
+    const parsed = raw ? JSON.parse(raw) as unknown : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const saveViewedPhotoIds = (ids: Set<string>): void => {
+  try {
+    localStorage.setItem(PHOTO_VIEWED_KEY, JSON.stringify([...ids]));
+  } catch {
+    /* Best-effort: local browser dedupe should not interrupt the gallery. */
+  }
 };
 
 const normalizeLabel = (v: string) => v.trim() || 'General';
@@ -176,6 +195,8 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const lastPageViewKeyRef = useRef('');
   const lastLightboxViewIdRef = useRef('');
+  const viewedPhotoIdsRef = useRef<Set<string> | null>(null);
+  const pendingPhotoViewIdsRef = useRef(new Set<string>());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -303,16 +324,35 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
     )));
   }, []);
 
+  const getViewedPhotoIds = useCallback(() => {
+    if (!viewedPhotoIdsRef.current) {
+      viewedPhotoIdsRef.current = loadViewedPhotoIds();
+    }
+    return viewedPhotoIdsRef.current;
+  }, []);
+
+  const markPhotoIdsViewed = useCallback((ids: string[]) => {
+    const viewed = getViewedPhotoIds();
+    ids.forEach((id) => viewed.add(id));
+    saveViewedPhotoIds(viewed);
+  }, [getViewedPhotoIds]);
+
   const reportPhotoViews = useCallback(async (ids: string[]) => {
-    const uniqueIds = [...new Set(ids)].filter(Boolean);
+    const viewed = getViewedPhotoIds();
+    const pending = pendingPhotoViewIdsRef.current;
+    const uniqueIds = [...new Set(ids)].filter((id) => Boolean(id) && !viewed.has(id) && !pending.has(id));
     if (uniqueIds.length === 0) return;
+    uniqueIds.forEach((id) => pending.add(id));
     try {
       const res = await api.incrementPhotoViews(uniqueIds);
+      markPhotoIdsViewed(res.ids);
       incrementLocalViewCounts(res.ids);
     } catch {
       /* View counts are best-effort and should never interrupt the gallery. */
+    } finally {
+      uniqueIds.forEach((id) => pending.delete(id));
     }
-  }, [incrementLocalViewCounts]);
+  }, [getViewedPhotoIds, incrementLocalViewCounts, markPhotoIdsViewed]);
 
   useEffect(() => {
     if (loading) return;

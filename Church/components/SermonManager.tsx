@@ -18,6 +18,13 @@ function formatDuration(seconds?: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function formatCount(count?: number | null): string {
+  if (count == null || count < 0) return '';
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K`;
+  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
 const buildEmptyEntry = (entryType: Sermon['type'], category: SermonCategory = 'sunday-worship'): Omit<Sermon, 'id'> => ({
   title: { en: '', zh: '' },
   speaker: { en: '', zh: '' },
@@ -39,8 +46,8 @@ const SERMON_CATEGORIES: { key: SermonCategory; labelKey: string }[] = [
 ];
 
 const SPEAKER_OPTIONS = {
-  en: ['Pastor Andy Yu', 'Sister LingLing', 'Pastor Rainbow'],
-  zh: ['余大器 牧師', '琳琳师母', 'Rainbow 牧師'],
+  en: ['Pastor Andy Yu', 'Pastor LingLing', 'Pastor Rainbow'],
+  zh: ['余大器 牧師', '琳玲 师母', 'Rainbow 牧師'],
 };
 
 interface SpeakerComboboxProps {
@@ -780,6 +787,8 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
             : t(SERMON_CATEGORIES.find(item => item.key === entryCategory)?.labelKey ?? 'sermonsPage.navSundayWorship');
           const thumbnail = sermon.imageUrl || (sermon.youtubeId ? `https://img.youtube.com/vi/${sermon.youtubeId}/hqdefault.jpg` : '');
           const duration = formatDuration(sermon.durationSeconds);
+          const views = formatCount(sermon.viewCount ?? null);
+          const liveOnline = entryCategory === 'live-broadcast' ? formatCount(sermon.liveOnlineTotal ?? null) : '';
           const menuOpen = openMenu?.id === sermon.id;
           const inMoveSubmenu = menuOpen && openMenu?.submenu === 'move';
 
@@ -840,14 +849,25 @@ const SermonManager: React.FC<SermonManagerProps> = ({ entryType = 'sermon', cat
                   <h3 className={`line-clamp-2 text-sm font-bold leading-tight text-gray-900 ${isHidden ? 'line-through' : ''}`}>
                     {title}
                   </h3>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
-                    <span>{sermon.date}</span>
-                    {showSpeakerFields && (sermon.speaker.zh || sermon.speaker.en) && (
-                      <span className="truncate text-teal-700 font-medium">
-                        {sermon.speaker.zh || sermon.speaker.en}
+                  {entryCategory === 'live-broadcast' ? (
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <span className="flex-shrink-0 whitespace-nowrap">{sermon.date}</span>
+                      <span className="ml-auto flex items-center justify-end gap-1.5 text-right text-gray-400">
+                        <span className="whitespace-nowrap">{'\u5728\u7dda'}:{formatCount(sermon.liveOnlineTotal ?? 0)}</span>
+                        <span className="whitespace-nowrap">{'\u89c0\u770b'}:{views || 0}</span>
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 text-xs text-gray-500">
+                      <span>{sermon.date}</span>
+                      {showSpeakerFields && (sermon.speaker.zh || sermon.speaker.en) && (
+                        <span className="min-w-0 truncate text-teal-700 font-medium">
+                          {sermon.speaker.zh || sermon.speaker.en}
+                        </span>
+                      )}
+                      {views && <span className="ml-auto text-right text-gray-400 whitespace-nowrap">{views}</span>}
+                    </div>
+                  )}
                 </div>
               </button>
 

@@ -364,7 +364,7 @@ function mapPhoto(row: PhotoRow) {
   };
 }
 
-// 精简版:列表用,省去 EXIF(相册可能上千张,EXIF 改由 hover 时按需取详情)。
+// 精简版:列表用,省去 EXIF(相薄可能上千张,EXIF 改由 hover 时按需取详情)。
 function mapPhotoSlim(row: PhotoRow) {
   return {
     id: row.id,
@@ -1670,7 +1670,7 @@ function normalizePhotoViewerKey(value: string | null): string {
 async function handlePhotosList(request: Request, env: Env, includeHidden = false): Promise<Response> {
   await ensurePhotoTables(env);
   // 只取列表/筛选/排序需要的列(去掉 EXIF + object_key/thumb_object_key/sort_order),
-  // 显著降低大相册下单次响应的 CPU/体积,避免 Worker 资源超限(1102)。
+  // 显著降低大相薄下单次响应的 CPU/体积,避免 Worker 资源超限(1102)。
   const query = env.PHOTOS_DB.prepare(
     `SELECT id, src, title, collection, album, size_bytes, width, height,
             thumb_src, shot_at, uploader_id, uploader_name, hidden, view_count, favorite_count, is_favorite,
@@ -2315,9 +2315,11 @@ async function fetchYouTubeVideoSnippet(apiKey: string, videoId: string): Promis
 async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
   try {
     await ensureLiveStatsSchema(env);
-    const stateForSnapshot = await getLiveStreamStateRow(env);
-    const websiteUnique = await countWebsiteUnique(env, videoId);
-    const onlineTotal = websiteUnique + Number((stateForSnapshot as any).youtube_peak ?? 0);
+    await ensureLiveChatTables(env);
+    let onlineTotal = 0;
+    try {
+      onlineTotal = await countViewersOnline(env, videoId);
+    } catch { /* keep archive resilient if live viewer state is unavailable */ }
     let archivedViewCount: number | null = null;
     let archivedDuration: number | null = null;
     if (config.api_key) {
@@ -3458,69 +3460,51 @@ async function handleBackfillMetadata(request: Request, env: Env): Promise<Respo
   if (!config.api_key) return json({ error: 'YouTube API key not configured' }, 400);
 
   const result = { updated: 0, batches: 0, errors: [] as string[], hasMore: false };
+  const now = Date.now();
 
-  // 拿所有缺 metadata 的 rows（sermons + daily_manna），每次最多處理 30 批 = 1500 條
-  const MAX_BATCHES_PER_CALL = 30;
-  const sermonRows = await env.DB
-    .prepare("SELECT id, youtube_id FROM sermons WHERE duration_seconds IS NULL LIMIT ?")
-    .bind(MAX_BATCHES_PER_CALL * 50)
-    .all<{ id: string; youtube_id: string }>();
-  const mannaRows = await env.DB
-    .prepare("SELECT id, youtube_id FROM daily_manna WHERE duration_seconds IS NULL LIMIT ?")
-    .bind(MAX_BATCHES_PER_CALL * 50)
-    .all<{ id: string; youtube_id: string }>();
+  const recentRows = await env.DB
+    .prepare(`
+      SELECT source, id, youtube_id FROM (
+        SELECT 'sermons' AS source, id, youtube_id, date, created_at
+        FROM sermons
+        WHERE youtube_id IS NOT NULL AND youtube_id <> ''
+        UNION ALL
+        SELECT 'daily_manna' AS source, id, youtube_id, date, created_at
+        FROM daily_manna
+        WHERE youtube_id IS NOT NULL AND youtube_id <> ''
+      )
+      ORDER BY date DESC, created_at DESC
+      LIMIT 100
+    `)
+    .all<{ source: 'sermons' | 'daily_manna'; id: string; youtube_id: string }>();
 
-  const sermonItems = sermonRows.results || [];
-  const mannaItems = mannaRows.results || [];
+  const recentItems = recentRows.results || [];
 
-  // 處理 sermons
-  for (let i = 0; i < sermonItems.length && result.batches < MAX_BATCHES_PER_CALL; i += 50) {
-    const chunk = sermonItems.slice(i, i + 50);
-    const ids = chunk.map(r => r.youtube_id);
+  for (let i = 0; i < recentItems.length; i += 50) {
+    const chunk = recentItems.slice(i, i + 50);
+    const ids = [...new Set(chunk.map(r => r.youtube_id))];
     try {
       const metaMap = await fetchVideoMetadata(config.api_key, ids);
       const stmts: D1PreparedStatement[] = [];
       for (const row of chunk) {
         const vm = metaMap.get(row.youtube_id);
-        if (!vm) continue;
-        stmts.push(
-          env.DB.prepare('UPDATE sermons SET duration_seconds = ?, view_count = ? WHERE id = ?')
-            .bind(vm.durationSeconds, vm.viewCount, row.id)
+        const table = row.source === 'daily_manna' ? 'daily_manna' : 'sermons';
+        stmts.push(vm
+          ? env.DB.prepare(`UPDATE ${table} SET duration_seconds = ?, view_count = ?, meta_refreshed_at = ? WHERE id = ?`)
+            .bind(vm.durationSeconds, vm.viewCount, now, row.id)
+          : env.DB.prepare(`UPDATE ${table} SET meta_refreshed_at = ? WHERE id = ?`)
+            .bind(now, row.id)
         );
       }
       if (stmts.length > 0) await env.DB.batch(stmts);
       result.updated += stmts.length;
       result.batches++;
     } catch (err) {
-      result.errors.push(`sermons batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
+      result.errors.push(`recent metadata batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // 處理 daily_manna
-  for (let i = 0; i < mannaItems.length && result.batches < MAX_BATCHES_PER_CALL; i += 50) {
-    const chunk = mannaItems.slice(i, i + 50);
-    const ids = chunk.map(r => r.youtube_id);
-    try {
-      const metaMap = await fetchVideoMetadata(config.api_key, ids);
-      const stmts: D1PreparedStatement[] = [];
-      for (const row of chunk) {
-        const vm = metaMap.get(row.youtube_id);
-        if (!vm) continue;
-        stmts.push(
-          env.DB.prepare('UPDATE daily_manna SET duration_seconds = ?, view_count = ? WHERE id = ?')
-            .bind(vm.durationSeconds, vm.viewCount, row.id)
-        );
-      }
-      if (stmts.length > 0) await env.DB.batch(stmts);
-      result.updated += stmts.length;
-      result.batches++;
-    } catch (err) {
-      result.errors.push(`manna batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  // 如果某張表的搜尋拿滿了 LIMIT，可能還有更多
-  if (sermonItems.length === MAX_BATCHES_PER_CALL * 50 || mannaItems.length === MAX_BATCHES_PER_CALL * 50) {
+  if (recentItems.length === 100) {
     result.hasMore = true;
   }
 
