@@ -69,7 +69,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
 
       {/* Body: stage + optional right drawer */}
       <div className="flex min-h-0 flex-1">
-        <main className="min-h-0 flex-1 p-3">
+        <main className="min-h-0 min-w-0 flex-1 p-3">
           {room.hasVideo ? (
             <VideoStage
               participants={lk.participants}
@@ -86,7 +86,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         </main>
 
         {anyDrawer && (
-          <aside className="flex w-full max-w-full shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
+          <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
             {chatOpen && (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <MessageList messages={messages} ownUserId={ownUserId} />
