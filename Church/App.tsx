@@ -18,6 +18,7 @@ import ContactPage from './components/ContactPage';
 import AdminDashboard from './components/AdminDashboard';
 import PrayerRequestPage from './components/PrayerRequestPage';
 import PhotosPage from './components/photos/PhotosPage';
+import MeetingPage from './components/meeting/MeetingPage';
 import { ChurchDialogHost } from './components/ChurchDialog';
 import { SubPage, MinistrySubPage, SermonSubPage, GivingSubPage, ContactSubPage, PrayerRequestSubPage } from './types';
 import { APP_NAVIGATION_EVENT, currentRoute, redirectLegacyHashRoute } from './utils/routes';
@@ -144,11 +145,18 @@ function App() {
       const subPage = validSubPages.find(p => p === subPageSegment) ?? 'our-church';
       return <AboutPage activeSubPage={subPage} />;
     }
+    if (route === '/meeting' || route === '/meeting/') {
+      return <MeetingPage />;
+    }
+    if (route.startsWith('/meeting/')) {
+      const segment = (route.split('/')[2] || '').split('?')[0];
+      return <MeetingPage roomKey={segment} />;
+    }
     return <HomePage />;
   };
   
   const isPhotosPage = route.startsWith('/photos');
-  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isPhotosPage;
+  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !route.startsWith('/meeting') && !isPhotosPage;
 
   return (
     <div className="bg-white text-gray-800 antialiased min-h-screen flex flex-col">
