@@ -172,6 +172,7 @@ export const translations = {
     camera: { en: 'Camera', zh: '摄像头' },
     microphone: { en: 'Microphone', zh: '麦克风' },
     videoRoom: { en: 'Video room', zh: '视频房间' },
+    screenShareBusy: { en: 'Someone else is already sharing their screen.', zh: '已有其他人正在共享屏幕。' },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },

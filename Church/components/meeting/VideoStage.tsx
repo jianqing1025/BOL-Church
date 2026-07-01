@@ -84,7 +84,11 @@ export const VideoStage: React.FC<VideoStageProps> = ({ participants, connecting
     );
   }
 
-  const [featured, ...rest] = participants;
+  // An active screen share takes the big tile for everyone; otherwise the first
+  // participant (local) is featured.
+  const sharer = participants.find((p) => LiveKitService.isScreenSharing(p));
+  const featured = sharer ?? participants[0];
+  const rest = participants.filter((p) => p !== featured);
   const thumbs = rest.slice(0, MAX_THUMBS);
   const overflow = rest.length - thumbs.length;
 

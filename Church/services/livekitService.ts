@@ -101,6 +101,12 @@ export class LiveKitService {
     return pub?.track ?? undefined;
   }
 
+  /** Whether a participant currently has an active (unmuted) screen-share track. */
+  static isScreenSharing(participant: Participant): boolean {
+    return [...participant.videoTrackPublications.values()]
+      .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare);
+  }
+
   /** The audio track to play for a participant (undefined for local, to avoid echo). */
   static audioTrack(participant: Participant): Track | undefined {
     if (participant.isLocal) return undefined;

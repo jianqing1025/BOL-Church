@@ -106,6 +106,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         hasVideo={room.hasVideo}
         micOn={lk.micOn}
         camOn={lk.camOn}
+        screenOn={lk.screenOn}
         chatOpen={chatOpen}
         membersOpen={membersOpen}
         onToggleMic={() => void lk.toggleMic()}

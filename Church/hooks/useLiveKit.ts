@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../services/livekitService';
+import { useLocalization } from './useLocalization';
 import type { MeetingRoom } from '../constants/meetingRooms';
 
 export interface UseLiveKit {
@@ -10,6 +11,7 @@ export interface UseLiveKit {
   error: string;
   micOn: boolean;
   camOn: boolean;
+  screenOn: boolean;
   join: () => Promise<void>;
   leave: () => void;
   toggleMic: () => Promise<void>;
@@ -24,6 +26,7 @@ export interface UseLiveKit {
  * so a room switch remounts and tears the connection down cleanly.
  */
 export function useLiveKit(room: MeetingRoom, name: string, password: string): UseLiveKit {
+  const { t } = useLocalization();
   const serviceRef = useRef<LiveKitService | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [connecting, setConnecting] = useState(false);
@@ -31,6 +34,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   const [error, setError] = useState('');
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [screenOn, setScreenOn] = useState(false);
 
   const join = useCallback(async () => {
     if (!room.hasVideo || serviceRef.current) return;
@@ -89,13 +93,21 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   const toggleScreenShare = useCallback(async () => {
     const svc = serviceRef.current;
     if (!svc) return;
+    const localSharing = svc.localParticipant?.isScreenShareEnabled ?? false;
+    // Only one participant may share at a time. Block starting a new share while
+    // any remote participant is already sharing.
+    if (!localSharing && participants.some((p) => !p.isLocal && LiveKitService.isScreenSharing(p))) {
+      setError(t('meeting.screenShareBusy'));
+      return;
+    }
     try {
       setError('');
-      await svc.toggleScreenShare();
+      setScreenOn(await svc.toggleScreenShare());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setScreenOn(svc.localParticipant?.isScreenShareEnabled ?? false);
     }
-  }, []);
+  }, [participants, t]);
 
   // Auto-join video rooms on mount; always disconnect on unmount / room change.
   useEffect(() => {
@@ -106,5 +118,5 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     };
   }, [room.hasVideo, join]);
 
-  return { participants, connecting, joined, error, micOn, camOn, join, leave, toggleMic, toggleCamera, toggleScreenShare };
+  return { participants, connecting, joined, error, micOn, camOn, screenOn, join, leave, toggleMic, toggleCamera, toggleScreenShare };
 }

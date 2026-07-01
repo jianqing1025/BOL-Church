@@ -37,6 +37,23 @@ describe('LiveKitService.videoTrack', () => {
   });
 });
 
+describe('LiveKitService.isScreenSharing', () => {
+  it('is true when an unmuted screen-share track is present', () => {
+    const p = participant({ video: [{ track: {}, source: Track.Source.ScreenShare }] });
+    expect(LiveKitService.isScreenSharing(p)).toBe(true);
+  });
+
+  it('is false for a camera-only participant', () => {
+    const p = participant({ video: [{ track: {}, source: Track.Source.Camera }] });
+    expect(LiveKitService.isScreenSharing(p)).toBe(false);
+  });
+
+  it('is false when the screen-share track is muted', () => {
+    const p = participant({ video: [{ track: {}, source: Track.Source.ScreenShare, isMuted: true }] });
+    expect(LiveKitService.isScreenSharing(p)).toBe(false);
+  });
+});
+
 describe('LiveKitService.audioTrack', () => {
   it('returns the remote microphone track', () => {
     const mic = {};

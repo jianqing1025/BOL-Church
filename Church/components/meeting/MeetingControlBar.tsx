@@ -6,6 +6,7 @@ interface MeetingControlBarProps {
   hasVideo: boolean;
   micOn: boolean;
   camOn: boolean;
+  screenOn: boolean;
   chatOpen: boolean;
   membersOpen: boolean;
   onToggleMic: () => void;
@@ -41,7 +42,7 @@ const CircleButton: React.FC<{
 );
 
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
-  hasVideo, micOn, camOn, chatOpen, membersOpen,
+  hasVideo, micOn, camOn, screenOn, chatOpen, membersOpen,
   onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers, onLeave,
 }) => {
   const { t } = useLocalization();
@@ -55,7 +56,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           <CircleButton label={t('meeting.camera')} active={camOn} onClick={onToggleCamera}>
             {camOn ? <VideoIcon size={20} /> : <VideoOff size={20} className="text-red-300" />}
           </CircleButton>
-          <CircleButton label={t('meeting.screenShare')} onClick={onToggleScreenShare}>
+          <CircleButton label={t('meeting.screenShare')} active={screenOn} onClick={onToggleScreenShare}>
             <ScreenShare size={20} />
           </CircleButton>
         </>
