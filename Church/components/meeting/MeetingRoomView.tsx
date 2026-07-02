@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Users } from 'lucide-react';
+import { ChevronLeft, Users, ScreenShareOff } from 'lucide-react';
 import type { MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
@@ -36,6 +36,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const { t } = useLocalization();
   const lk = useLiveKit(room, name, password);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
+  const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
@@ -75,9 +76,19 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           <ChevronLeft size={18} className="shrink-0" />
           <span className="truncate">{t('meeting.brandTitle')}</span>
         </button>
-        <div className="flex items-center gap-3 truncate">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="truncate font-bold">{room.name}</span>
-          <span className="tabular-nums text-sm text-gray-400">{formatElapsed(elapsed)}</span>
+          <span className="shrink-0 tabular-nums text-sm text-gray-400">{formatElapsed(elapsed)}</span>
+          {localSharing && (
+            <button
+              type="button"
+              onClick={() => void lk.toggleScreenShare()}
+              className="hidden shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700 md:flex"
+            >
+              <ScreenShareOff size={14} />
+              {t('meeting.stopShare')}
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1.5 text-sm text-gray-400">
           <Users size={16} />

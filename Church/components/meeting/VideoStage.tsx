@@ -69,25 +69,21 @@ export const VideoStage: React.FC<VideoStageProps> = ({
   }
 
   const featured = remotes.find((r) => r.identity === featuredId) ?? remotes[0];
+  const speakerMode = !sharer && viewMode === 'speaker' && !!featured;
 
   let main: React.ReactNode;
   if (sharer) {
+    // Screen fills the stage; every other video (including self) sits on the rail.
     main = (
       <ScreenShareView
         sharer={sharer}
-        others={remotes.filter((p) => p !== sharer)}
+        others={participants.filter((p) => p !== sharer)}
         speaking={speaking}
         pinnedId={pinnedId}
         onPin={setPinnedId}
       />
     );
-  } else if (remotes.length === 0) {
-    main = (
-      <div className="flex h-full items-center justify-center text-sm text-gray-500">
-        {t('meeting.waitingOthers')}
-      </div>
-    );
-  } else if (viewMode === 'speaker' && featured) {
+  } else if (speakerMode) {
     main = (
       <SpeakerView
         featured={featured}
@@ -97,13 +93,15 @@ export const VideoStage: React.FC<VideoStageProps> = ({
       />
     );
   } else {
-    main = <GalleryView participants={remotes} speaking={speaking} />;
+    // Gallery shows everyone, including yourself, with fixed per-count grids.
+    main = <GalleryView participants={participants} speaking={speaking} />;
   }
 
   return (
     <div className="relative h-full min-h-0">
       {main}
-      {local && <SelfViewPiP participant={local} />}
+      {/* Floating self-view only in speaker mode; in gallery/screen you are a tile. */}
+      {speakerMode && local && <SelfViewPiP participant={local} />}
     </div>
   );
 };

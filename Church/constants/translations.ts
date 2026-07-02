@@ -182,6 +182,7 @@ export const translations = {
     hideSelfView: { en: 'Hide self view', zh: '隐藏自己的画面' },
     showSelfView: { en: 'Show self view', zh: '显示自己的画面' },
     backToShare: { en: 'Back to shared screen', zh: '返回共享屏幕' },
+    stopShare: { en: 'Stop sharing', zh: '停止共享' },
     screenShareBusy: { en: 'Someone else is already sharing their screen.', zh: '已有其他人正在共享屏幕。' },
   },
   events: {

@@ -1,11 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Participant } from 'livekit-client';
-import { useGridLayout } from '../../hooks/useGridLayout';
 import { ParticipantTile } from './ParticipantTile';
 import { FadeIn } from './FadeIn';
 
-/** Per-page cap keeps tiles large; the grid then auto-fits 2x2 / 3x3 / 4x4. */
+/** Fixed arrangement per head-count: 2→side-by-side, 3→row, 4→2x2, 6→3x2, 8→4x2. */
+const gridFor = (n: number): { cols: number; rows: number } => {
+  if (n <= 1) return { cols: 1, rows: 1 };
+  if (n === 2) return { cols: 2, rows: 1 };
+  if (n === 3) return { cols: 3, rows: 1 };
+  if (n === 4) return { cols: 2, rows: 2 };
+  if (n <= 6) return { cols: 3, rows: 2 };
+  if (n <= 8) return { cols: 4, rows: 2 };
+  if (n === 9) return { cols: 3, rows: 3 };
+  return { cols: 4, rows: Math.ceil(n / 4) };
+};
+
+/** Per-page cap keeps tiles large on smaller screens; larger meetings paginate. */
 const perPageForWidth = (w: number): number => (w < 640 ? 4 : w < 1024 ? 9 : 16);
 
 interface GalleryViewProps {
@@ -14,7 +25,6 @@ interface GalleryViewProps {
 }
 
 export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking }) => {
-  const gridRef = useRef<HTMLDivElement>(null);
   const [perPage, setPerPage] = useState(() => perPageForWidth(typeof window !== 'undefined' ? window.innerWidth : 1280));
   const [page, setPage] = useState(0);
 
@@ -29,12 +39,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking
   useEffect(() => { if (page > totalPages - 1) setPage(totalPages - 1); }, [page, totalPages]);
 
   const pageItems = participants.slice(safePage * perPage, safePage * perPage + perPage);
-  const cols = useGridLayout(gridRef, pageItems.length);
-  const rows = Math.max(1, Math.ceil(pageItems.length / cols));
+  const { cols, rows } = gridFor(pageItems.length);
 
   return (
     <div className="flex h-full flex-col gap-2">
-      <div ref={gridRef} className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         <div
           className="grid h-full w-full place-items-stretch gap-3"
           style={{
