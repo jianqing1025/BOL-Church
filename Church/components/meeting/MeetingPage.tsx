@@ -144,6 +144,7 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         <PageHeader title={t('eventsPage.navOnlineBibleStudy')} subtitle={t('meeting.pickRoom')} />
         <MinistrySecondaryNav active="online-bible-study" />
         <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-16">
+          <h2 className="mb-6 text-center text-2xl font-bold text-gray-800 sm:mb-10 sm:text-3xl">{t('meeting.pickPrompt')}</h2>
           <div className="grid gap-5 md:grid-cols-2 md:gap-8">
             {pickerRooms.map((r) => (
               <div
