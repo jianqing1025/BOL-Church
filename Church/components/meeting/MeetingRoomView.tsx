@@ -3,7 +3,8 @@ import { ChevronLeft, Users } from 'lucide-react';
 import type { MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
-import { VideoStage } from './VideoStage';
+import { LiveKitService } from '../../services/livekitService';
+import { VideoStage, type ViewMode } from './VideoStage';
 import { MeetingControlBar } from './MeetingControlBar';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { ChatInput } from './ChatInput';
@@ -34,8 +35,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
 }) => {
   const { t } = useLocalization();
   const lk = useLiveKit(room, name, password);
+  const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('gallery');
   const [elapsed, setElapsed] = useState(0);
   const [unread, setUnread] = useState(0);
   const prevLenRef = useRef(messages.length);
@@ -88,6 +91,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           {room.hasVideo ? (
             <VideoStage
               participants={lk.participants}
+              activeSpeakerIds={lk.activeSpeakerIds}
+              viewMode={viewMode}
               connecting={lk.connecting}
               error={lk.error}
               onRetry={() => void lk.join()}
@@ -124,6 +129,9 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         chatOpen={chatOpen}
         chatBadge={unread}
         membersOpen={membersOpen}
+        showViewToggle={room.hasVideo && !screenActive}
+        viewMode={viewMode}
+        onToggleView={() => setViewMode((v) => (v === 'gallery' ? 'speaker' : 'gallery'))}
         onToggleMic={() => void lk.toggleMic()}
         onToggleCamera={() => void lk.toggleCamera()}
         onToggleScreenShare={() => void lk.toggleScreenShare()}

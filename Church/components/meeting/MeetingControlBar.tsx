@@ -1,6 +1,7 @@
 import React from 'react';
-import { Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff } from 'lucide-react';
+import { Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff, LayoutGrid, UserSquare2 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
+import type { ViewMode } from './VideoStage';
 
 interface MeetingControlBarProps {
   hasVideo: boolean;
@@ -10,6 +11,9 @@ interface MeetingControlBarProps {
   chatOpen: boolean;
   chatBadge: number;
   membersOpen: boolean;
+  showViewToggle: boolean;
+  viewMode: ViewMode;
+  onToggleView: () => void;
   onToggleMic: () => void;
   onToggleCamera: () => void;
   onToggleScreenShare: () => void;
@@ -50,6 +54,7 @@ const CircleButton: React.FC<{
 
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen,
+  showViewToggle, viewMode, onToggleView,
   onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers, onLeave,
 }) => {
   const { t } = useLocalization();
@@ -66,6 +71,14 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           <CircleButton label={t('meeting.screenShare')} active={screenOn} onClick={onToggleScreenShare}>
             <ScreenShare size={20} />
           </CircleButton>
+          {showViewToggle && (
+            <CircleButton
+              label={viewMode === 'gallery' ? t('meeting.viewSpeaker') : t('meeting.viewGallery')}
+              onClick={onToggleView}
+            >
+              {viewMode === 'gallery' ? <UserSquare2 size={20} /> : <LayoutGrid size={20} />}
+            </CircleButton>
+          )}
           <CircleButton label={t('meeting.chat')} active={chatOpen} badge={chatBadge} onClick={onToggleChat}>
             <MessageSquare size={20} />
           </CircleButton>

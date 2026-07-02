@@ -176,6 +176,12 @@ export const translations = {
     microphone: { en: 'Microphone', zh: '麦克风' },
     videoRoom: { en: 'Video room', zh: '视频房间' },
     brandTitle: { en: 'BOLCCOP Online Bible Study', zh: '信望愛靈糧堂线上查经' },
+    viewGallery: { en: 'Gallery view', zh: '网格视图' },
+    viewSpeaker: { en: 'Speaker view', zh: '发言人视图' },
+    waitingOthers: { en: 'Waiting for others to join…', zh: '等待其他人加入…' },
+    hideSelfView: { en: 'Hide self view', zh: '隐藏自己的画面' },
+    showSelfView: { en: 'Show self view', zh: '显示自己的画面' },
+    backToShare: { en: 'Back to shared screen', zh: '返回共享屏幕' },
     screenShareBusy: { en: 'Someone else is already sharing their screen.', zh: '已有其他人正在共享屏幕。' },
   },
   events: {

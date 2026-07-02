@@ -1,7 +1,12 @@
 import { Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 
+const MEDIA_UNSUPPORTED_MESSAGE = '当前微信浏览器不支持打开麦克风/摄像头，请用 iPhone Safari 打开本页，或升级微信后重试。';
+const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '当前浏览器不支持屏幕分享。';
+
 export interface LiveKitHandlers {
   onParticipantsChanged: (participants: Participant[]) => void;
+  /** Dominant-speaker order from LiveKit (identities, loudest first). */
+  onActiveSpeakersChanged?: (identities: string[]) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -24,6 +29,34 @@ export class LiveKitService {
     if (!this.room) return;
     const remote: RemoteParticipant[] = [...this.room.remoteParticipants.values()];
     this.handlers.onParticipantsChanged([this.room.localParticipant, ...remote]);
+  }
+
+  private hasUserMedia(): boolean {
+    return typeof navigator !== 'undefined'
+      && Boolean(navigator.mediaDevices?.getUserMedia);
+  }
+
+  private hasDisplayMedia(): boolean {
+    return typeof navigator !== 'undefined'
+      && Boolean(navigator.mediaDevices?.getDisplayMedia);
+  }
+
+  private async enableInitialLocalMedia(participant: LocalParticipant): Promise<void> {
+    if (!this.hasUserMedia()) {
+      this.handlers.onError?.(new Error(MEDIA_UNSUPPORTED_MESSAGE));
+      return;
+    }
+
+    for (const enable of [
+      () => participant.setCameraEnabled(true),
+      () => participant.setMicrophoneEnabled(true),
+    ]) {
+      try {
+        await enable();
+      } catch (error) {
+        this.handlers.onError?.(error);
+      }
+    }
   }
 
   async connect(params: LiveKitConnectParams): Promise<void> {
@@ -49,20 +82,24 @@ export class LiveKitService {
       .on(RoomEvent.TrackUnmuted, () => this.emit())
       .on(RoomEvent.LocalTrackPublished, () => this.emit())
       .on(RoomEvent.LocalTrackUnpublished, () => this.emit())
+      .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        this.handlers.onActiveSpeakersChanged?.(speakers.map((s) => s.identity));
+        this.emit();
+      })
       .on(RoomEvent.Disconnected, () => this.emit());
 
     await room.connect(url, token);
     // Browsers block autoplay of remote audio until a gesture; the click that
     // brought the user into the room usually satisfies it. Best-effort resume.
     await room.startAudio().catch(() => undefined);
-    await room.localParticipant.setCameraEnabled(true).catch(() => undefined);
-    await room.localParticipant.setMicrophoneEnabled(true).catch(() => undefined);
+    await this.enableInitialLocalMedia(room.localParticipant);
     this.emit();
   }
 
   async toggleMic(): Promise<boolean> {
     const p = this.room?.localParticipant;
     if (!p) return false;
+    if (!this.hasUserMedia()) throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     const enabled = !p.isMicrophoneEnabled;
     await p.setMicrophoneEnabled(enabled);
     this.emit();
@@ -72,6 +109,7 @@ export class LiveKitService {
   async toggleCamera(): Promise<boolean> {
     const p = this.room?.localParticipant;
     if (!p) return false;
+    if (!this.hasUserMedia()) throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     const enabled = !p.isCameraEnabled;
     await p.setCameraEnabled(enabled);
     this.emit();
@@ -81,6 +119,7 @@ export class LiveKitService {
   async toggleScreenShare(): Promise<boolean> {
     const p = this.room?.localParticipant;
     if (!p) return false;
+    if (!this.hasDisplayMedia()) throw new Error(SCREEN_SHARE_UNSUPPORTED_MESSAGE);
     const enabled = !p.isScreenShareEnabled;
     await p.setScreenShareEnabled(enabled);
     this.emit();

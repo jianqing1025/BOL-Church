@@ -6,6 +6,7 @@ import type { MeetingRoom } from '../constants/meetingRooms';
 
 export interface UseLiveKit {
   participants: Participant[];
+  activeSpeakerIds: string[];
   connecting: boolean;
   joined: boolean;
   error: string;
@@ -29,6 +30,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   const { t } = useLocalization();
   const serviceRef = useRef<LiveKitService | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [activeSpeakerIds, setActiveSpeakerIds] = useState<string[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState('');
@@ -42,6 +44,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     setError('');
     const service = new LiveKitService({
       onParticipantsChanged: (p) => setParticipants([...p]),
+      onActiveSpeakersChanged: (ids) => setActiveSpeakerIds(ids),
       onError: (e) => setError(e instanceof Error ? e.message : String(e)),
     });
     serviceRef.current = service;
@@ -62,6 +65,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   const leave = useCallback(() => {
     serviceRef.current?.disconnect();
     serviceRef.current = null;
+    setActiveSpeakerIds([]);
     setJoined(false);
     setParticipants([]);
   }, []);
@@ -118,5 +122,5 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     };
   }, [room.hasVideo, join]);
 
-  return { participants, connecting, joined, error, micOn, camOn, screenOn, join, leave, toggleMic, toggleCamera, toggleScreenShare };
+  return { participants, activeSpeakerIds, connecting, joined, error, micOn, camOn, screenOn, join, leave, toggleMic, toggleCamera, toggleScreenShare };
 }

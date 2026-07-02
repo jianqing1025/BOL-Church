@@ -1,77 +1,53 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Video as VideoIcon } from 'lucide-react';
-import { Track, type Participant } from 'livekit-client';
+import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
 import { useLocalization } from '../../hooks/useLocalization';
-import { ScreenSharePanZoom } from './ScreenSharePanZoom';
+import { GalleryView } from './GalleryView';
+import { SpeakerView } from './SpeakerView';
+import { ScreenShareView } from './ScreenShareView';
+import { SelfViewPiP } from './SelfViewPiP';
 
-/** How many thumbnails to show before collapsing the rest into a +N chip. */
-const MAX_THUMBS = 6;
-
-const initials = (label: string): string => label.trim().slice(0, 2).toUpperCase() || '?';
-
-const ParticipantTile: React.FC<{ participant: Participant; large?: boolean }> = ({ participant, large }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  // Recomputed every render (participant objects are mutated in place by
-  // LiveKit, so we cannot rely on reference changes). The attach effects key on
-  // the track object, so they re-run whenever a track is published/subscribed.
-  const videoTrack = LiveKitService.videoTrack(participant);
-  const audioTrack = LiveKitService.audioTrack(participant);
-  const isScreenShare = videoTrack?.source === Track.Source.ScreenShare;
-  const label = participant.name || participant.identity;
-
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !videoTrack) return;
-    videoTrack.attach(el);
-    return () => { try { videoTrack.detach(el); } catch { /* ignore */ } };
-  }, [videoTrack]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el || !audioTrack) return;
-    audioTrack.attach(el);
-    return () => { try { audioTrack.detach(el); } catch { /* ignore */ } };
-  }, [audioTrack]);
-
-  return (
-    <div className={`relative overflow-hidden rounded-xl bg-black ${large ? 'h-full w-full' : 'aspect-video w-full'}`}>
-      {videoTrack ? (
-        large && isScreenShare ? (
-          <ScreenSharePanZoom>
-            <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
-          </ScreenSharePanZoom>
-        ) : (
-          <video ref={videoRef} autoPlay playsInline muted className={`h-full w-full ${isScreenShare ? 'object-contain' : 'object-cover'}`} />
-        )
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-gray-800">
-          <span className={`flex items-center justify-center rounded-full bg-gray-600 font-bold text-gray-100 ${large ? 'h-24 w-24 text-3xl' : 'h-12 w-12 text-base'}`}>
-            {initials(label)}
-          </span>
-        </div>
-      )}
-      {audioTrack && <audio ref={audioRef} autoPlay />}
-      <span className={`absolute left-2 bottom-1.5 rounded bg-black/40 px-1.5 py-0.5 font-semibold text-white drop-shadow ${large ? 'text-sm' : 'text-xs'}`}>
-        {label}
-      </span>
-    </div>
-  );
-};
+export type ViewMode = 'gallery' | 'speaker';
 
 interface VideoStageProps {
   participants: Participant[];
+  activeSpeakerIds: string[];
+  viewMode: ViewMode;
   connecting: boolean;
   error: string;
   onRetry: () => void;
 }
 
-/** Active-speaker (large) + thumbnail strip, matching the MeetingPro layout. */
-export const VideoStage: React.FC<VideoStageProps> = ({ participants, connecting, error, onRetry }) => {
+/**
+ * Google-Meet-style stage. Chooses the layout automatically: a shared screen
+ * takes over; otherwise Gallery (default) or Speaker view. The local participant
+ * is excluded from the main layout and shown as a floating self-view instead.
+ */
+export const VideoStage: React.FC<VideoStageProps> = ({
+  participants, activeSpeakerIds, viewMode, connecting, error, onRetry,
+}) => {
   const { t } = useLocalization();
+  const local = participants.find((p) => p.isLocal);
+  const remotes = participants.filter((p) => !p.isLocal);
+  const sharer = participants.find((p) => LiveKitService.isScreenSharing(p));
+  const speaking = new Set(activeSpeakerIds);
 
+  // Track the featured speaker (speaker view) with a preference for the current
+  // dominant remote speaker, falling back to the previous / first participant.
+  const remoteIds = remotes.map((r) => r.identity).join(',');
+  const [featuredId, setFeaturedId] = useState<string | null>(null);
+  useEffect(() => {
+    const ids = remoteIds ? remoteIds.split(',') : [];
+    const active = activeSpeakerIds.find((id) => ids.includes(id));
+    setFeaturedId((prev) => (active || (prev && ids.includes(prev) ? prev : ids[0]) || null));
+  }, [activeSpeakerIds, remoteIds]);
+
+  // Pin a participant into the main area while someone is screen sharing.
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  useEffect(() => { if (!sharer) setPinnedId(null); }, [sharer]);
+
+  // Not connected yet: connecting spinner / retry button / error.
   if (participants.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -92,36 +68,42 @@ export const VideoStage: React.FC<VideoStageProps> = ({ participants, connecting
     );
   }
 
-  // An active screen share takes the big tile for everyone; otherwise the first
-  // participant (local) is featured.
-  const sharer = participants.find((p) => LiveKitService.isScreenSharing(p));
-  const featured = sharer ?? participants[0];
-  const rest = participants.filter((p) => p !== featured);
-  const thumbs = rest.slice(0, MAX_THUMBS);
-  const overflow = rest.length - thumbs.length;
+  const featured = remotes.find((r) => r.identity === featuredId) ?? remotes[0];
+
+  let main: React.ReactNode;
+  if (sharer) {
+    main = (
+      <ScreenShareView
+        sharer={sharer}
+        others={remotes.filter((p) => p !== sharer)}
+        speaking={speaking}
+        pinnedId={pinnedId}
+        onPin={setPinnedId}
+      />
+    );
+  } else if (remotes.length === 0) {
+    main = (
+      <div className="flex h-full items-center justify-center text-sm text-gray-500">
+        {t('meeting.waitingOthers')}
+      </div>
+    );
+  } else if (viewMode === 'speaker' && featured) {
+    main = (
+      <SpeakerView
+        featured={featured}
+        others={remotes.filter((p) => p !== featured)}
+        speaking={speaking}
+        onSelect={(p) => setFeaturedId(p.identity)}
+      />
+    );
+  } else {
+    main = <GalleryView participants={remotes} speaking={speaking} />;
+  }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col gap-3 md:flex-row">
-      {error && (
-        <p className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded bg-red-900/80 px-3 py-1 text-xs text-red-100">{error}</p>
-      )}
-      <div className="min-h-0 flex-1">
-        <ParticipantTile participant={featured} large />
-      </div>
-      {rest.length > 0 && (
-        <div className="flex shrink-0 gap-2 overflow-x-auto md:w-40 md:flex-col md:overflow-y-auto md:overflow-x-visible">
-          {thumbs.map((p) => (
-            <div key={p.sid || p.identity} className="w-28 shrink-0 md:w-full">
-              <ParticipantTile participant={p} />
-            </div>
-          ))}
-          {overflow > 0 && (
-            <div className="flex aspect-video w-28 shrink-0 items-center justify-center rounded-xl bg-gray-800 text-sm font-semibold text-gray-300 md:w-full">
-              +{overflow}
-            </div>
-          )}
-        </div>
-      )}
+    <div className="relative h-full min-h-0">
+      {main}
+      {local && <SelfViewPiP participant={local} />}
     </div>
   );
 };
