@@ -90,6 +90,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
         { href: '/events/joint', key: 'eventsPage.navJoint' },
         { href: '/events/alpha', key: 'eventsPage.navAlpha' },
         { href: '/events/prayer', key: 'eventsPage.navPrayer' },
+        { href: '/meeting', key: 'eventsPage.navOnlineBibleStudy' },
     ]},
     { key: 'header.navSermons', subLinks: [
         { href: '/sermons/sunday-worship', key: 'sermonsPage.navSundayWorship' },
@@ -345,6 +346,9 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                             {t(link.key)}
                         </a>
                       </div>
+                      <a href="/meeting" onClick={event => navigateTo(event, '/meeting')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                        {t('eventsPage.navOnlineBibleStudy')}
+                      </a>
                     </React.Fragment>
                 ) : 'href' in link ? (
                     <a key={link.key} href={link.href} onClick={event => navigateTo(event, link.href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">

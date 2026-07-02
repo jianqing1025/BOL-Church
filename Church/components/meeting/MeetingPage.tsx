@@ -7,6 +7,8 @@ import type { ServerMessage } from '../../meeting/chatProtocol';
 import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
+import PageHeader from '../PageHeader';
+import MinistrySecondaryNav from '../MinistrySecondaryNav';
 
 export type Stage = 'auth' | 'pick' | 'room';
 type RoomWithActivity = MeetingRoom & { activeCount?: number; imageUrl?: string; schedule?: string };
@@ -138,9 +140,10 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
 
   if (stage === 'pick') {
     return (
-      <div className="min-h-[70vh] bg-white px-4 py-8 sm:px-6 sm:py-16">
-        <div className="mx-auto w-full max-w-5xl">
-          <h2 className="mb-6 text-center text-2xl font-bold text-gray-800 sm:mb-10 sm:text-3xl">{t('meeting.pickRoom')}</h2>
+      <div className="min-h-screen bg-white">
+        <PageHeader title={t('eventsPage.navOnlineBibleStudy')} subtitle={t('meeting.pickRoom')} />
+        <MinistrySecondaryNav active="online-bible-study" />
+        <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-16">
           <div className="grid gap-5 md:grid-cols-2 md:gap-8">
             {pickerRooms.map((r) => (
               <div

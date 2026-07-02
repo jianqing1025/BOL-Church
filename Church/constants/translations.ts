@@ -136,6 +136,7 @@ export const translations = {
     navJoint: { en: 'Joint', zh: '聯合小組' },
     navAlpha: { en: 'Alpha', zh: 'Alpha課程' },
     navPrayer: { en: 'Prayer', zh: '禱告會' },
+    navOnlineBibleStudy: { en: 'Online Bible Study', zh: '线上查经' },
     kidsTitle: { en: 'Kids Ministry', zh: '兒童主日學' },
     kidsContent: { en: 'Our Kids Ministry provides a safe, fun, and engaging environment for children to learn about God\'s love.', zh: '我們的兒童事工為孩子們提供一個安全、有趣且引人入勝的環境來學習神的愛。' },
     menTitle: { en: 'Men\'s Fellowship', zh: '弟兄小組' },
@@ -174,6 +175,7 @@ export const translations = {
     camera: { en: 'Camera', zh: '摄像头' },
     microphone: { en: 'Microphone', zh: '麦克风' },
     videoRoom: { en: 'Video room', zh: '视频房间' },
+    brandTitle: { en: 'BOLCCOP Online Bible Study', zh: '信望愛靈糧堂线上查经' },
     screenShareBusy: { en: 'Someone else is already sharing their screen.', zh: '已有其他人正在共享屏幕。' },
   },
   events: {

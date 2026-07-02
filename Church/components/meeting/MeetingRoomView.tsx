@@ -67,10 +67,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         <button
           type="button"
           onClick={onLeave}
-          className="flex items-center gap-1 text-sm font-semibold text-gray-300 hover:text-white"
+          className="flex min-w-0 items-center gap-1 text-sm font-semibold text-gray-300 hover:text-white"
         >
-          <ChevronLeft size={18} />
-          {t('meeting.changeRoom')}
+          <ChevronLeft size={18} className="shrink-0" />
+          <span className="truncate">{t('meeting.brandTitle')}</span>
         </button>
         <div className="flex items-center gap-3 truncate">
           <span className="truncate font-bold">{room.name}</span>
