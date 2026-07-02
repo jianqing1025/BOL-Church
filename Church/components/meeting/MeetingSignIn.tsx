@@ -55,14 +55,14 @@ export const MeetingSignIn: React.FC<MeetingSignInProps> = ({
             type="text" value={name} maxLength={30}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder={t('meeting.authName')}
-            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base sm:text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           <input
             type="password" value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') onSubmit(); }}
             placeholder={t('meeting.authPassword')}
-            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base sm:text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           {error && <div className="text-sm font-medium text-red-600">{error}</div>}
           <button

@@ -28,7 +28,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ disabled, onSend }) => {
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
         placeholder={t('meeting.inputPlaceholder')}
-        className="flex-1 rounded-full border border-white/15 bg-gray-800 px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-60"
+        className="flex-1 rounded-full border border-white/15 bg-gray-800 px-4 py-2.5 text-base text-gray-100 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-60 sm:text-sm"
       />
       <button
         type="button"
