@@ -35,7 +35,7 @@ const SermonsSecondaryNav: React.FC<SermonsSecondaryNavProps> = ({ active }) => 
               <a
                 href={item.href}
                 onClick={event => handleClick(event, item.href)}
-                className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-4 border-b-2 transition-colors duration-300 ${
+                className={`whitespace-nowrap inline-block text-sm sm:text-base font-semibold py-2.5 min-[1920px]:py-4 border-b-2 transition-colors duration-300 ${
                   active === item.key
                     ? 'border-white text-white'
                     : 'border-transparent text-gray-400 hover:text-white hover:border-gray-300'
