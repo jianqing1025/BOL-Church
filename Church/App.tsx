@@ -156,7 +156,7 @@ function App() {
 
   const isPhotosPage = route.startsWith('/photos');
   const isMeetingPage = route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/');
-  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isMeetingPage && !isPhotosPage;
+  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/live') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isMeetingPage && !isPhotosPage;
 
   // The in-room view is full-screen (rendered as its own fixed overlay), so the
   // church header/footer are hidden for it. Auth + room-picker keep the chrome.
