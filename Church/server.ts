@@ -2324,9 +2324,15 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
   try {
     await ensureLiveStatsSchema(env);
     await ensureLiveChatTables(env);
+    // Snapshot the SAME "total online" the live page showed: unique website
+    // sessions for this stream + peak concurrent YouTube viewers. Do NOT use the
+    // current concurrent count here — the stream has ended, so it is ~0.
     let onlineTotal = 0;
     try {
-      onlineTotal = await countViewersOnline(env, videoId);
+      const websiteTotal = await countWebsiteUnique(env, videoId);
+      const archiveState = await getLiveStreamStateRow(env);
+      const youtubePeak = (archiveState as any).youtube_peak != null ? Number((archiveState as any).youtube_peak) : null;
+      onlineTotal = computeTotalOnline(websiteTotal, youtubePeak);
     } catch { /* keep archive resilient if live viewer state is unavailable */ }
     let archivedViewCount: number | null = null;
     let archivedDuration: number | null = null;
