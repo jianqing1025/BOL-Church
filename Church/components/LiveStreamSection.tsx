@@ -8,6 +8,8 @@ import LiveJoinModal from './LiveJoinModal';
 import LiveViewerList from './LiveViewerList';
 import LiveChatPanel from './LiveChatPanel';
 import LivePlayer from './LivePlayer';
+import LiveRoomView from './LiveRoomView';
+import { liveRoomButtonState, shouldCloseLiveRoom } from '../live/liveRoom';
 
 const POLL_INTERVAL_MS = 30_000;
 const PING_INTERVAL_MS = 20_000;
@@ -103,6 +105,8 @@ const LiveStreamSection: React.FC = () => {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [selectedPastId, setSelectedPastId] = useState<string | null>(null);
+  const [roomOpen, setRoomOpen] = useState(false);
+  const [pendingRoomEntry, setPendingRoomEntry] = useState(false);
   const playerSectionRef = useRef<HTMLDivElement>(null);
 
   const isLoggedInAdmin = !!currentUser;
@@ -181,6 +185,15 @@ const LiveStreamSection: React.FC = () => {
     }
   }, [t]);
 
+  const handleEnterRoom = useCallback(() => {
+    if (!identity) {
+      setPendingRoomEntry(true);
+      setShowJoinModal(true);
+      return;
+    }
+    setRoomOpen(true);
+  }, [identity]);
+
   const handleJoin = useCallback(async (params: { name?: string; asGuest?: boolean }) => {
     const sessionId = identity?.sessionId || newSessionId();
     const res = await api.liveJoin({ sessionId, name: params.name, asGuest: params.asGuest });
@@ -188,7 +201,20 @@ const LiveStreamSection: React.FC = () => {
     writeIdentity(next);
     setIdentity(next);
     setShowJoinModal(false);
-  }, [identity]);
+    if (pendingRoomEntry) {
+      setPendingRoomEntry(false);
+      setRoomOpen(true);
+    }
+  }, [identity, pendingRoomEntry]);
+
+  // 直播結束/丟失 videoId 時自動關房間，退回直播頁（頁面自然切到 replay/offline 佈局）
+  useEffect(() => {
+    if (shouldCloseLiveRoom(roomOpen, state?.status ?? 'offline', state?.videoId ?? null)) {
+      setRoomOpen(false);
+    }
+  }, [roomOpen, state?.status, state?.videoId]);
+
+  const roomButton = liveRoomButtonState(state?.status ?? 'offline', state?.videoId ?? null);
 
   const countdown = useCountdown(state?.nextServiceIso ?? null);
 
@@ -289,6 +315,15 @@ const LiveStreamSection: React.FC = () => {
             onJoin={handleJoin}
           />
         )}
+        {roomOpen && identity && (
+          <LiveRoomView
+            state={state}
+            identity={identity}
+            isAdmin={isLoggedInAdmin}
+            startedAtLabel={state.startedAt ? `${t('sermonsPage.liveStartedAt')} ${formatStartedAt(state.startedAt, language)}` : ''}
+            onLeave={() => setRoomOpen(false)}
+          />
+        )}
         <div className="flex flex-col gap-4 lg:flex-row">
           {/* Left: player —— 取剩下的所有寬度（chat 固定後，player 自動大約 +20%） */}
           <div ref={playerSectionRef} className="flex-1 min-w-0 scroll-mt-32">
@@ -306,6 +341,15 @@ const LiveStreamSection: React.FC = () => {
                 <span className="text-red-600/80 font-normal">
                   · {t('sermonsPage.liveStartedAt')} {formatStartedAt(state.startedAt, language)}
                 </span>
+              )}
+              {roomButton === 'enabled' && (
+                <button
+                  type="button"
+                  onClick={handleEnterRoom}
+                  className="ml-auto rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
+                >
+                  {t('liveChat.enterRoom')}
+                </button>
               )}
             </div>
             )}
@@ -456,6 +500,16 @@ const LiveStreamSection: React.FC = () => {
           )}
           <p className="mt-3 text-xs text-gray-500">{t('sermonsPage.liveStreamOfflineNote')}</p>
         </div>
+        {roomButton === 'disabled' && (
+          <button
+            type="button"
+            disabled
+            title={t('liveChat.enterRoomOffline')}
+            className="flex h-10 flex-none cursor-not-allowed items-center rounded-md bg-gray-300 px-3 text-sm font-bold text-gray-500"
+          >
+            {t('liveChat.enterRoom')}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleRefresh}
