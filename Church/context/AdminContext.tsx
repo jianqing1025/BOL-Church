@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import { produce } from 'immer';
 import { api } from '../api';
-import { DEFAULT_SITE_BOOTSTRAP, type AdminRole, type AdminUser, type Donation, type Message, type PrayerRequest, type Sermon } from '../data';
+import { DEFAULT_SITE_BOOTSTRAP, type AdminRole, type AdminUser, type Donation, type MailboxReply, type Message, type PrayerRequest, type Sermon } from '../data';
 import { churchAlert } from '../components/ChurchDialog';
 
 interface AdminContextType {
@@ -36,6 +36,10 @@ interface AdminContextType {
   deleteMessage: (id: string) => Promise<void>;
   markPrayerPrayed: (id: string) => Promise<void>;
   deletePrayerRequest: (id: string) => Promise<void>;
+  replyToMessage: (id: string, body: string) => Promise<MailboxReply>;
+  getMessageReplies: (id: string) => Promise<MailboxReply[]>;
+  replyToPrayer: (id: string, body: string) => Promise<MailboxReply>;
+  getPrayerReplies: (id: string) => Promise<MailboxReply[]>;
   createSermon: (sermon: Omit<Sermon, 'id'>) => Promise<void>;
   updateSermonRecord: (id: string, sermon: Omit<Sermon, 'id'>) => Promise<void>;
   deleteSermonRecord: (id: string) => Promise<void>;
@@ -230,6 +234,16 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setPrayerRequests(current => current.filter(item => item.id !== id));
   };
 
+  const replyToMessage = async (id: string, body: string) => {
+    const { reply } = await api.replyToMessage(id, body);
+    // Replying marks the message read server-side; reflect it locally.
+    setMessages(current => current.map(item => (item.id === id ? { ...item, read: true } : item)));
+    return reply;
+  };
+  const getMessageReplies = async (id: string) => (await api.getMessageReplies(id)).replies;
+  const replyToPrayer = async (id: string, body: string) => (await api.replyToPrayer(id, body)).reply;
+  const getPrayerReplies = async (id: string) => (await api.getPrayerReplies(id)).replies;
+
   const createSermon = async (sermon: Omit<Sermon, 'id'>) => {
     const created = await api.createSermon({ ...sermon, type: 'sermon' });
     setSermons(current => [created, ...current].sort((a, b) => b.date.localeCompare(a.date)));
@@ -313,6 +327,10 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         deleteMessage,
         markPrayerPrayed,
         deletePrayerRequest,
+        replyToMessage,
+        getMessageReplies,
+        replyToPrayer,
+        getPrayerReplies,
         createSermon,
         updateSermonRecord,
         deleteSermonRecord,

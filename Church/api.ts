@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, MailboxReply, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
 
 export interface LiveStreamSavePayload {
@@ -188,6 +188,14 @@ export const api = {
     request<PrayerRequest>(`/api/prayer-requests/${id}/prayed`, { method: 'PATCH' }),
   deletePrayerRequest: (id: string) =>
     request<{ ok: true }>(`/api/prayer-requests/${id}`, { method: 'DELETE' }),
+  replyToMessage: (id: string, body: string) =>
+    request<{ reply: MailboxReply }>(`/api/messages/${id}/reply`, { method: 'POST', body: JSON.stringify({ body }) }),
+  getMessageReplies: (id: string) =>
+    request<{ replies: MailboxReply[] }>(`/api/messages/${id}/replies`),
+  replyToPrayer: (id: string, body: string) =>
+    request<{ reply: MailboxReply }>(`/api/prayer-requests/${id}/reply`, { method: 'POST', body: JSON.stringify({ body }) }),
+  getPrayerReplies: (id: string) =>
+    request<{ replies: MailboxReply[] }>(`/api/prayer-requests/${id}/replies`),
   submitDonation: (payload: Omit<Donation, 'id' | 'date' | 'status'>) =>
     request<Donation>('/api/donations', { method: 'POST', body: JSON.stringify(payload) }),
   analyticsSummary: () =>

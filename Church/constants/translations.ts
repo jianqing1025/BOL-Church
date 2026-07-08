@@ -126,6 +126,11 @@ export const translations = {
     movedSuffix: { en: 'moved.', zh: '\u5f35\u5df2\u79fb\u52d5\u3002' },
     moveMine: { en: 'Only your uploaded photos can be moved.', zh: '只能移動自己上傳的照片。' },
     deleteSelectedConfirm: { en: 'Delete {count} selected photo(s)?', zh: '\u522a\u9664 {count} \u5f35\u5df2\u9078\u7167\u7247\uff1f' },
+    windowPermissionTitle: { en: 'Display Permission Needed', zh: '需要顯示器權限' },
+    windowPermissionMessage: {
+      en: 'To choose another display for the slideshow, this site needs permission to see your connected screens. Your browser may ask you to allow it next.',
+      zh: '若要選擇另一個顯示器播放幻燈片，網站需要查看已連接螢幕的權限。接下來瀏覽器可能會要求您允許。'
+    },
   },
   eventsPage: {
     pageTitle: { en: 'MINISTRIES', zh: '教會事工' },
@@ -152,7 +157,7 @@ export const translations = {
   },
   meeting: {
     pageTitle: { en: 'Welcome to the BOLCCOP Online Gathering System', zh: '歡迎來到信望愛靈糧堂線上聚會系統' },
-    authSubtitle: { en: 'Enter your name or nickname and the password to join the meeting.', zh: '請輸入您的名字或暱稱和密碼進入會議' },
+    authSubtitle: { en: 'Enter your name or nickname and the password to join the meeting.', zh: '請輸入您的名字/暱稱和密碼進入會議' },
     authName: { en: 'Your name', zh: '您的名字' },
     authPassword: { en: 'Room password', zh: '房間密碼' },
     authEnter: { en: 'Continue', zh: '下一步' },
@@ -185,6 +190,25 @@ export const translations = {
     backToShare: { en: 'Back to shared screen', zh: '返回共享螢幕' },
     stopShare: { en: 'Stop sharing', zh: '停止分享' },
     screenShareBusy: { en: 'Someone else is already sharing their screen.', zh: '已有其他人正在分享螢幕。' },
+    permissionTitle: { en: 'Permission Needed', zh: '需要權限' },
+    permissionContinue: { en: 'Continue', zh: '繼續' },
+    permissionCancel: { en: 'Not Now', zh: '暫時不要' },
+    mediaPermissionMessage: {
+      en: 'To join this video room, this site needs access to your microphone and camera. Your browser may show one more permission prompt next.',
+      zh: '若要加入視訊房間，網站需要使用您的麥克風與鏡頭。接下來瀏覽器可能還會顯示一次權限確認。'
+    },
+    microphonePermissionMessage: {
+      en: 'To turn on your microphone, this site needs microphone access. Your browser may ask you to allow it next.',
+      zh: '若要開啟麥克風，網站需要麥克風權限。接下來瀏覽器可能會要求您允許。'
+    },
+    cameraPermissionMessage: {
+      en: 'To turn on your camera, this site needs camera access. Your browser may ask you to allow it next.',
+      zh: '若要開啟鏡頭，網站需要鏡頭權限。接下來瀏覽器可能會要求您允許。'
+    },
+    screenPermissionMessage: {
+      en: 'To share your screen, your browser will ask you to choose what to share.',
+      zh: '若要分享螢幕，瀏覽器會要求您選擇要分享的畫面。'
+    },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },
@@ -209,7 +233,7 @@ export const translations = {
     navDailyManna: { en: 'Daily Manna', zh: '每日天言' },
     navSundayWorship: { en: 'Sunday Worship', zh: '主日崇拜' },
     navWorshipPraise: { en: 'Praise & Worship', zh: '敬拜讚美' },
-    navHealingPrayer: { en: 'Healing Prayer', zh: '醫治禱告' },
+    navHealingPrayer: { en: 'Prayer Meeting', zh: '禱告會' },
     navTestimony: { en: 'Testimonies', zh: '見證分享' },
     pastBroadcastsTitle: { en: 'Past live broadcasts', zh: '歷史直播' },
     navRecentSermons: { en: 'Message Archive', zh: '信息存檔' },
@@ -222,7 +246,7 @@ export const translations = {
       zh: '我們的主日崇拜是我們社區聚集在一起讚美、禱告和聆聽神話語的時間。'
     },
     worshipPraiseContent: { en: 'Worship and praise videos from our church community.', zh: '教會敬拜與讚美視頻。' },
-    healingPrayerContent: { en: 'Healing prayer and prayer meeting videos.', zh: '醫治禱告與禱告會視頻。' },
+    healingPrayerContent: { en: 'Prayer meeting videos.', zh: '禱告會視頻。' },
     testimonyContent: { en: 'Stories and testimonies of God at work.', zh: '見證神作為的分享視頻。' },
     recentSermonsTitle: { en: 'Message Archive', zh: '信息存檔' },
     liveStreamTitle: { en: 'Sunday Live', zh: '主日直播' },
@@ -473,7 +497,7 @@ export const translations = {
     photos: { en: 'Photos', zh: '相薄' },
     sermons: { en: 'Sermons', zh: '主日信息' },
     worshipPraise: { en: 'Praise & Worship', zh: '敬拜讚美' },
-    healingPrayer: { en: 'Healing Prayer', zh: '醫治禱告' },
+    healingPrayer: { en: 'Prayer Meeting', zh: '禱告會' },
     testimony: { en: 'Testimonies', zh: '見證分享' },
     liveBroadcast: { en: 'Past Live', zh: '歷史直播' },
     livestream: { en: 'Sunday Live', zh: '主日直播' },
@@ -539,7 +563,7 @@ export const translations = {
     channelSyncTargetAll: { en: 'All', zh: '全部' },
     channelSyncTargetSundayWorship: { en: 'Sunday message', zh: '主日信息' },
     channelSyncTargetWorshipPraise: { en: 'Worship & praise', zh: '敬拜讚美' },
-    channelSyncTargetHealingPrayer: { en: 'Healing prayer', zh: '醫治禱告' },
+    channelSyncTargetHealingPrayer: { en: 'Prayer meeting', zh: '禱告會' },
     channelSyncTargetTestimony: { en: 'Testimony', zh: '見證分享' },
     channelSyncTargetDailyManna: { en: 'Daily manna', zh: '每日天言' },
     channelSyncResult: { en: 'Inserted {inserted} · Skipped {skipped} · Pages {pages}', zh: '新增 {inserted} · 跳過 {skipped} · 頁數 {pages}' },
@@ -593,6 +617,18 @@ export const translations = {
     markPrayed: { en: 'Mark as Prayed', zh: '標記為已代禱' },
     prayed: { en: 'Prayed', zh: '已代禱' },
     anonymous: { en: 'Anonymous', zh: '匿名' },
+    mailboxReply: { en: 'Reply', zh: '回覆' },
+    mailboxSend: { en: 'Send', zh: '發送' },
+    mailboxSending: { en: 'Sending…', zh: '發送中…' },
+    mailboxReplyPlaceholder: { en: 'Write a reply…', zh: '撰寫回覆…' },
+    mailboxNoSelection: { en: 'Select a message to read.', zh: '選擇一則訊息查看。' },
+    mailboxLocation: { en: 'Location', zh: '位置' },
+    mailboxUnknownLocation: { en: 'Unknown', zh: '未知' },
+    mailboxSent: { en: 'Sent', zh: '已發送' },
+    mailboxFailed: { en: 'Send failed', zh: '發送失敗' },
+    mailboxRepliesTitle: { en: 'Replies', zh: '回覆記錄' },
+    mailboxBack: { en: 'Back', zh: '返回' },
+    mailboxNoEmail: { en: 'This sender left no email address.', zh: '此發信者未留下電郵地址。' },
     websiteAnalytics: { en: 'Website analytics', zh: '網站流量' },
     analyticsSubtitle: { en: 'Last 7 days.', zh: '最近 7 天。' },
     updated: { en: 'Updated', zh: '更新於' },
@@ -657,7 +693,7 @@ export const translations = {
     sermonCountStatus: { en: 'sermon entries are published.', zh: '則主日信息已發布。' },
     mannaCountStatus: { en: 'daily manna entries are published.', zh: '則每日天言已發布。' },
     worshipPraiseSubtitle: { en: 'Manage praise and worship videos.', zh: '管理敬拜讚美視頻。' },
-    healingPrayerSubtitle: { en: 'Manage healing prayer videos.', zh: '管理醫治禱告視頻。' },
+    healingPrayerSubtitle: { en: 'Manage prayer meeting videos.', zh: '管理禱告會視頻。' },
     testimonySubtitle: { en: 'Manage testimony videos.', zh: '管理見證分享視頻。' },
     liveBroadcastSubtitle: { en: 'Manage archived live broadcast recordings.', zh: '管理歷史直播錄影。' },
     categoryCountStatus: { en: 'entries are published.', zh: '則內容已發布。' },

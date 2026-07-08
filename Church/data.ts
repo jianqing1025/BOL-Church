@@ -19,7 +19,13 @@ export interface Sermon {
   liveOnlineTotal?: number | null;
 }
 
-export interface Message {
+export interface SenderLocation {
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+}
+
+export interface Message extends SenderLocation {
   id: string;
   date: string;
   firstName: string;
@@ -30,7 +36,7 @@ export interface Message {
   read: boolean;
 }
 
-export interface PrayerRequest {
+export interface PrayerRequest extends SenderLocation {
   id: string;
   date: string;
   firstName: string;
@@ -39,6 +45,18 @@ export interface PrayerRequest {
   phone: string;
   message: string;
   status: 'new' | 'prayed';
+}
+
+export interface MailboxReply {
+  id: string;
+  parentType: 'message' | 'prayer';
+  parentId: string;
+  body: string;
+  toEmail: string;
+  sentBy: string | null;
+  status: 'sent' | 'failed';
+  error: string | null;
+  createdAt: number;
 }
 
 export interface Donation {

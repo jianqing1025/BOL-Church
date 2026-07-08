@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
+import { Mailbox } from './admin/Mailbox';
 import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
 import RichTextEditor from './RichTextEditor';
@@ -227,9 +228,13 @@ const AdminDashboard: React.FC = () => {
     messages,
     deleteMessage,
     markMessageRead,
+    replyToMessage,
+    getMessageReplies,
     prayerRequests,
     deletePrayerRequest,
     markPrayerPrayed,
+    replyToPrayer,
+    getPrayerReplies,
     donations,
     sermons,
     dailyManna,
@@ -704,80 +709,31 @@ const AdminDashboard: React.FC = () => {
   );
 
   const renderMessages = () => (
-    <div className="rounded-lg bg-white shadow-sm">
-      <div className="border-b border-gray-200 px-6 py-4">
-        <h3 className="text-lg font-bold text-gray-800">{t('admin.messagesTab')} ({messages.length})</h3>
-      </div>
-      {messages.length === 0 ? (
-        <div className="p-6 text-center text-gray-500">{t('admin.noMessages')}</div>
-      ) : (
-        <div className="divide-y divide-gray-200">
-          {messages.map(msg => (
-            <div key={msg.id} className={`p-6 ${!msg.read ? 'bg-blue-50' : ''}`}>
-              <div className="mb-2 flex items-start justify-between gap-4">
-                <div>
-                  <h4 className="text-md font-bold text-gray-900">{msg.firstName} {msg.lastName}</h4>
-                  <div className="text-sm text-gray-500">{msg.email} {msg.phone ? `• ${msg.phone}` : ''}</div>
-                </div>
-                <div className="text-xs text-gray-400">{formatDate(msg.date, dateLocale)}</div>
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-gray-700">{msg.message}</p>
-              <div className="mt-4 flex gap-3">
-                {!msg.read && (
-                  <button onClick={() => void markMessageRead(msg.id)} className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-200">
-                    {t('admin.markRead')}
-                  </button>
-                )}
-                <button onClick={() => void deleteMessage(msg.id)} className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-200">
-                  {t('admin.delete')}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="space-y-3">
+      <h3 className="text-lg font-bold text-gray-800">{t('admin.messagesTab')} ({messages.length})</h3>
+      <Mailbox
+        kind="inbox"
+        items={messages}
+        onOpen={(id) => void markMessageRead(id)}
+        onDelete={deleteMessage}
+        onReply={replyToMessage}
+        loadReplies={getMessageReplies}
+      />
     </div>
   );
 
   const renderPrayerRequests = () => (
-    <div className="rounded-lg bg-white shadow-sm">
-      <div className="border-b border-gray-200 px-6 py-4">
-        <h3 className="text-lg font-bold text-gray-800">{t('admin.prayerTab')} ({prayerRequests.length})</h3>
-      </div>
-      {prayerRequests.length === 0 ? (
-        <div className="p-6 text-center text-gray-500">{t('admin.noPrayers')}</div>
-      ) : (
-        <div className="divide-y divide-gray-200">
-          {prayerRequests.map(req => (
-            <div key={req.id} className={`p-6 ${req.status === 'new' ? 'bg-yellow-50' : ''}`}>
-              <div className="mb-2 flex items-start justify-between gap-4">
-                <div>
-                  <h4 className="text-md font-bold text-gray-900">{`${req.firstName || t('admin.anonymous')} ${req.lastName}`.trim()}</h4>
-                  <div className="text-sm text-gray-500">
-                    {req.email && <span>{req.email}</span>}
-                    {req.email && req.phone && <span> • </span>}
-                    {req.phone && <span>{req.phone}</span>}
-                  </div>
-                </div>
-                <div className="text-xs text-gray-400">{formatDate(req.date, dateLocale)}</div>
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-gray-700">{req.message}</p>
-              <div className="mt-4 flex gap-3">
-                {req.status === 'new' ? (
-                  <button onClick={() => void markPrayerPrayed(req.id)} className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-200">
-                    {t('admin.markPrayed')}
-                  </button>
-                ) : (
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">{t('admin.prayed')}</span>
-                )}
-                <button onClick={() => void deletePrayerRequest(req.id)} className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-200">
-                  {t('admin.delete')}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="space-y-3">
+      <h3 className="text-lg font-bold text-gray-800">{t('admin.prayerTab')} ({prayerRequests.length})</h3>
+      <Mailbox
+        kind="prayer"
+        items={prayerRequests}
+        onOpen={() => { /* prayer has no read flag */ }}
+        onDelete={deletePrayerRequest}
+        onReply={replyToPrayer}
+        loadReplies={getPrayerReplies}
+        onMarkPrayed={markPrayerPrayed}
+      />
     </div>
   );
 

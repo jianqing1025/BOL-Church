@@ -12,6 +12,7 @@ import {
   type TrainingRow,
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline } from './live/liveStats';
+import { extractGeo, buildReplyEmail, type MailboxKind } from './mailbox/mailbox';
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
 
@@ -99,6 +100,110 @@ async function ensureLiveStatsSchema(env: Env): Promise<void> {
   try { await env.DB.prepare('ALTER TABLE sermons ADD COLUMN live_online_total INTEGER').run(); } catch { /* already exists */ }
 }
 
+// Sender geolocation columns + saved reply history for the admin mailbox.
+async function ensureMailboxSchema(env: Env): Promise<void> {
+  for (const table of ['messages', 'prayer_requests']) {
+    for (const col of ['country', 'region', 'city']) {
+      try { await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`).run(); } catch { /* already exists */ }
+    }
+  }
+  try {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS mailbox_replies (
+        id TEXT PRIMARY KEY,
+        parent_type TEXT NOT NULL,
+        parent_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        to_email TEXT NOT NULL,
+        sent_by TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        created_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_mailbox_replies_parent ON mailbox_replies (parent_type, parent_id)').run();
+  } catch { /* ignore */ }
+}
+
+const MAILBOX_FROM = 'Lingling <Lingling@bolccop.org>';
+const MAILBOX_REPLY_TO = 'bolccop@gmail.com';
+
+/** Send one email via Resend. Returns {ok, error} — never throws. */
+async function sendResendEmail(
+  env: Env,
+  params: { from: string; to: string; replyTo?: string; subject: string; html: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!env.RESEND_API_KEY) return { ok: false, error: 'RESEND_API_KEY not configured' };
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: params.from, to: params.to, reply_to: params.replyTo, subject: params.subject, html: params.html }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      return { ok: false, error: text || `HTTP ${response.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// Send a reply email to a contact message / prayer request and persist it.
+async function createMailboxReply(
+  env: Env,
+  kind: MailboxKind,
+  parentTable: 'messages' | 'prayer_requests',
+  parentType: 'message' | 'prayer',
+  id: string,
+  body: string,
+  sentBy: string | null,
+): Promise<Response> {
+  await ensureMailboxSchema(env);
+  const parent = await env.DB.prepare(`SELECT * FROM ${parentTable} WHERE id = ?`).bind(id).first<MessageRow>();
+  if (!parent) return json({ error: 'Not found' }, 404);
+  const to = (parent.email || '').trim();
+  if (!to) return json({ error: 'This sender has no email address' }, 400);
+
+  const { subject, html } = buildReplyEmail(
+    kind,
+    { firstName: parent.first_name, lastName: parent.last_name, email: to, message: parent.message },
+    body,
+  );
+  const sent = await sendResendEmail(env, { from: MAILBOX_FROM, to, replyTo: MAILBOX_REPLY_TO, subject, html });
+
+  const replyRow: MailboxReplyRow = {
+    id: crypto.randomUUID(),
+    parent_type: parentType,
+    parent_id: id,
+    body,
+    to_email: to,
+    sent_by: sentBy,
+    status: sent.ok ? 'sent' : 'failed',
+    error: sent.ok ? null : (sent.error ?? 'unknown'),
+    created_at: Date.now(),
+  };
+  await env.DB.prepare(
+    'INSERT INTO mailbox_replies (id, parent_type, parent_id, body, to_email, sent_by, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(replyRow.id, replyRow.parent_type, replyRow.parent_id, replyRow.body, replyRow.to_email, replyRow.sent_by, replyRow.status, replyRow.error, replyRow.created_at).run();
+
+  // Replying to a contact message marks it read (prayer status is left alone).
+  if (parentType === 'message') {
+    await env.DB.prepare('UPDATE messages SET read = 1 WHERE id = ?').bind(id).run();
+  }
+  return json({ reply: mapMailboxReply(replyRow) });
+}
+
+async function listMailboxReplies(env: Env, parentType: 'message' | 'prayer', id: string): Promise<Response> {
+  await ensureMailboxSchema(env);
+  const res = await env.DB
+    .prepare('SELECT * FROM mailbox_replies WHERE parent_type = ? AND parent_id = ? ORDER BY created_at ASC')
+    .bind(parentType, id)
+    .all<MailboxReplyRow>();
+  return json({ replies: (res.results ?? []).map(mapMailboxReply) });
+}
+
 function normalizeCategory(value: unknown): SermonCategoryDb {
   if (
     value === 'worship-praise' ||
@@ -161,6 +266,9 @@ type MessageRow = {
   phone: string;
   message: string;
   read: number;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
 };
 
 type PrayerRequestRow = {
@@ -172,6 +280,21 @@ type PrayerRequestRow = {
   phone: string;
   message: string;
   status: 'new' | 'prayed';
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+};
+
+type MailboxReplyRow = {
+  id: string;
+  parent_type: string;
+  parent_id: string;
+  body: string;
+  to_email: string;
+  sent_by: string | null;
+  status: string;
+  error: string | null;
+  created_at: number;
 };
 
 type DonationRow = {
@@ -533,6 +656,9 @@ function mapMessage(row: MessageRow) {
     phone: row.phone,
     message: row.message,
     read: Boolean(row.read),
+    country: row.country ?? null,
+    region: row.region ?? null,
+    city: row.city ?? null,
   };
 }
 
@@ -546,6 +672,23 @@ function mapPrayerRequest(row: PrayerRequestRow) {
     phone: row.phone,
     message: row.message,
     status: row.status,
+    country: row.country ?? null,
+    region: row.region ?? null,
+    city: row.city ?? null,
+  };
+}
+
+function mapMailboxReply(row: MailboxReplyRow) {
+  return {
+    id: row.id,
+    parentType: row.parent_type,
+    parentId: row.parent_id,
+    body: row.body,
+    toEmail: row.to_email,
+    sentBy: row.sent_by,
+    status: row.status,
+    error: row.error,
+    createdAt: row.created_at,
   };
 }
 
@@ -4089,9 +4232,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === '/api/messages' && request.method === 'POST') {
       const payload = await readJson<any>(request);
-      const id = crypto.randomUUID();
+      await ensureMailboxSchema(env);
+      const geo = extractGeo((request as any).cf);
       const row = {
-        id,
+        id: crypto.randomUUID(),
         date: new Date().toISOString(),
         first_name: payload.firstName,
         last_name: payload.lastName,
@@ -4099,10 +4243,11 @@ const worker: ExportedHandler<Env> = {
         phone: payload.phone,
         message: payload.message,
         read: 0,
+        ...geo,
       };
       await env.DB.prepare(
-        'INSERT INTO messages (id, date, first_name, last_name, email, phone, message, read) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(row.id, row.date, row.first_name, row.last_name, row.email, row.phone, row.message, row.read).run();
+        'INSERT INTO messages (id, date, first_name, last_name, email, phone, message, read, country, region, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(row.id, row.date, row.first_name, row.last_name, row.email, row.phone, row.message, row.read, row.country, row.region, row.city).run();
       return json(mapMessage(row as MessageRow), 201);
     }
 
@@ -4117,6 +4262,23 @@ const worker: ExportedHandler<Env> = {
       return json(mapMessage(row as MessageRow));
     }
 
+    if (url.pathname.startsWith('/api/messages/') && url.pathname.endsWith('/reply') && request.method === 'POST') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      const id = decodeURIComponent(url.pathname.split('/')[3] || '');
+      const payload = await readJson<{ body?: string }>(request);
+      const bodyText = (payload.body || '').trim();
+      if (!bodyText) return json({ error: 'Empty reply' }, 400);
+      return createMailboxReply(env, 'inbox', 'messages', 'message', id, bodyText, auth.name ?? null);
+    }
+
+    if (url.pathname.startsWith('/api/messages/') && url.pathname.endsWith('/replies') && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      const id = decodeURIComponent(url.pathname.split('/')[3] || '');
+      return listMailboxReplies(env, 'message', id);
+    }
+
     if (url.pathname.startsWith('/api/messages/') && request.method === 'DELETE') {
       const auth = await requireUser(request, env, 'contributor');
       if (auth instanceof Response) {
@@ -4129,6 +4291,8 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === '/api/prayer-requests' && request.method === 'POST') {
       const payload = await readJson<any>(request);
+      await ensureMailboxSchema(env);
+      const geo = extractGeo((request as any).cf);
       const row = {
         id: crypto.randomUUID(),
         date: new Date().toISOString(),
@@ -4138,10 +4302,11 @@ const worker: ExportedHandler<Env> = {
         phone: payload.phone,
         message: payload.message,
         status: 'new' as const,
+        ...geo,
       };
       await env.DB.prepare(
-        'INSERT INTO prayer_requests (id, date, first_name, last_name, email, phone, message, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(row.id, row.date, row.first_name, row.last_name, row.email, row.phone, row.message, row.status).run();
+        'INSERT INTO prayer_requests (id, date, first_name, last_name, email, phone, message, status, country, region, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(row.id, row.date, row.first_name, row.last_name, row.email, row.phone, row.message, row.status, row.country, row.region, row.city).run();
       return json(mapPrayerRequest(row as PrayerRequestRow), 201);
     }
 
@@ -4154,6 +4319,23 @@ const worker: ExportedHandler<Env> = {
       await env.DB.prepare("UPDATE prayer_requests SET status = 'prayed' WHERE id = ?").bind(id).run();
       const row = await env.DB.prepare('SELECT * FROM prayer_requests WHERE id = ?').bind(id).first<PrayerRequestRow>();
       return json(mapPrayerRequest(row as PrayerRequestRow));
+    }
+
+    if (url.pathname.startsWith('/api/prayer-requests/') && url.pathname.endsWith('/reply') && request.method === 'POST') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      const id = decodeURIComponent(url.pathname.split('/')[3] || '');
+      const payload = await readJson<{ body?: string }>(request);
+      const bodyText = (payload.body || '').trim();
+      if (!bodyText) return json({ error: 'Empty reply' }, 400);
+      return createMailboxReply(env, 'prayer', 'prayer_requests', 'prayer', id, bodyText, auth.name ?? null);
+    }
+
+    if (url.pathname.startsWith('/api/prayer-requests/') && url.pathname.endsWith('/replies') && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      const id = decodeURIComponent(url.pathname.split('/')[3] || '');
+      return listMailboxReplies(env, 'prayer', id);
     }
 
     if (url.pathname.startsWith('/api/prayer-requests/') && request.method === 'DELETE') {

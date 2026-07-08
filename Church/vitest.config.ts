@@ -9,6 +9,7 @@ export default defineConfig({
       'components/**/*.test.ts',
       'meeting/**/*.test.ts',
       'services/**/*.test.ts',
+      'mailbox/**/*.test.ts',
     ],
     environment: 'node',
   },
