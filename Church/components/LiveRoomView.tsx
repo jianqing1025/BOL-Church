@@ -59,7 +59,7 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, identity, isAdmin, s
       </header>
 
       {/* 主体：桌面左右分栏，移动端上下堆叠 */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:flex-row lg:overflow-visible">
         <main className="min-h-0 min-w-0 flex-none lg:flex-1">
           <div className="aspect-video w-full overflow-hidden rounded-xl bg-black lg:aspect-auto lg:h-full">
             <LivePlayer videoId={state.videoId ?? ''} />
@@ -67,7 +67,7 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, identity, isAdmin, s
         </main>
 
         {/* 右栏：名单(上, ~1/6) + 聊天(下, 其余)。组件保持浅色，白底卡片容器 */}
-        <aside className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white text-gray-900 shadow-lg lg:w-[320px] lg:flex-none">
+        <aside className="flex min-h-[240px] flex-1 flex-col overflow-hidden rounded-xl bg-white text-gray-900 shadow-lg lg:min-h-0 lg:w-[320px] lg:flex-none">
           <div className="flex h-1/6 min-h-[72px] shrink-0 flex-col border-b border-gray-200 bg-gray-50/50">
             <div className="bg-gray-100 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
               {t('liveChat.onlineHeader')}
