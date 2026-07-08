@@ -296,6 +296,9 @@ export const translations = {
     refreshing: { en: 'Checking…', zh: '檢查中…' },
     refreshNoChange: { en: 'Stream has not started yet.', zh: '直播尚未開始' },
     refreshHint: { en: 'If you know the stream just started but the page hasn\'t updated, click to check now.', zh: '如知道直播剛開始但頁面尚未顯示，請點此立即檢查。' },
+    enterRoom: { en: 'Enter Live Room', zh: '進入直播' },
+    enterRoomOffline: { en: 'Available when the stream is live', zh: '直播開始後可進入' },
+    leaveRoom: { en: 'Back', zh: '返回' },
     tapToResumeAudio: { en: 'Tap to resume audio', zh: '點此恢復聲音' },
   },
   sermonArchive: {
