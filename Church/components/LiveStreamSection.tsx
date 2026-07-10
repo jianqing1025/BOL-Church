@@ -186,13 +186,19 @@ const LiveStreamSection: React.FC = () => {
   }, [t]);
 
   const handleEnterRoom = useCallback(() => {
-    if (!identity) {
-      setPendingRoomEntry(true);
-      setShowJoinModal(true);
-      return;
+    if (identity) { setRoomOpen(true); return; }
+    setPendingRoomEntry(true);
+    // 管理員的身份由自動加入 effect 補齊，這裏只等；一般用戶先填名字
+    if (!isLoggedInAdmin) setShowJoinModal(true);
+  }, [identity, isLoggedInAdmin]);
+
+  // 等待身份就緒後補開房間（覆蓋一般用戶入會與管理員自動加入兩條路徑）
+  useEffect(() => {
+    if (pendingRoomEntry && identity) {
+      setPendingRoomEntry(false);
+      setRoomOpen(true);
     }
-    setRoomOpen(true);
-  }, [identity]);
+  }, [pendingRoomEntry, identity]);
 
   const handleJoin = useCallback(async (params: { name?: string; asGuest?: boolean }) => {
     const sessionId = identity?.sessionId || newSessionId();
@@ -201,11 +207,7 @@ const LiveStreamSection: React.FC = () => {
     writeIdentity(next);
     setIdentity(next);
     setShowJoinModal(false);
-    if (pendingRoomEntry) {
-      setPendingRoomEntry(false);
-      setRoomOpen(true);
-    }
-  }, [identity, pendingRoomEntry]);
+  }, [identity]);
 
   // 直播結束/丟失 videoId 時自動關房間，退回直播頁（頁面自然切到 replay/offline 佈局）
   useEffect(() => {
@@ -307,6 +309,17 @@ const LiveStreamSection: React.FC = () => {
 
   // LIVE state — main layout with chat sidebar
   if (isLive) {
+    // 進房入口在紅色 LIVE 條和藍色歷史直播標題條上都要有——
+    // 房間始終播 state.videoId，與歷史直播選擇無關（spec 要求）
+    const enterRoomButton = roomButton === 'enabled' ? (
+      <button
+        type="button"
+        onClick={handleEnterRoom}
+        className="ml-auto rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
+      >
+        {t('liveChat.enterRoom')}
+      </button>
+    ) : null;
     return (
       <>
         {showJoinModal && (
@@ -324,12 +337,15 @@ const LiveStreamSection: React.FC = () => {
             onLeave={() => setRoomOpen(false)}
           />
         )}
+        {/* 進房後卸載頁面層的播放器和聊天輪詢，避免雙路 YouTube 流 + 雙份聊天請求 */}
+        {!roomOpen && (
         <div className="flex flex-col gap-4 lg:flex-row">
           {/* Left: player —— 取剩下的所有寬度（chat 固定後，player 自動大約 +20%） */}
           <div ref={playerSectionRef} className="flex-1 min-w-0 scroll-mt-32">
             {selectedPastBroadcast ? (
-              <div className="mb-3 rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-                {language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
+              <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+                <span className="min-w-0">{language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}</span>
+                {enterRoomButton}
               </div>
             ) : (
             <div className="flex flex-wrap items-center gap-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 mb-3">
@@ -342,15 +358,7 @@ const LiveStreamSection: React.FC = () => {
                   · {t('sermonsPage.liveStartedAt')} {formatStartedAt(state.startedAt, language)}
                 </span>
               )}
-              {roomButton === 'enabled' && (
-                <button
-                  type="button"
-                  onClick={handleEnterRoom}
-                  className="ml-auto rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
-                >
-                  {t('liveChat.enterRoom')}
-                </button>
-              )}
+              {enterRoomButton}
             </div>
             )}
             <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
@@ -418,6 +426,7 @@ const LiveStreamSection: React.FC = () => {
             )}
           </aside>
         </div>
+        )}
 
         {/* 歷史直播：直播狀態下也在底部展示，便於用戶下播後繼續看舊內容 */}
         <div className="mt-8">{renderPastBroadcasts()}</div>
