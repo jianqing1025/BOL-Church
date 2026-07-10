@@ -3,6 +3,19 @@ import { X, Loader2 } from 'lucide-react';
 import type { ChurchPhoto } from '../../../data';
 import { imgUrl, shuffle, knownAspect, type AspectKind } from './util';
 import { StaticTile } from './StaticTile';
+import {
+  markRowForShift,
+  handoffRow,
+  markTileExit,
+  replaceTileAt,
+  settleRowTiles,
+  handoffDelayMs,
+  VANISH_MS,
+  SHIFT_MS,
+  POP_MS,
+  SETTLE_AFTER_HANDOFF_MS,
+  ROW_END_POP_AT_MS,
+} from './tilesShiftingPlan';
 
 type TileKind = 'single' | 'double' | 'wide';
 type ShiftDirection = -1 | 1;
@@ -20,9 +33,6 @@ interface ATile {
 
 const GRID_COLUMNS = 5;
 const GRID_GAP_PX = 8;
-const ANIMATION_MS = 520;
-
-const EXIT_EFFECTS = ['exit-fade-out', 'exit-scale-down', 'exit-slide-left', 'exit-slide-right', 'exit-slide-top', 'exit-slide-bottom', 'exit-soft-push'];
 
 const isTemplatePortraitCandidate = (item: ChurchPhoto): boolean => {
   if (typeof item.width === 'number' && typeof item.height === 'number' && item.width > 0 && item.height > 0) {
@@ -72,26 +82,22 @@ const removeFromDecks = (
 };
 
 const sharedStyles = `
-    .tile-transition { transition: all 0.52s cubic-bezier(0.22, 1, 0.36, 1); }
-    .exit-fade-out { opacity: 0; filter: blur(6px); }
-    .exit-scale-down { opacity: 0; transform: scale(0.84); filter: blur(6px); }
-    .exit-slide-left { opacity: 0; transform: translateX(-12%); filter: blur(4px); }
-    .exit-slide-right { opacity: 0; transform: translateX(12%); filter: blur(4px); }
-    .exit-slide-top { opacity: 0; transform: translateY(-10%); filter: blur(4px); }
-    .exit-slide-bottom { opacity: 0; transform: translateY(10%); filter: blur(4px); }
-    .exit-soft-push { opacity: 0; transform: scale(1.04); filter: blur(8px); }
-    .shift-bounce { animation: shiftBounce ${ANIMATION_MS}ms cubic-bezier(0.2, 0.82, 0.24, 1) forwards; animation-delay: var(--impact-delay, 0ms); z-index: 25; }
-    .entering { animation: tileEnter ${ANIMATION_MS}ms cubic-bezier(0.2, 0.82, 0.24, 1) forwards; }
+    .exit-vanish { animation: tileVanish ${VANISH_MS}ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+    .shift-bounce { animation: shiftBounce ${SHIFT_MS}ms cubic-bezier(0.33, 1, 0.68, 1) forwards; animation-delay: var(--impact-delay, 0ms); z-index: 25; }
+    .pop-in { animation: tilePop ${POP_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; z-index: 30; }
+    @keyframes tileVanish {
+        0% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(0.72); }
+    }
     @keyframes shiftBounce {
-        0% { transform: translate3d(0, 0, 0) scaleX(1); }
-        58% { transform: translate3d(calc(var(--travel-px) * var(--travel-dir)), 0, 0) scaleX(0.988); }
-        78% { transform: translate3d(calc(var(--travel-px) * var(--travel-dir) - (6px * var(--travel-dir))), 0, 0) scaleX(1.003); }
+        0%   { transform: translate3d(0, 0, 0) scaleX(1); }
+        58%  { transform: translate3d(calc(var(--travel-px) * var(--travel-dir) * 1.05), 0, 0) scaleX(0.96); }
+        76%  { transform: translate3d(calc(var(--travel-px) * var(--travel-dir) * 0.98), 0, 0) scaleX(1.015); }
         100% { transform: translate3d(calc(var(--travel-px) * var(--travel-dir)), 0, 0) scaleX(1); }
     }
-    @keyframes tileEnter {
-        0% { opacity: 0; transform: translate3d(calc(var(--entry-px) * var(--travel-dir)), 0, 0) scale(1.018) scaleX(1.012); filter: blur(8px); }
-        62% { opacity: 1; transform: translate3d(calc(-5px * var(--travel-dir)), 0, 0) scale(0.997) scaleX(0.992); filter: blur(0); }
-        100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1) scaleX(1); filter: blur(0); }
+    @keyframes tilePop {
+        0% { opacity: 0; transform: scale(0.25); }
+        100% { opacity: 1; transform: scale(1); }
     }
 `;
 
@@ -111,8 +117,25 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
   const usedHistory = useRef<string[]>([]);
   const isAnimating = useRef(false);
 
+  // 與 state 同步的最新佈局，供定時器回調讀取（避免閉包舊 state / StrictMode 雙執行問題）
+  const rowsRef = useRef<ATile[][]>([]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  // 所有動畫定時器統一登記，數據源變化/卸載時全部清掉，防止殘留回調打在新佈局上
+  const timersRef = useRef<number[]>([]);
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    timersRef.current.push(window.setTimeout(fn, ms));
+  }, []);
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach((id) => window.clearTimeout(id));
+    timersRef.current = [];
+  }, []);
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
   useEffect(() => {
     let cancelled = false;
+    clearTimers();
+    isAnimating.current = false;
     setReady(false);
     setRows([]);
     usedHistory.current = [];
@@ -131,7 +154,7 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
     });
 
     return () => { cancelled = true; };
-  }, [data]);
+  }, [data, clearTimers]);
 
   const rememberUsage = useCallback((url: string) => {
     usedHistory.current.push(url);
@@ -228,102 +251,64 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
     return [firstRow, secondRow];
   }, [buildRow]);
 
-  const finishRefresh = useCallback((r: number, c: number) => {
-    setRows((prevRows) => {
-      const nextRows = prevRows.map((row) => [...row]);
-      const oldTile = nextRows[r]?.[c];
-      if (!oldTile || oldTile.type === 'ghost') return prevRows;
-      const nextTile = createTile(oldTile.type, nextRows, new Set());
-      nextTile.status = 'entering';
-      nextTile.travelUnits = 1;
-      nextTile.travelDirection = -1;
-      nextRows[r][c] = nextTile;
-      isAnimating.current = false;
-      return nextRows;
-    });
-  }, [createTile]);
-
   const settleRow = useCallback((r: number) => {
-    setRows((prevRows) => {
-      const nextRows = prevRows.map((row) => [...row]);
-      const row = nextRows[r];
-      if (!row) return prevRows;
-      nextRows[r] = row.map((tile) => ({ ...tile, status: 'idle', travelUnits: 1, travelDirection: -1, delayMs: 0 }));
-      return nextRows;
-    });
+    setRows((prevRows) => prevRows.map((row, idx) => (idx === r ? settleRowTiles(row) : row)));
   }, []);
 
   const triggerSwitch = useCallback((r: number, c: number) => {
-    setRows((prevRows) => {
-      const nextRows = prevRows.map((row) => [...row]);
-      const tile = nextRows[r]?.[c];
-      if (!tile || tile.type === 'ghost') return prevRows;
-      if (tile.status !== 'idle' && tile.status !== 'entering') return prevRows;
-      if (tile.top) setFocalContent(tile.top.src);
-      nextRows[r][c] = { ...tile, status: EXIT_EFFECTS[Math.floor(Math.random() * EXIT_EFFECTS.length)] };
-      return nextRows;
-    });
-    window.setTimeout(() => finishRefresh(r, c), 520);
-  }, [finishRefresh]);
+    if (isAnimating.current) return;
+    const row = rowsRef.current[r];
+    const tile = row?.[c];
+    if (!tile || tile.type === 'ghost' || tile.status !== 'idle') return;
+    isAnimating.current = true;
+    if (tile.top) setFocalContent(tile.top.src);
 
-  const getSpan = useCallback((tile: ATile | undefined) => (tile?.type === 'wide' ? 2 : 1), []);
+    const marked = markTileExit(row, c);
+    setRows((prevRows) => prevRows.map((cur, idx) => (idx === r ? marked : cur)));
+
+    schedule(() => {
+      // createTile 消耗牌堆 ref，必須在 updater 外只執行一次
+      const newTile = createTile(tile.type as TileKind, rowsRef.current, new Set());
+      newTile.status = 'pop-in';
+      const replaced = replaceTileAt(rowsRef.current[r] ?? marked, c, newTile);
+      setRows((prevRows) => prevRows.map((cur, idx) => (idx === r ? replaced : cur)));
+      schedule(() => {
+        settleRow(r);
+        isAnimating.current = false;
+      }, SETTLE_AFTER_HANDOFF_MS);
+    }, ROW_END_POP_AT_MS);
+  }, [createTile, schedule, settleRow]);
 
   const mutateRow = useCallback((rowIndex: number) => {
     if (isAnimating.current) return;
-    setRows((prevRows) => {
-      const row = prevRows[rowIndex];
-      if (!row) return prevRows;
-      const candidates = row.map((tile, idx) => (tile.type !== 'ghost' ? idx : -1)).filter((idx) => idx >= 0);
-      if (candidates.length === 0) return prevRows;
-      const target = candidates[Math.floor(Math.random() * candidates.length)];
-      const nextRows = prevRows.map((currentRow) => [...currentRow]);
-      const tile = nextRows[rowIndex][target];
-      const span = getSpan(tile);
-      const legalDirections: ShiftDirection[] = [];
-      if (target + span < row.length) legalDirections.push(-1);
-      if (target > 0) legalDirections.push(1);
-      if (!legalDirections.length) return prevRows;
-      const direction = legalDirections[Math.floor(Math.random() * legalDirections.length)];
+    const row = rowsRef.current[rowIndex];
+    if (!row) return;
+    const candidates = row.map((tile, idx) => (tile.type !== 'ghost' ? idx : -1)).filter((idx) => idx >= 0);
+    if (candidates.length === 0) return;
 
-      if (tile.top) setFocalContent(tile.top.src);
-      for (let offset = 0; offset < span; offset++) {
-        const slotIndex = target + offset;
-        if (!nextRows[rowIndex][slotIndex]) continue;
-        nextRows[rowIndex][slotIndex] = { ...nextRows[rowIndex][slotIndex], status: EXIT_EFFECTS[Math.floor(Math.random() * EXIT_EFFECTS.length)], travelUnits: span, travelDirection: direction, delayMs: 0 };
-      }
-      if (direction === -1) {
-        for (let idx = target + span; idx < row.length; idx++) {
-          if (row[idx]?.type === 'ghost') continue;
-          nextRows[rowIndex][idx] = { ...nextRows[rowIndex][idx], status: 'shift-bounce', travelUnits: span, travelDirection: -1, delayMs: Math.min(64, Math.floor((idx - (target + span)) / 1) * 18) };
-        }
-      } else {
-        for (let idx = target - 1; idx >= 0; idx--) {
-          if (row[idx]?.type === 'ghost') continue;
-          nextRows[rowIndex][idx] = { ...nextRows[rowIndex][idx], status: 'shift-bounce', travelUnits: span, travelDirection: 1, delayMs: Math.min(64, Math.floor(((target - 1) - idx) / 1) * 18) };
-        }
-      }
+    // 選目標、標記三拍——全部在 updater 外決定，updater 只做純數組替換
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    const tile = row[target];
+    isAnimating.current = true;
+    if (tile.top) setFocalContent(tile.top.src);
 
-      isAnimating.current = true;
-      window.setTimeout(() => {
-        setRows((currentRows) => {
-          const updatedRows = currentRows.map((currentRow) => [...currentRow]);
-          const currentRow = updatedRows[rowIndex];
-          if (!currentRow) return currentRows;
-          const withoutRemoved = currentRow.filter((_, idx) => idx < target || idx >= target + span);
-          const newTile = createTile(tile.type as 'single' | 'double' | 'wide', updatedRows, new Set());
-          newTile.status = 'entering';
-          newTile.travelUnits = span;
-          newTile.travelDirection = direction === -1 ? 1 : -1;
-          newTile.delayMs = 0;
-          const insertion = newTile.type === 'wide' ? [newTile, createTile('ghost', updatedRows, new Set())] : [newTile];
-          updatedRows[rowIndex] = direction === -1 ? [...withoutRemoved, ...insertion] : [...insertion, ...withoutRemoved];
-          return updatedRows;
-        });
-        window.setTimeout(() => { settleRow(rowIndex); isAnimating.current = false; }, ANIMATION_MS - 20);
-      }, ANIMATION_MS - 30);
-      return nextRows;
-    });
-  }, [createTile, getSpan, settleRow]);
+    const { row: marked, shifterCount, maxDelayMs } = markRowForShift(row, target);
+    setRows((prevRows) => prevRows.map((cur, idx) => (idx === rowIndex ? marked : cur)));
+
+    schedule(() => {
+      const newTile = createTile(tile.type as TileKind, rowsRef.current, new Set());
+      newTile.status = 'pop-in';
+      const incoming: ATile[] = newTile.type === 'wide'
+        ? [newTile, createTile('ghost', rowsRef.current, new Set())]
+        : [newTile];
+      const next = handoffRow(rowsRef.current[rowIndex] ?? marked, target, incoming);
+      setRows((prevRows) => prevRows.map((cur, idx) => (idx === rowIndex ? next : cur)));
+      schedule(() => {
+        settleRow(rowIndex);
+        isAnimating.current = false;
+      }, SETTLE_AFTER_HANDOFF_MS);
+    }, handoffDelayMs(shifterCount, maxDelayMs));
+  }, [createTile, schedule, settleRow]);
 
   useEffect(() => { if (ready) setRows(generateLayout()); }, [ready, generateLayout]);
 
@@ -374,14 +359,13 @@ export const TilesShiftingSlideshow = ({ photos, onClose }: { photos: ChurchPhot
               <div
                 key={tile.id}
                 onClick={() => triggerSwitch(rIdx, cIdx)}
-                className={`group/tile tile-transition relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md ${tile.status}`}
+                className={`group/tile relative h-full w-full cursor-pointer overflow-hidden rounded-xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md ${tile.status}`}
                 style={{
                   gridRow: rIdx + 1,
                   gridColumn: cIdx + 1,
                   ...(tile.type === 'wide' ? { gridColumn: `${cIdx + 1} / span 2` } : {}),
                   ['--travel-px' as string]: `${travelPx}px`,
                   ['--travel-dir' as string]: `${tile.travelDirection || -1}`,
-                  ['--entry-px' as string]: `${Math.max(20, Math.min(42, travelPx * 0.42))}px`,
                   ['--impact-delay' as string]: `${tile.delayMs || 0}ms`,
                 }}
               >
