@@ -62,6 +62,33 @@ export function extractInboundBody(data: { text?: string | null; html?: string |
     .trim();
 }
 
+// 引用歷史的起始標記（按行匹配）：Outlook 下劃線分隔線、Original Message、
+// "On ... wrote:"、中文「在…寫道：」、郵件頭（发件人/發件人/From:）、> 引用行、
+// 以及我們自己回信模板裏的「您先前的來信：」
+const QUOTE_MARKERS: RegExp[] = [
+  /^_{10,}\s*$/,
+  /^-{3,}\s*Original Message\s*-{3,}/i,
+  /^On .{0,200} wrote:\s*$/,
+  /^在.{0,80}(寫道|写道)[:：]\s*$/,
+  /^(发件人|發件人|From)[:：]/,
+  /^>/,
+  /^您先前的來信[:：]\s*$/,
+];
+
+/**
+ * 剝掉郵件客戶端自動附帶的引用歷史，只留對方新寫的內容。
+ * 從第一個引用標記行起裁掉；若裁完為空則回退原文（寧可多顯示，不丟內容）。
+ */
+export function stripQuotedReply(text: string): string {
+  const lines = text.split(/\r?\n/);
+  let cut = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (QUOTE_MARKERS.some((re) => re.test(lines[i]))) { cut = i; break; }
+  }
+  const stripped = lines.slice(0, cut).join('\n').trim();
+  return stripped || text.trim();
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);

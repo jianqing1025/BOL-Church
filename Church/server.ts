@@ -13,7 +13,7 @@ import {
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline } from './live/liveStats';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
-import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, verifySvixSignature } from './mailbox/inbound';
+import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
 
@@ -318,7 +318,9 @@ async function handleMailboxInbound(request: Request, env: Env): Promise<Respons
       diag += ' noEmailId';
     }
   }
-  // 臨時診斷：正文取不到時把載荷結構寫進氣泡，定位後移除
+  // 剝掉郵件客戶端附帶的引用歷史，只留對方新寫的內容
+  if (body) body = stripQuotedReply(body);
+  // 診斷尾巴：正文徹底取不到時把載荷結構寫進氣泡，便於排障
   if (!body) body = `(empty message) [${diag}]`;
 
   // 冪等：Svix 重試沿用同一 svix-id，用它做主鍵 + INSERT OR IGNORE 去重
