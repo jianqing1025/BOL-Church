@@ -276,7 +276,7 @@ async function handleMailboxInbound(request: Request, env: Env): Promise<Respons
   try { event = JSON.parse(payload); } catch { return json({ error: 'Invalid JSON' }, 400); }
   // Resend 事件名為 email.received（保守匹配帶前綴的變體）；其餘事件確認收到即可
   if (!event.type || !event.type.endsWith('email.received')) return json({ ok: true, ignored: 'event type' });
-  const data = (event.data ?? {}) as { from?: unknown; to?: unknown; text?: string | null; html?: string | null };
+  const data = (event.data ?? {}) as { from?: unknown; to?: unknown; text?: string | null; html?: string | null; email_id?: unknown; id?: unknown };
 
   const thread = parseThreadFromRecipients(data.to);
   if (!thread) return json({ ok: true, ignored: 'no thread recipient' });
@@ -294,7 +294,24 @@ async function handleMailboxInbound(request: Request, env: Env): Promise<Respons
     }
     return '';
   })() || null;
-  const body = extractInboundBody(data) || '(empty message)';
+  // email.received 的 webhook 載荷通常只有元數據不含正文——
+  // 用 email_id 回查 Resend API 取 text/html（需要非「僅發信」權限的 API key）
+  let body = extractInboundBody(data);
+  if (!body && env.RESEND_API_KEY) {
+    const emailId = typeof data.email_id === 'string' ? data.email_id : typeof data.id === 'string' ? data.id : null;
+    if (emailId) {
+      try {
+        const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
+        });
+        if (res.ok) {
+          const full = await res.json() as { text?: string | null; html?: string | null };
+          body = extractInboundBody(full);
+        }
+      } catch { /* ignore — 落到 empty message */ }
+    }
+  }
+  if (!body) body = '(empty message)';
 
   // 冪等：Svix 重試沿用同一 svix-id，用它做主鍵 + INSERT OR IGNORE 去重
   const rowId = `in-${request.headers.get('svix-id') || crypto.randomUUID()}`;
