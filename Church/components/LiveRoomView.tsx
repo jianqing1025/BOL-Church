@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Maximize, MessageSquare, Minimize, PhoneOff, Users, X } from 'lucide-react';
+import { ChevronLeft, Maximize, MessageSquare, Minimize, PhoneOff, RotateCw, Users, X } from 'lucide-react';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import type { LiveStreamPublicState } from '../types';
@@ -9,6 +9,9 @@ import LiveChatPanel from './LiveChatPanel';
 
 export type LiveRoomMode = 'live' | 'replay';
 type PanelKind = 'none' | 'members' | 'chat';
+
+// 觸屏設備才顯示「橫屏模式」按鈕；桌面用全屏按鈕
+const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 const formatElapsed = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
@@ -81,24 +84,31 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // 只有觸屏設備進房自動全屏 + 鎖橫屏（Android 生效，iOS 靜默失敗）；
-  // 桌面留在瀏覽器裏，由 header 的全屏按鈕手動切換。退房統一恢復。
+  // 退房統一恢復方向鎖與全屏（進房不再自動全屏——手機豎屏上下佈局，
+  // 由 header 的「橫屏模式」按鈕切換；桌面由全屏按鈕切換）
   useEffect(() => {
-    const root = rootRef.current;
-    const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
-    if (isTouch) {
-      void (async () => {
-        try { await root?.requestFullscreen?.(); } catch { /* ignore */ }
-        try {
-          await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape');
-        } catch { /* ignore */ }
-      })();
-    }
     return () => {
       try { (screen.orientation as unknown as { unlock?: () => void }).unlock?.(); } catch { /* ignore */ }
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => { /* ignore */ });
     };
   }, []);
+
+  // 手機「橫屏模式」：全屏 + 鎖橫屏（Android 生效；iOS 不支持鎖定，
+  // 物理旋轉設備同樣會得到與桌面一致的橫屏佈局）
+  const [landscapeLocked, setLandscapeLocked] = useState(false);
+  const toggleLandscape = useCallback(async () => {
+    if (landscapeLocked) {
+      try { (screen.orientation as unknown as { unlock?: () => void }).unlock?.(); } catch { /* ignore */ }
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => { /* ignore */ });
+      setLandscapeLocked(false);
+      return;
+    }
+    try { await rootRef.current?.requestFullscreen?.(); } catch { /* ignore */ }
+    try {
+      await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+      setLandscapeLocked(true);
+    } catch { /* ignore */ }
+  }, [landscapeLocked]);
 
   // 全屏狀態跟隨瀏覽器事件（Esc 退出也能同步按鈕圖標）
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
@@ -184,6 +194,18 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
               {state.totalOnline}
             </button>
           )}
+          {IS_TOUCH && (
+            <button
+              type="button"
+              onClick={() => void toggleLandscape()}
+              title={t('liveChat.rotateLabel')}
+              aria-label={t('liveChat.rotateLabel')}
+              aria-pressed={landscapeLocked}
+              className={`transition-colors hover:text-white ${landscapeLocked ? 'text-blue-400' : 'text-gray-400'}`}
+            >
+              <RotateCw size={18} />
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -196,8 +218,9 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
         </div>
       </header>
 
-      {/* 主體：視頻 + 右側面板（flex 佔位，開面板視頻隨之縮放） */}
-      <div className="flex min-h-0 flex-1">
+      {/* 主體：豎屏（手機）上下佈局——視頻在上、面板在下佔 35%；
+            橫屏/桌面左右佈局——面板在右、視頻隨之縮放 */}
+      <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
         <main className="min-h-0 min-w-0 flex-1 p-3">
           <div className="h-full w-full overflow-hidden rounded-xl bg-black">
             <LivePlayer videoId={videoId} />
@@ -205,7 +228,7 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
         </main>
 
         {panel !== 'none' && (
-          <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
+          <aside className="flex h-[35vh] w-full shrink-0 flex-col overflow-hidden border-t border-white/10 bg-gray-900 landscape:h-auto landscape:w-1/3 landscape:border-l landscape:border-t-0 sm:landscape:w-80">
             <div className="flex shrink-0 items-center justify-between px-3 py-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                 {panel === 'members' ? t('liveChat.membersLabel') : t('liveChat.chatLabel')}
