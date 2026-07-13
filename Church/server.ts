@@ -4382,8 +4382,9 @@ const worker: ExportedHandler<Env> = {
       return json(mapMessage(row as MessageRow));
     }
 
-    // 公開端點：Resend inbound webhook（以 Svix 簽名鑑權，非用戶登錄）
-    if (url.pathname === '/api/mailbox/inbound' && request.method === 'POST') {
+    // 公開端點：Resend inbound webhook（以 Svix 簽名鑑權，非用戶登錄）。
+    // /api/webhooks/resend 為 Resend 後台實際配置的 URL 別名。
+    if ((url.pathname === '/api/mailbox/inbound' || url.pathname === '/api/webhooks/resend') && request.method === 'POST') {
       return handleMailboxInbound(request, env);
     }
 
