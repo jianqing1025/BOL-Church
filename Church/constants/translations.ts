@@ -299,6 +299,13 @@ export const translations = {
     enterRoom: { en: 'Enter Live Room', zh: '進入直播' },
     enterRoomOffline: { en: 'Available when the stream is live', zh: '直播開始後可進入' },
     leaveRoom: { en: 'Back', zh: '返回' },
+    watchReplay: { en: 'Watch Replay', zh: '查看回放' },
+    roomBrand: { en: 'Faith Hope Love Live', zh: '信望愛在線直播' },
+    replayUntil: { en: 'Replay available until Friday midnight.', zh: '上次直播回放可觀看至週五午夜。' },
+    liveInProgress: { en: 'Live now', zh: '直播進行中' },
+    membersLabel: { en: 'Online', zh: '在線列表' },
+    chatLabel: { en: 'Chat', zh: '聊天' },
+    hangUpLabel: { en: 'Leave', zh: '掛斷' },
     tapToResumeAudio: { en: 'Tap to resume audio', zh: '點此恢復聲音' },
   },
   sermonArchive: {
