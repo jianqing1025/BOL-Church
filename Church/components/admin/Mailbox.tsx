@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapPin, Send, Trash2, ChevronLeft, Check, AlertTriangle, Reply } from 'lucide-react';
+import { MapPin, Send, Trash2, ChevronLeft, Check, AlertTriangle } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import type { MailboxReply, Message, PrayerRequest } from '../../data';
 
@@ -128,41 +128,48 @@ export const Mailbox: React.FC<MailboxProps> = ({ kind, items, onOpen, onDelete,
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="whitespace-pre-wrap break-words text-gray-800">{selected.message}</div>
-              {replies.length > 0 && (
-                <div className="mt-6">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">{t('admin.mailboxRepliesTitle')}</div>
-                  <div className="space-y-3">
-                    {replies.map((r) => (
-                      r.direction === 'in' ? (
-                        <div key={r.id} className="rounded-lg border border-blue-100 bg-blue-50 p-3">
-                          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-blue-600">
-                            <span className="truncate">
-                              <Reply size={12} className="mr-1 inline" />
-                              {r.fromEmail || t('admin.mailboxInboundLabel')} · {fmt(r.createdAt)}
-                            </span>
-                            <span className="shrink-0 font-semibold">{t('admin.mailboxInboundLabel')}</span>
-                          </div>
-                          <div className="whitespace-pre-wrap break-words text-sm text-gray-800">{r.body}</div>
-                        </div>
-                      ) : (
-                        <div key={r.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-gray-500">
-                            <span className="truncate">{r.sentBy || 'Lingling'} · {fmt(r.createdAt)}</span>
-                            {r.status === 'sent' ? (
-                              <span className="inline-flex items-center gap-1 text-green-600"><Check size={12} /> {t('admin.mailboxSent')}</span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-red-600" title={r.error || ''}><AlertTriangle size={12} /> {t('admin.mailboxFailed')}</span>
-                            )}
-                          </div>
-                          <div className="whitespace-pre-wrap break-words text-sm text-gray-700">{r.body}</div>
-                        </div>
-                      )
-                    ))}
+            {/* 微信式對話流：對方（原始來信+回信）靠左白泡，我方靠右藍泡 */}
+            <div className="min-h-0 flex-1 overflow-y-auto bg-gray-50/70 px-5 py-4">
+              <div className="space-y-3">
+                <div className="flex justify-start">
+                  <div className="max-w-[75%]">
+                    <div className="mb-0.5 text-xs text-gray-400">{fullName(selected)} · {fmt(selected.date)}</div>
+                    <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 shadow-sm">
+                      {selected.message}
+                    </div>
                   </div>
                 </div>
-              )}
+                {replies.map((r) => (
+                  r.direction === 'in' ? (
+                    <div key={r.id} className="flex justify-start">
+                      <div className="max-w-[75%]">
+                        <div className="mb-0.5 truncate text-xs text-gray-400">
+                          {r.fromEmail || t('admin.mailboxInboundLabel')} · {fmt(r.createdAt)}
+                        </div>
+                        <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 shadow-sm">
+                          {r.body}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={r.id} className="flex justify-end">
+                      <div className="max-w-[75%] text-right">
+                        <div className="mb-0.5 text-xs text-gray-400">
+                          {r.sentBy || 'Lingling'} · {fmt(r.createdAt)} ·{' '}
+                          {r.status === 'sent' ? (
+                            <span className="inline-flex items-center gap-0.5 text-green-600"><Check size={11} /> {t('admin.mailboxSent')}</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-red-600" title={r.error || ''}><AlertTriangle size={11} /> {t('admin.mailboxFailed')}</span>
+                          )}
+                        </div>
+                        <div className="inline-block whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-blue-600 px-3.5 py-2.5 text-left text-sm text-white shadow-sm">
+                          {r.body}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
             </div>
 
             <div className="border-t border-gray-200 px-5 py-3">
