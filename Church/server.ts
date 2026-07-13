@@ -303,7 +303,8 @@ async function handleMailboxInbound(request: Request, env: Env): Promise<Respons
     diag = `keys=${Object.keys(data).join('|')}`;
     if (emailId) {
       try {
-        const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+        // Received emails 專用端點（GET /emails/{id} 只服務發出的郵件，對入站返回 404）
+        const res = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
           headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
         });
         diag += ` fetch=${res.status}`;
