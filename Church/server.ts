@@ -13,6 +13,7 @@ import {
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline } from './live/liveStats';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
+import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
 
@@ -30,6 +31,10 @@ type Env = {
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   ADMIN_BOOTSTRAP_NAME?: string;
   RESEND_API_KEY?: string;
+  /** Resend inbound webhook 簽名密鑰（whsec_ 開頭）；未設則入站端點拒收 */
+  RESEND_WEBHOOK_SECRET?: string;
+  /** 入站子域名（如 reply.bolccop.org）；設定後出站回信使用 thread 專屬 Reply-To */
+  MAILBOX_INBOUND_DOMAIN?: string;
   CHAT_ROOM: DurableObjectNamespace;
   CHAT_PASSWORD?: string;
   ALLOWED_ORIGIN?: string;
@@ -139,6 +144,9 @@ async function ensureMailboxSchema(env: Env): Promise<void> {
   for (const col of ['greeting', 'signature']) {
     try { await env.DB.prepare(`ALTER TABLE mailbox_settings ADD COLUMN ${col} TEXT`).run(); } catch { /* already exists */ }
   }
+  // 雙向消息表：direction（out=我方回覆 / in=對方來信）、from_email（入站發件人）
+  try { await env.DB.prepare("ALTER TABLE mailbox_replies ADD COLUMN direction TEXT NOT NULL DEFAULT 'out'").run(); } catch { /* already exists */ }
+  try { await env.DB.prepare('ALTER TABLE mailbox_replies ADD COLUMN from_email TEXT').run(); } catch { /* already exists */ }
 }
 
 // 信箱寄信設定的預設值（未在後台設定過時使用）
@@ -213,10 +221,15 @@ async function createMailboxReply(
     body,
     { greeting: settings.greeting, signature: settings.signature },
   );
+  // 配置入站子域名後，每個 thread 用專屬 Reply-To（reply+m/p-<id>@子域名），
+  // 對方回信經 Resend inbound webhook 直接回到收件箱；未配置則退回全局回覆郵箱。
+  const replyTo = env.MAILBOX_INBOUND_DOMAIN
+    ? threadReplyAddress(parentType, id, env.MAILBOX_INBOUND_DOMAIN)
+    : settings.replyTo;
   const sent = await sendResendEmail(env, {
     from: `${settings.fromName} <${settings.fromEmail}>`,
     to,
-    replyTo: settings.replyTo,
+    replyTo,
     subject,
     html,
   });
@@ -231,16 +244,71 @@ async function createMailboxReply(
     status: sent.ok ? 'sent' : 'failed',
     error: sent.ok ? null : (sent.error ?? 'unknown'),
     created_at: Date.now(),
+    direction: 'out',
+    from_email: null,
   };
   await env.DB.prepare(
-    'INSERT INTO mailbox_replies (id, parent_type, parent_id, body, to_email, sent_by, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(replyRow.id, replyRow.parent_type, replyRow.parent_id, replyRow.body, replyRow.to_email, replyRow.sent_by, replyRow.status, replyRow.error, replyRow.created_at).run();
+    'INSERT INTO mailbox_replies (id, parent_type, parent_id, body, to_email, sent_by, status, error, created_at, direction, from_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(replyRow.id, replyRow.parent_type, replyRow.parent_id, replyRow.body, replyRow.to_email, replyRow.sent_by, replyRow.status, replyRow.error, replyRow.created_at, replyRow.direction, replyRow.from_email).run();
 
   // Replying to a contact message marks it read (prayer status is left alone).
   if (parentType === 'message') {
     await env.DB.prepare('UPDATE messages SET read = 1 WHERE id = ?').bind(id).run();
   }
   return json({ reply: mapMailboxReply(replyRow) });
+}
+
+// Resend inbound webhook：對方回信 → 校驗 Svix 簽名 → 由 thread 專屬收件地址
+// 定位原始訊息/代禱 → 存入雙向消息表（direction='in'）→ 重新標記未讀。
+async function handleMailboxInbound(request: Request, env: Env): Promise<Response> {
+  if (!env.RESEND_WEBHOOK_SECRET) return json({ error: 'Inbound webhook not configured' }, 503);
+  const payload = await request.text();
+  const verified = await verifySvixSignature({
+    secret: env.RESEND_WEBHOOK_SECRET,
+    id: request.headers.get('svix-id') || '',
+    timestamp: request.headers.get('svix-timestamp') || '',
+    payload,
+    signatureHeader: request.headers.get('svix-signature') || '',
+  });
+  if (!verified) return json({ error: 'Invalid signature' }, 401);
+
+  let event: { type?: string; data?: Record<string, unknown> };
+  try { event = JSON.parse(payload); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  // Resend 事件名為 email.received（保守匹配帶前綴的變體）；其餘事件確認收到即可
+  if (!event.type || !event.type.endsWith('email.received')) return json({ ok: true, ignored: 'event type' });
+  const data = (event.data ?? {}) as { from?: unknown; to?: unknown; text?: string | null; html?: string | null };
+
+  const thread = parseThreadFromRecipients(data.to);
+  if (!thread) return json({ ok: true, ignored: 'no thread recipient' });
+
+  await ensureMailboxSchema(env);
+  const parentTable = thread.parentType === 'message' ? 'messages' : 'prayer_requests';
+  const parent = await env.DB.prepare(`SELECT id FROM ${parentTable} WHERE id = ?`).bind(thread.id).first<{ id: string }>();
+  if (!parent) return json({ ok: true, ignored: 'unknown thread' });
+
+  const fromEmail = (() => {
+    if (typeof data.from === 'string') return data.from;
+    if (data.from && typeof data.from === 'object') {
+      const o = data.from as Record<string, unknown>;
+      return String(o.address ?? o.email ?? o.name ?? '');
+    }
+    return '';
+  })() || null;
+  const body = extractInboundBody(data) || '(empty message)';
+
+  // 冪等：Svix 重試沿用同一 svix-id，用它做主鍵 + INSERT OR IGNORE 去重
+  const rowId = `in-${request.headers.get('svix-id') || crypto.randomUUID()}`;
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO mailbox_replies (id, parent_type, parent_id, body, to_email, sent_by, status, error, created_at, direction, from_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(rowId, thread.parentType, thread.id, body, '', null, 'received', null, Date.now(), 'in', fromEmail).run();
+
+  // 對方來信 → 重新點亮列表（訊息轉未讀；代禱轉回 new）
+  if (thread.parentType === 'message') {
+    await env.DB.prepare('UPDATE messages SET read = 0 WHERE id = ?').bind(thread.id).run();
+  } else {
+    await env.DB.prepare("UPDATE prayer_requests SET status = 'new' WHERE id = ?").bind(thread.id).run();
+  }
+  return json({ ok: true });
 }
 
 async function listMailboxReplies(env: Env, parentType: 'message' | 'prayer', id: string): Promise<Response> {
@@ -343,6 +411,8 @@ type MailboxReplyRow = {
   status: string;
   error: string | null;
   created_at: number;
+  direction?: string | null;
+  from_email?: string | null;
 };
 
 type DonationRow = {
@@ -737,6 +807,8 @@ function mapMailboxReply(row: MailboxReplyRow) {
     status: row.status,
     error: row.error,
     createdAt: row.created_at,
+    direction: row.direction === 'in' ? 'in' : 'out',
+    fromEmail: row.from_email ?? null,
   };
 }
 
@@ -4308,6 +4380,11 @@ const worker: ExportedHandler<Env> = {
       await env.DB.prepare('UPDATE messages SET read = 1 WHERE id = ?').bind(id).run();
       const row = await env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<MessageRow>();
       return json(mapMessage(row as MessageRow));
+    }
+
+    // 公開端點：Resend inbound webhook（以 Svix 簽名鑑權，非用戶登錄）
+    if (url.pathname === '/api/mailbox/inbound' && request.method === 'POST') {
+      return handleMailboxInbound(request, env);
     }
 
     if (url.pathname === '/api/mailbox/settings' && request.method === 'GET') {

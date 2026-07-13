@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapPin, Send, Trash2, ChevronLeft, Check, AlertTriangle } from 'lucide-react';
+import { MapPin, Send, Trash2, ChevronLeft, Check, AlertTriangle, Reply } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import type { MailboxReply, Message, PrayerRequest } from '../../data';
 
@@ -135,17 +135,30 @@ export const Mailbox: React.FC<MailboxProps> = ({ kind, items, onOpen, onDelete,
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">{t('admin.mailboxRepliesTitle')}</div>
                   <div className="space-y-3">
                     {replies.map((r) => (
-                      <div key={r.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <div className="mb-1 flex items-center justify-between gap-2 text-xs text-gray-500">
-                          <span className="truncate">{r.sentBy || 'Lingling'} · {fmt(r.createdAt)}</span>
-                          {r.status === 'sent' ? (
-                            <span className="inline-flex items-center gap-1 text-green-600"><Check size={12} /> {t('admin.mailboxSent')}</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-red-600" title={r.error || ''}><AlertTriangle size={12} /> {t('admin.mailboxFailed')}</span>
-                          )}
+                      r.direction === 'in' ? (
+                        <div key={r.id} className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-blue-600">
+                            <span className="truncate">
+                              <Reply size={12} className="mr-1 inline" />
+                              {r.fromEmail || t('admin.mailboxInboundLabel')} · {fmt(r.createdAt)}
+                            </span>
+                            <span className="shrink-0 font-semibold">{t('admin.mailboxInboundLabel')}</span>
+                          </div>
+                          <div className="whitespace-pre-wrap break-words text-sm text-gray-800">{r.body}</div>
                         </div>
-                        <div className="whitespace-pre-wrap break-words text-sm text-gray-700">{r.body}</div>
-                      </div>
+                      ) : (
+                        <div key={r.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-gray-500">
+                            <span className="truncate">{r.sentBy || 'Lingling'} · {fmt(r.createdAt)}</span>
+                            {r.status === 'sent' ? (
+                              <span className="inline-flex items-center gap-1 text-green-600"><Check size={12} /> {t('admin.mailboxSent')}</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-red-600" title={r.error || ''}><AlertTriangle size={12} /> {t('admin.mailboxFailed')}</span>
+                            )}
+                          </div>
+                          <div className="whitespace-pre-wrap break-words text-sm text-gray-700">{r.body}</div>
+                        </div>
+                      )
                     ))}
                   </div>
                 </div>

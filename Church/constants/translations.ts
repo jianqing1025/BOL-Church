@@ -652,6 +652,7 @@ export const translations = {
     mailboxSettingsSave: { en: 'Save', zh: '儲存' },
     mailboxSettingsCancel: { en: 'Cancel', zh: '取消' },
     mailboxSettingsLoading: { en: 'Loading…', zh: '載入中…' },
+    mailboxInboundLabel: { en: 'Reply from sender', zh: '對方回覆' },
     websiteAnalytics: { en: 'Website analytics', zh: '網站流量' },
     analyticsSubtitle: { en: 'Last 7 days.', zh: '最近 7 天。' },
     updated: { en: 'Updated', zh: '更新於' },

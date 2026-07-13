@@ -54,9 +54,13 @@ export interface MailboxReply {
   body: string;
   toEmail: string;
   sentBy: string | null;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'received';
   error: string | null;
   createdAt: number;
+  /** out=我方回覆；in=對方來信（Resend inbound webhook 寫入） */
+  direction: 'out' | 'in';
+  /** 入站郵件的發件人（out 方向為 null） */
+  fromEmail: string | null;
 }
 
 /** 信箱寄信設定：發信人（名稱+郵箱）、對方回信收件地址，以及回信模板（稱呼/署名）。 */
