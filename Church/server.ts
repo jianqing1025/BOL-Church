@@ -297,21 +297,28 @@ async function handleMailboxInbound(request: Request, env: Env): Promise<Respons
   // email.received 的 webhook 載荷通常只有元數據不含正文——
   // 用 email_id 回查 Resend API 取 text/html（需要非「僅發信」權限的 API key）
   let body = extractInboundBody(data);
+  let diag = '';
   if (!body && env.RESEND_API_KEY) {
     const emailId = typeof data.email_id === 'string' ? data.email_id : typeof data.id === 'string' ? data.id : null;
+    diag = `keys=${Object.keys(data).join('|')}`;
     if (emailId) {
       try {
         const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
           headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
         });
+        diag += ` fetch=${res.status}`;
         if (res.ok) {
           const full = await res.json() as { text?: string | null; html?: string | null };
           body = extractInboundBody(full);
+          if (!body) diag += ` fullKeys=${Object.keys(full as object).join('|')}`;
         }
-      } catch { /* ignore — 落到 empty message */ }
+      } catch { diag += ' fetchErr'; }
+    } else {
+      diag += ' noEmailId';
     }
   }
-  if (!body) body = '(empty message)';
+  // 臨時診斷：正文取不到時把載荷結構寫進氣泡，定位後移除
+  if (!body) body = `(empty message) [${diag}]`;
 
   // 冪等：Svix 重試沿用同一 svix-id，用它做主鍵 + INSERT OR IGNORE 去重
   const rowId = `in-${request.headers.get('svix-id') || crypto.randomUUID()}`;
