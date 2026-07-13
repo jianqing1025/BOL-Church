@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, MailboxReply, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
 
 export interface LiveStreamSavePayload {
@@ -196,6 +196,10 @@ export const api = {
     request<{ reply: MailboxReply }>(`/api/prayer-requests/${id}/reply`, { method: 'POST', body: JSON.stringify({ body }) }),
   getPrayerReplies: (id: string) =>
     request<{ replies: MailboxReply[] }>(`/api/prayer-requests/${id}/replies`),
+  getMailboxSettings: () =>
+    request<MailboxSettings>('/api/mailbox/settings'),
+  saveMailboxSettings: (payload: MailboxSettings) =>
+    request<MailboxSettings>('/api/mailbox/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   submitDonation: (payload: Omit<Donation, 'id' | 'date' | 'status'>) =>
     request<Donation>('/api/donations', { method: 'POST', body: JSON.stringify(payload) }),
   analyticsSummary: () =>

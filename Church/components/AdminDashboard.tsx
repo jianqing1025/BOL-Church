@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
 import { Mailbox } from './admin/Mailbox';
+import MailboxSettingsModal from './admin/MailboxSettingsModal';
+import { Settings } from 'lucide-react';
 import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
 import RichTextEditor from './RichTextEditor';
@@ -252,6 +254,7 @@ const AdminDashboard: React.FC = () => {
   const [webAnalyticsError, setWebAnalyticsError] = useState<string | null>(null);
   const [countryPage, setCountryPage] = useState(0);
   const [sourceItemCount, setSourceItemCount] = useState<5 | 10 | 15>(5);
+  const [showMailSettings, setShowMailSettings] = useState(false);
 
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
@@ -710,7 +713,19 @@ const AdminDashboard: React.FC = () => {
 
   const renderMessages = () => (
     <div className="space-y-3">
-      <h3 className="text-lg font-bold text-gray-800">{t('admin.messagesTab')} ({messages.length})</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-bold text-gray-800">{t('admin.messagesTab')} ({messages.length})</h3>
+        <button
+          type="button"
+          onClick={() => setShowMailSettings(true)}
+          title={t('admin.mailboxSettings')}
+          aria-label={t('admin.mailboxSettings')}
+          className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
+        >
+          <Settings size={14} /> {t('admin.mailboxSettings')}
+        </button>
+      </div>
+      {showMailSettings && <MailboxSettingsModal onClose={() => setShowMailSettings(false)} />}
       <Mailbox
         kind="inbox"
         items={messages}

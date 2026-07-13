@@ -123,10 +123,36 @@ async function ensureMailboxSchema(env: Env): Promise<void> {
     ).run();
     await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_mailbox_replies_parent ON mailbox_replies (parent_type, parent_id)').run();
   } catch { /* ignore */ }
+  try {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS mailbox_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        from_name TEXT,
+        from_email TEXT,
+        reply_to TEXT
+      )`
+    ).run();
+  } catch { /* ignore */ }
 }
 
-const MAILBOX_FROM = 'Lingling <Lingling@bolccop.org>';
-const MAILBOX_REPLY_TO = 'bolccop@gmail.com';
+// 信箱寄信設定的預設值（未在後台設定過時使用）
+const MAILBOX_FROM_NAME_DEFAULT = 'Lingling';
+const MAILBOX_FROM_EMAIL_DEFAULT = 'Lingling@bolccop.org';
+const MAILBOX_REPLY_TO_DEFAULT = 'bolccop@gmail.com';
+
+type MailboxSettingsRow = { from_name: string | null; from_email: string | null; reply_to: string | null };
+
+async function getMailboxSettings(env: Env): Promise<{ fromName: string; fromEmail: string; replyTo: string }> {
+  await ensureMailboxSchema(env);
+  const row = await env.DB.prepare('SELECT from_name, from_email, reply_to FROM mailbox_settings WHERE id = 1')
+    .first<MailboxSettingsRow>()
+    .catch(() => null);
+  return {
+    fromName: row?.from_name?.trim() || MAILBOX_FROM_NAME_DEFAULT,
+    fromEmail: row?.from_email?.trim() || MAILBOX_FROM_EMAIL_DEFAULT,
+    replyTo: row?.reply_to?.trim() || MAILBOX_REPLY_TO_DEFAULT,
+  };
+}
 
 /** Send one email via Resend. Returns {ok, error} — never throws. */
 async function sendResendEmail(
@@ -171,7 +197,14 @@ async function createMailboxReply(
     { firstName: parent.first_name, lastName: parent.last_name, email: to, message: parent.message },
     body,
   );
-  const sent = await sendResendEmail(env, { from: MAILBOX_FROM, to, replyTo: MAILBOX_REPLY_TO, subject, html });
+  const settings = await getMailboxSettings(env);
+  const sent = await sendResendEmail(env, {
+    from: `${settings.fromName} <${settings.fromEmail}>`,
+    to,
+    replyTo: settings.replyTo,
+    subject,
+    html,
+  });
 
   const replyRow: MailboxReplyRow = {
     id: crypto.randomUUID(),
@@ -4260,6 +4293,30 @@ const worker: ExportedHandler<Env> = {
       await env.DB.prepare('UPDATE messages SET read = 1 WHERE id = ?').bind(id).run();
       const row = await env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<MessageRow>();
       return json(mapMessage(row as MessageRow));
+    }
+
+    if (url.pathname === '/api/mailbox/settings' && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      return json(await getMailboxSettings(env));
+    }
+
+    if (url.pathname === '/api/mailbox/settings' && request.method === 'PUT') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      const payload = await readJson<{ fromName?: string; fromEmail?: string; replyTo?: string }>(request);
+      const fromName = (payload.fromName || '').trim();
+      const fromEmail = (payload.fromEmail || '').trim();
+      const replyTo = (payload.replyTo || '').trim();
+      const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      if (!fromName) return json({ error: 'Sender name is required' }, 400);
+      if (!emailOk(fromEmail)) return json({ error: 'Invalid sender email' }, 400);
+      if (!emailOk(replyTo)) return json({ error: 'Invalid reply-to email' }, 400);
+      await ensureMailboxSchema(env);
+      await env.DB.prepare(
+        'INSERT INTO mailbox_settings (id, from_name, from_email, reply_to) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET from_name = excluded.from_name, from_email = excluded.from_email, reply_to = excluded.reply_to'
+      ).bind(fromName, fromEmail, replyTo).run();
+      return json(await getMailboxSettings(env));
     }
 
     if (url.pathname.startsWith('/api/messages/') && url.pathname.endsWith('/reply') && request.method === 'POST') {

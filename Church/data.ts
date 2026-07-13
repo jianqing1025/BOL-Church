@@ -59,6 +59,13 @@ export interface MailboxReply {
   createdAt: number;
 }
 
+/** 信箱寄信設定：發信人（名稱+郵箱）與對方回信收件地址。 */
+export interface MailboxSettings {
+  fromName: string;
+  fromEmail: string;
+  replyTo: string;
+}
+
 export interface Donation {
   id: string;
   date: string;
