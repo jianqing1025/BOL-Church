@@ -306,6 +306,8 @@ export const translations = {
     membersLabel: { en: 'Online', zh: '在線列表' },
     chatLabel: { en: 'Chat', zh: '聊天' },
     hangUpLabel: { en: 'Leave', zh: '掛斷' },
+    fullscreenLabel: { en: 'Fullscreen', zh: '全螢幕' },
+    closePanelLabel: { en: 'Close', zh: '關閉' },
     tapToResumeAudio: { en: 'Tap to resume audio', zh: '點此恢復聲音' },
   },
   sermonArchive: {

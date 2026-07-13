@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MessageSquare, PhoneOff, Users } from 'lucide-react';
+import { ChevronLeft, Maximize, MessageSquare, Minimize, PhoneOff, Users, X } from 'lucide-react';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import type { LiveStreamPublicState } from '../types';
@@ -81,19 +81,39 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // 手機進房嘗試全屏 + 鎖橫屏（Android 生效，iOS 靜默失敗）；退房恢復
+  // 只有觸屏設備進房自動全屏 + 鎖橫屏（Android 生效，iOS 靜默失敗）；
+  // 桌面留在瀏覽器裏，由 header 的全屏按鈕手動切換。退房統一恢復。
   useEffect(() => {
     const root = rootRef.current;
-    void (async () => {
-      try { await root?.requestFullscreen?.(); } catch { /* ignore */ }
-      try {
-        await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape');
-      } catch { /* ignore */ }
-    })();
+    const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+    if (isTouch) {
+      void (async () => {
+        try { await root?.requestFullscreen?.(); } catch { /* ignore */ }
+        try {
+          await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+        } catch { /* ignore */ }
+      })();
+    }
     return () => {
       try { (screen.orientation as unknown as { unlock?: () => void }).unlock?.(); } catch { /* ignore */ }
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => { /* ignore */ });
     };
+  }, []);
+
+  // 全屏狀態跟隨瀏覽器事件（Esc 退出也能同步按鈕圖標）
+  const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => { /* ignore */ });
+    } else {
+      void rootRef.current?.requestFullscreen?.().catch(() => { /* ignore */ });
+    }
   }, []);
 
   // 直播計時：從開播時間起算，每秒更新
@@ -151,20 +171,29 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
             </span>
           )}
         </div>
-        {mode === 'live' ? (
+        <div className="flex shrink-0 items-center gap-4">
+          {mode === 'live' && (
+            <button
+              type="button"
+              onClick={() => togglePanel('members')}
+              title={t('liveChat.membersLabel')}
+              aria-label={t('liveChat.membersLabel')}
+              className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-white"
+            >
+              <Users size={16} />
+              {state.totalOnline}
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => togglePanel('members')}
-            title={t('liveChat.membersLabel')}
-            aria-label={t('liveChat.membersLabel')}
-            className="flex shrink-0 items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-white"
+            onClick={toggleFullscreen}
+            title={t('liveChat.fullscreenLabel')}
+            aria-label={t('liveChat.fullscreenLabel')}
+            className="text-gray-400 transition-colors hover:text-white"
           >
-            <Users size={16} />
-            {state.totalOnline}
+            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
-        ) : (
-          <span className="w-10 shrink-0" />
-        )}
+        </div>
       </header>
 
       {/* 主體：視頻 + 右側面板（flex 佔位，開面板視頻隨之縮放） */}
@@ -177,8 +206,19 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
 
         {panel !== 'none' && (
           <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
-            <div className="shrink-0 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-              {panel === 'members' ? t('liveChat.membersLabel') : t('liveChat.chatLabel')}
+            <div className="flex shrink-0 items-center justify-between px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                {panel === 'members' ? t('liveChat.membersLabel') : t('liveChat.chatLabel')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPanel('none')}
+                title={t('liveChat.closePanelLabel')}
+                aria-label={t('liveChat.closePanelLabel')}
+                className="text-gray-400 transition-colors hover:text-white"
+              >
+                <X size={16} />
+              </button>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden bg-white text-gray-900">
               {panel === 'members' ? (
