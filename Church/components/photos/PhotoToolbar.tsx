@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ArrowUpDown, CheckSquare, Download, Expand, Film, FolderInput,
+  ArrowUpDown, CheckSquare, ChevronDown, Download, Expand, Film, FolderInput,
   Grid2X2, Heart, Image as ImageIcon, LayoutDashboard, LayoutTemplate,
   MoreVertical, Shrink, Trash2, Waves, X,
 } from 'lucide-react';
@@ -65,6 +65,8 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [albumSheetOpen, setAlbumSheetOpen] = useState(false);
   const [albumOverflowing, setAlbumOverflowing] = useState(false);
+  // 桌面端：單行能放下的 album chip 數量（其餘隱藏，溢出時收進浮層）
+  const [albumVisibleCount, setAlbumVisibleCount] = useState(999);
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false);
   const [collectionOverflowing, setCollectionOverflowing] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -72,6 +74,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
   const collectionMenuRef = useRef<HTMLDivElement>(null);
   const albumRef = useRef<HTMLDivElement>(null);
   const albumMenuRef = useRef<HTMLDivElement>(null);
+  const albumBtnRef = useRef<HTMLButtonElement>(null);
 
   const collectionFilters = ['All', ...props.collections];
   const albumFilters = ['All', 'Favorites', ...props.albums];
@@ -79,13 +82,52 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
-      if (collectionMenuRef.current && !collectionMenuRef.current.contains(e.target as Node)) setCollectionSheetOpen(false);
-      if (albumMenuRef.current && !albumMenuRef.current.contains(e.target as Node)) setAlbumSheetOpen(false);
+      const target = e.target as Node;
+      if (sortRef.current && !sortRef.current.contains(target)) setSortOpen(false);
+      if (collectionMenuRef.current && !collectionMenuRef.current.contains(target)) setCollectionSheetOpen(false);
+      // 點浮層或切換按鈕以外的地方才收起（按鈕自身的 onClick 負責 toggle）
+      if (
+        albumMenuRef.current && !albumMenuRef.current.contains(target) &&
+        !(albumBtnRef.current && albumBtnRef.current.contains(target))
+      ) setAlbumSheetOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, []);
+
+  // 桌面浮層：Esc 收起
+  useEffect(() => {
+    if (!albumSheetOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAlbumSheetOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [albumSheetOpen]);
+
+  // 桌面 album 栏溢出測量：逐個量 chip 右緣是否超出容器寬度，得出可見數量；
+  // 溢出時末尾圓框按鈕作為 flex 兄弟出現、擠窄容器 → ResizeObserver 再算一輪收斂。
+  useLayoutEffect(() => {
+    if (isCompact) return undefined;
+    const el = albumRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const w = el.clientWidth;
+      const base = el.getBoundingClientRect().left;
+      const kids = Array.from(el.children) as HTMLElement[];
+      let count = kids.length;
+      for (let i = 0; i < kids.length; i++) {
+        if (kids[i].getBoundingClientRect().right - base > w + 1) { count = i; break; }
+      }
+      setAlbumVisibleCount(Math.max(1, count));
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [albumFilters.join('|'), isCompact]);
 
   useEffect(() => {
     document.body.style.overflow = moreOpen || (albumSheetOpen && isCompact) ? 'hidden' : '';
@@ -190,6 +232,7 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </div>
   );
 
+  // compact（手機）用的 ··· 觸發底部抽屜，維持不變
   const albumExpandButton = (
     <button
       type="button"
@@ -201,21 +244,41 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
     </button>
   );
 
-  const albumMenu = albumSheetOpen && !isCompact && (
-    <div ref={albumMenuRef} className="absolute right-10 top-full z-50 mt-2 w-72 rounded-xl border border-gray-100 bg-white p-2 shadow-xl">
-      <div className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('photosPage.albums')}</div>
-      <div className="max-h-72 overflow-y-auto">
-        {albumFilters.map((a) => a === 'Favorites' ? (
-          <button type="button" key="Favorites" onClick={() => { props.onSetFilter('Favorites'); setAlbumSheetOpen(false); }} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold ${props.filter === 'Favorites' ? 'bg-rose-500 text-white' : 'text-rose-500 hover:bg-rose-50'}`}>
-            <Heart size={15} className={props.filter === 'Favorites' ? 'fill-current' : ''} />
-            <span>{t('photosPage.favorite')}</span>
-          </button>
-        ) : (
-          <button type="button" key={a} onClick={() => { props.onSetFilter(a); setAlbumSheetOpen(false); }} className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm font-bold ${props.filter === a ? 'bg-rose-500 text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-            {a === 'All' ? t('photosPage.all') : a}
-          </button>
-        ))}
-      </div>
+  // 單個 album chip（桌面行內與浮層共用）。hidden 時保留佈局供測量，但視覺隱藏、不可 focus。
+  const renderAlbumChip = (a: string, onClick: () => void, opts?: { key?: string; hidden?: boolean }) => {
+    const style = opts?.hidden ? { visibility: 'hidden' as const } : undefined;
+    if (a === 'Favorites') return (
+      <button type="button" key={opts?.key ?? 'Favorites'} onClick={onClick} style={style} aria-hidden={opts?.hidden} tabIndex={opts?.hidden ? -1 : undefined} title={t('photosPage.favorite')} className={`flex flex-shrink-0 items-center justify-center rounded-md px-2.5 py-1 transition-all ${props.filter === 'Favorites' ? 'bg-rose-500 text-white shadow-md' : 'border border-rose-200 bg-rose-50 text-rose-400 hover:bg-rose-100'}`}>
+        <Heart size={14} className={props.filter === 'Favorites' ? 'fill-current' : ''} />
+      </button>
+    );
+    return (
+      <button type="button" key={opts?.key ?? a} onClick={onClick} style={style} aria-hidden={opts?.hidden} tabIndex={opts?.hidden ? -1 : undefined} className={`flex-shrink-0 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.filter === a ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}>
+        {a === 'All' ? t('photosPage.all') : a}
+      </button>
+    );
+  };
+
+  const albumHasOverflow = albumVisibleCount < albumFilters.length;
+
+  // 桌面圓框箭頭：僅溢出時顯示；展開翻轉為 ▲ 並高亮
+  const albumToggleButton = (
+    <button
+      ref={albumBtnRef}
+      type="button"
+      onClick={() => setAlbumSheetOpen((o) => !o)}
+      aria-expanded={albumSheetOpen}
+      title={t('photosPage.albums')}
+      className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border transition-all ${albumSheetOpen ? 'border-rose-500 bg-rose-500 text-white shadow-md' : 'border-gray-200 bg-white text-gray-500 hover:border-rose-300 hover:text-rose-500'}`}
+    >
+      <ChevronDown size={15} className={`transition-transform ${albumSheetOpen ? 'rotate-180' : ''}`} />
+    </button>
+  );
+
+  // 隱藏 chips 的多行浮層：絕對定位疊在下方網格之上，不推移網格
+  const albumPopover = albumSheetOpen && !isCompact && (
+    <div ref={albumMenuRef} className="absolute left-4 right-4 top-full z-50 mt-1 flex flex-wrap gap-1.5 rounded-xl border border-gray-100 bg-white p-2.5 shadow-xl">
+      {albumFilters.slice(albumVisibleCount).map((a) => renderAlbumChip(a, () => { props.onSetFilter(a); setAlbumSheetOpen(false); }, { key: `pop-${a}` }))}
     </div>
   );
 
@@ -277,13 +340,19 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <button type="button" onClick={props.onToggleFullscreen} className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gray-800 text-white shadow-sm hover:bg-black" title="Fullscreen">{props.isFullscreen ? <Shrink size={16} /> : <Expand size={16} />}</button>
         </div>
       </div>
-      <div className="relative flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-1.5">
-        {albumChips(false)}
-        <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-          {albumOverflowing && albumExpandButton}
+      <div className="relative flex flex-nowrap items-center gap-3 border-t border-gray-100 px-4 py-1.5">
+        <div ref={albumRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" style={{ flexWrap: 'nowrap' }}>
+          {albumFilters.map((a, i) => renderAlbumChip(
+            a,
+            () => props.onSetFilter(a),
+            { key: a === 'Favorites' ? 'Favorites' : a, hidden: i >= albumVisibleCount },
+          ))}
+        </div>
+        <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+          {albumHasOverflow && albumToggleButton}
           {countBadge}
         </div>
-        {albumMenu}
+        {albumPopover}
       </div>
     </>
   );
