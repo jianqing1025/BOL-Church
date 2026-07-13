@@ -12,7 +12,7 @@ import {
   type TrainingRow,
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline } from './live/liveStats';
-import { extractGeo, buildReplyEmail, type MailboxKind } from './mailbox/mailbox';
+import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
 
@@ -129,10 +129,16 @@ async function ensureMailboxSchema(env: Env): Promise<void> {
         id INTEGER PRIMARY KEY CHECK (id = 1),
         from_name TEXT,
         from_email TEXT,
-        reply_to TEXT
+        reply_to TEXT,
+        greeting TEXT,
+        signature TEXT
       )`
     ).run();
   } catch { /* ignore */ }
+  // 舊表補列（部署過早期版本的 D1）
+  for (const col of ['greeting', 'signature']) {
+    try { await env.DB.prepare(`ALTER TABLE mailbox_settings ADD COLUMN ${col} TEXT`).run(); } catch { /* already exists */ }
+  }
 }
 
 // 信箱寄信設定的預設值（未在後台設定過時使用）
@@ -140,17 +146,25 @@ const MAILBOX_FROM_NAME_DEFAULT = 'Lingling';
 const MAILBOX_FROM_EMAIL_DEFAULT = 'Lingling@bolccop.org';
 const MAILBOX_REPLY_TO_DEFAULT = 'bolccop@gmail.com';
 
-type MailboxSettingsRow = { from_name: string | null; from_email: string | null; reply_to: string | null };
+type MailboxSettingsRow = {
+  from_name: string | null;
+  from_email: string | null;
+  reply_to: string | null;
+  greeting: string | null;
+  signature: string | null;
+};
 
-async function getMailboxSettings(env: Env): Promise<{ fromName: string; fromEmail: string; replyTo: string }> {
+async function getMailboxSettings(env: Env): Promise<{ fromName: string; fromEmail: string; replyTo: string; greeting: string; signature: string }> {
   await ensureMailboxSchema(env);
-  const row = await env.DB.prepare('SELECT from_name, from_email, reply_to FROM mailbox_settings WHERE id = 1')
+  const row = await env.DB.prepare('SELECT from_name, from_email, reply_to, greeting, signature FROM mailbox_settings WHERE id = 1')
     .first<MailboxSettingsRow>()
     .catch(() => null);
   return {
     fromName: row?.from_name?.trim() || MAILBOX_FROM_NAME_DEFAULT,
     fromEmail: row?.from_email?.trim() || MAILBOX_FROM_EMAIL_DEFAULT,
     replyTo: row?.reply_to?.trim() || MAILBOX_REPLY_TO_DEFAULT,
+    greeting: row?.greeting?.trim() || DEFAULT_REPLY_TEMPLATE.greeting,
+    signature: row?.signature?.trim() || DEFAULT_REPLY_TEMPLATE.signature,
   };
 }
 
@@ -192,12 +206,13 @@ async function createMailboxReply(
   const to = (parent.email || '').trim();
   if (!to) return json({ error: 'This sender has no email address' }, 400);
 
+  const settings = await getMailboxSettings(env);
   const { subject, html } = buildReplyEmail(
     kind,
     { firstName: parent.first_name, lastName: parent.last_name, email: to, message: parent.message },
     body,
+    { greeting: settings.greeting, signature: settings.signature },
   );
-  const settings = await getMailboxSettings(env);
   const sent = await sendResendEmail(env, {
     from: `${settings.fromName} <${settings.fromEmail}>`,
     to,
@@ -4304,18 +4319,21 @@ const worker: ExportedHandler<Env> = {
     if (url.pathname === '/api/mailbox/settings' && request.method === 'PUT') {
       const auth = await requireUser(request, env, 'contributor');
       if (auth instanceof Response) return auth;
-      const payload = await readJson<{ fromName?: string; fromEmail?: string; replyTo?: string }>(request);
+      const payload = await readJson<{ fromName?: string; fromEmail?: string; replyTo?: string; greeting?: string; signature?: string }>(request);
       const fromName = (payload.fromName || '').trim();
       const fromEmail = (payload.fromEmail || '').trim();
       const replyTo = (payload.replyTo || '').trim();
+      // 模板字段允許留空——讀取時回退預設（親愛的 {name}： / 信望愛靈糧堂 Lingling 敬上）
+      const greeting = (payload.greeting || '').trim();
+      const signature = (payload.signature || '').trim();
       const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
       if (!fromName) return json({ error: 'Sender name is required' }, 400);
       if (!emailOk(fromEmail)) return json({ error: 'Invalid sender email' }, 400);
       if (!emailOk(replyTo)) return json({ error: 'Invalid reply-to email' }, 400);
       await ensureMailboxSchema(env);
       await env.DB.prepare(
-        'INSERT INTO mailbox_settings (id, from_name, from_email, reply_to) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET from_name = excluded.from_name, from_email = excluded.from_email, reply_to = excluded.reply_to'
-      ).bind(fromName, fromEmail, replyTo).run();
+        'INSERT INTO mailbox_settings (id, from_name, from_email, reply_to, greeting, signature) VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET from_name = excluded.from_name, from_email = excluded.from_email, reply_to = excluded.reply_to, greeting = excluded.greeting, signature = excluded.signature'
+      ).bind(fromName, fromEmail, replyTo, greeting, signature).run();
       return json(await getMailboxSettings(env));
     }
 

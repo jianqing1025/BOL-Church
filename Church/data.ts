@@ -59,11 +59,15 @@ export interface MailboxReply {
   createdAt: number;
 }
 
-/** 信箱寄信設定：發信人（名稱+郵箱）與對方回信收件地址。 */
+/** 信箱寄信設定：發信人（名稱+郵箱）、對方回信收件地址，以及回信模板（稱呼/署名）。 */
 export interface MailboxSettings {
   fromName: string;
   fromEmail: string;
   replyTo: string;
+  /** 開頭稱呼模板，{name} 代表對方姓名 */
+  greeting: string;
+  /** 結尾署名（可多行） */
+  signature: string;
 }
 
 export interface Donation {

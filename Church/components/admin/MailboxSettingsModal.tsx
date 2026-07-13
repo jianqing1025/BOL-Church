@@ -69,6 +69,16 @@ const MailboxSettingsModal: React.FC<MailboxSettingsModalProps> = ({ onClose }) 
             {field(t('admin.mailboxFromName'), 'fromName', 'text')}
             {field(t('admin.mailboxFromEmail'), 'fromEmail', 'email')}
             {field(t('admin.mailboxReplyTo'), 'replyTo', 'email')}
+            {field(t('admin.mailboxGreeting'), 'greeting', 'text')}
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-gray-600">{t('admin.mailboxSignature')}</span>
+              <textarea
+                value={settings?.signature ?? ''}
+                onChange={(e) => setSettings((prev) => (prev ? { ...prev, signature: e.target.value } : prev))}
+                rows={2}
+                className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </label>
             <p className="text-xs leading-5 text-gray-500">{t('admin.mailboxSettingsHint')}</p>
           </div>
         )}

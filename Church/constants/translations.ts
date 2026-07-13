@@ -646,6 +646,8 @@ export const translations = {
     mailboxFromName: { en: 'Sender name', zh: '發信名稱' },
     mailboxFromEmail: { en: 'Sender email', zh: '發信郵箱' },
     mailboxReplyTo: { en: 'Reply-to email', zh: '回覆郵箱' },
+    mailboxGreeting: { en: 'Greeting ({name} = recipient)', zh: '開頭稱呼（{name} 代表對方姓名）' },
+    mailboxSignature: { en: 'Signature', zh: '結尾署名' },
     mailboxSettingsHint: { en: 'Sender email domain must be verified in Resend (bolccop.org). Recipients\' replies go to the reply-to address. Applies to both inbox and prayer replies.', zh: '發信郵箱的網域必須已在 Resend 驗證（bolccop.org）；對方回信將寄到回覆郵箱。此設定同時用於訊息與代禱回覆。' },
     mailboxSettingsSave: { en: 'Save', zh: '儲存' },
     mailboxSettingsCancel: { en: 'Cancel', zh: '取消' },

@@ -42,4 +42,20 @@ describe('buildReplyEmail', () => {
     const { html } = buildReplyEmail('inbox', { firstName: '', lastName: '', email: 'a@b.com', message: '' }, 'x');
     expect(html).toContain('a@b.com');
   });
+  it('uses the default greeting and signature when no template given', () => {
+    const { html } = buildReplyEmail('inbox', parent, 'x');
+    expect(html).toContain('親愛的 John Doe：');
+    expect(html).toContain('信望愛靈糧堂 Lingling 敬上');
+  });
+  it('applies a custom template: {name} placeholder, escaping, multi-line signature', () => {
+    const { html } = buildReplyEmail('inbox', parent, 'x', { greeting: '{name} 平安 <3：', signature: '主內\nLingling' });
+    expect(html).toContain('John Doe 平安 &lt;3：');
+    expect(html).toContain('主內<br>Lingling');
+    expect(html).not.toContain('親愛的');
+  });
+  it('falls back to defaults when template fields are blank', () => {
+    const { html } = buildReplyEmail('inbox', parent, 'x', { greeting: '  ', signature: '' });
+    expect(html).toContain('親愛的 John Doe：');
+    expect(html).toContain('信望愛靈糧堂 Lingling 敬上');
+  });
 });
