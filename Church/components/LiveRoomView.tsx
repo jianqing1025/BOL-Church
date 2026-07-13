@@ -28,6 +28,8 @@ interface LiveRoomViewProps {
   state: LiveStreamPublicState;
   /** live：直播（聊天可發言、有在線列表）；replay：回放（聊天只讀、無在線列表） */
   mode: LiveRoomMode;
+  /** 房間播放的視頻：直播/上次回放為 state.videoId，歷史直播為該期 youtubeId */
+  videoId: string;
   /** 回放模式可為 null（看回放不需要身份） */
   identity: { sessionId: string; displayName: string } | null;
   isAdmin: boolean;
@@ -40,7 +42,7 @@ interface LiveRoomViewProps {
  * 進房嘗試全屏+鎖橫屏（Android），iOS 走 CSS rotate fallback。
  * 數據全部由 LiveStreamSection 傳入，自身無請求邏輯。
  */
-const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, identity, isAdmin, onLeave }) => {
+const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, identity, isAdmin, onLeave }) => {
   const { t } = useLocalization();
   const rootRef = useRef<HTMLDivElement>(null);
   const [chromeVisible, setChromeVisible] = useState(true);
@@ -115,7 +117,7 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, identity, isAd
       <div ref={rootRef} className="live-room-root relative h-full w-full overflow-hidden bg-black text-gray-100">
         {/* 視頻鋪滿 */}
         <div className="absolute inset-0">
-          <LivePlayer videoId={state.videoId ?? ''} />
+          <LivePlayer videoId={videoId} />
         </div>
 
         {/* chrome 隱藏時的透明點擊層：點屏喚出；可見時不存在，不遮擋 YouTube 控件 */}
@@ -201,7 +203,7 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, identity, isAd
                 </div>
               ) : (
                 <LiveChatPanel
-                  videoId={state.videoId}
+                  videoId={videoId}
                   sessionId={identity?.sessionId ?? ''}
                   displayName={identity?.displayName ?? ''}
                   isAdmin={isAdmin}

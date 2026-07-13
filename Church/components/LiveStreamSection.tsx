@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useLocalization } from '../hooks/useLocalization';
 import { useAdmin } from '../hooks/useAdmin';
@@ -63,16 +63,17 @@ function formatViewCount(count?: number | null): string {
  * 直播與回放都不再站內嵌視頻——觀看、聊天、在線名單全部在 LiveRoomView 房間裏；
  * 身份與 join/ping 心跳只在直播房間打開期間運行（網站在線人數 = 進房人數）。
  */
+/** 房間目標：跟隨當前流（直播/上次回放）或某一期歷史直播 */
+type RoomTarget = { kind: 'stream' } | { kind: 'past'; videoId: string };
+
 const LiveStreamSection: React.FC = () => {
   const { t, language } = useLocalization();
   const { currentUser, sermons } = useAdmin();
   const [state, setState] = useState<LiveStreamPublicState | null>(null);
   const [identity, setIdentity] = useState<StoredIdentity | null>(() => (typeof window !== 'undefined' ? readIdentity() : null));
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [selectedPastId, setSelectedPastId] = useState<string | null>(null);
-  const [roomOpen, setRoomOpen] = useState(false);
+  const [roomTarget, setRoomTarget] = useState<RoomTarget | null>(null);
   const [pendingRoomEntry, setPendingRoomEntry] = useState(false);
-  const playerSectionRef = useRef<HTMLDivElement>(null);
 
   const isLoggedInAdmin = !!currentUser;
   const isLive = state?.status === 'live' && !!state?.videoId;
@@ -122,8 +123,9 @@ const LiveStreamSection: React.FC = () => {
   }, [cta]);
 
   // join + 心跳只在直播房間打開期間運行——網站在線人數 = 進房觀看的人
+  const inStreamRoom = roomTarget?.kind === 'stream';
   useEffect(() => {
-    if (!roomOpen || !isLive || !identity) return undefined;
+    if (!inStreamRoom || !isLive || !identity) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -135,7 +137,7 @@ const LiveStreamSection: React.FC = () => {
       try { await api.livePing(identity.sessionId); } catch { /* ignore */ }
     }, PING_INTERVAL_MS);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [roomOpen, isLive, identity]);
+  }, [inStreamRoom, isLive, identity]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
@@ -157,9 +159,9 @@ const LiveStreamSection: React.FC = () => {
   }, [t]);
 
   const handleOpenRoom = useCallback(() => {
-    if (cta === 'watch-replay') { setRoomOpen(true); return; } // 看回放不需要身份
+    if (cta === 'watch-replay') { setRoomTarget({ kind: 'stream' }); return; } // 看回放不需要身份
     if (cta !== 'enter-live') return;
-    if (identity) { setRoomOpen(true); return; }
+    if (identity) { setRoomTarget({ kind: 'stream' }); return; }
     setPendingRoomEntry(true);
     // 管理員的身份由自動加入 effect 補齊，這裏只等；一般用戶先填名字
     if (!isLoggedInAdmin) setShowJoinModal(true);
@@ -169,7 +171,7 @@ const LiveStreamSection: React.FC = () => {
   useEffect(() => {
     if (pendingRoomEntry && identity) {
       setPendingRoomEntry(false);
-      setRoomOpen(true);
+      setRoomTarget({ kind: 'stream' });
     }
   }, [pendingRoomEntry, identity]);
 
@@ -182,10 +184,11 @@ const LiveStreamSection: React.FC = () => {
     setShowJoinModal(false);
   }, [identity]);
 
-  // 無直播也無可看回放（waiting）時自動關房間；live ↔ 回放之間房間原地換模式
+  // 跟隨當前流的房間：無直播也無可看回放（waiting）時自動關；live ↔ 回放原地換模式。
+  // 歷史直播房間不受當前流狀態影響。
   useEffect(() => {
-    if (shouldCloseLiveRoom(roomOpen, cta)) setRoomOpen(false);
-  }, [roomOpen, cta]);
+    if (roomTarget?.kind === 'stream' && shouldCloseLiveRoom(true, cta)) setRoomTarget(null);
+  }, [roomTarget, cta]);
 
   // 歷史直播：從本地 sermons 拉所有 category='live-broadcast' 的條目，
   // 過濾隱藏，按日期倒序排，限制顯示前 12 條（多了讓用戶去 /sermons 翻）
@@ -195,16 +198,9 @@ const LiveStreamSection: React.FC = () => {
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       .slice(0, 12);
   }, [sermons]);
-  const selectedPastBroadcast = useMemo(
-    () => pastBroadcasts.find(sermon => sermon.id === selectedPastId) ?? null,
-    [pastBroadcasts, selectedPastId],
-  );
-
-  const handlePastBroadcastClick = (id: string) => {
-    setSelectedPastId(id);
-    window.setTimeout(() => {
-      playerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
+  // 歷史直播（直播回放）也進影院式房間觀看：replay 模式、聊天為該場存檔（只讀）
+  const handlePastBroadcastClick = (youtubeId: string) => {
+    setRoomTarget({ kind: 'past', videoId: youtubeId });
   };
 
   const renderPastBroadcasts = () => {
@@ -227,10 +223,8 @@ const LiveStreamSection: React.FC = () => {
               <button
                 key={sermon.id}
                 type="button"
-                onClick={() => handlePastBroadcastClick(sermon.id)}
-                className={`group block overflow-hidden rounded-lg border bg-white text-left shadow-sm transition-shadow hover:shadow-md ${
-                  selectedPastId === sermon.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
-                }`}
+                onClick={() => handlePastBroadcastClick(sermon.youtubeId)}
+                className="group block overflow-hidden rounded-lg border border-gray-200 bg-white text-left shadow-sm transition-shadow hover:shadow-md"
               >
                 <div className="relative aspect-video w-full overflow-hidden bg-black">
                   <img
@@ -283,16 +277,28 @@ const LiveStreamSection: React.FC = () => {
         />
       )}
 
-      {/* 房間：直播需要身份；回放直接看。live ↔ 回放切換時原地換模式 */}
-      {roomOpen && cta !== 'waiting' && (cta !== 'enter-live' || identity) && (
-        <LiveRoomView
-          state={state}
-          mode={cta === 'enter-live' ? 'live' : 'replay'}
-          identity={identity}
-          isAdmin={isLoggedInAdmin}
-          onLeave={() => setRoomOpen(false)}
-        />
-      )}
+      {/* 房間：直播需要身份；回放/歷史直播直接看。跟隨流的房間在 live ↔ 回放間原地換模式 */}
+      {(() => {
+        if (!roomTarget) return null;
+        const roomView = roomTarget.kind === 'past'
+          ? { mode: 'replay' as const, videoId: roomTarget.videoId }
+          : cta === 'enter-live' && identity
+            ? { mode: 'live' as const, videoId: state.videoId ?? '' }
+            : cta === 'watch-replay'
+              ? { mode: 'replay' as const, videoId: state.videoId ?? '' }
+              : null;
+        if (!roomView) return null;
+        return (
+          <LiveRoomView
+            state={state}
+            mode={roomView.mode}
+            videoId={roomView.videoId}
+            identity={identity}
+            isAdmin={isLoggedInAdmin}
+            onLeave={() => setRoomTarget(null)}
+          />
+        );
+      })()}
 
       <LiveStatusCard
         state={state}
@@ -302,26 +308,6 @@ const LiveStreamSection: React.FC = () => {
         onRefresh={handleRefresh}
         onOpenRoom={handleOpenRoom}
       />
-
-      {/* 歷史直播點播：保留站內播放（與直播/回放的房間觀看互不相關） */}
-      {selectedPastBroadcast && (
-        <div ref={playerSectionRef} className="space-y-3 scroll-mt-32">
-          <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-            {language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
-          </div>
-          <div className="aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
-            <iframe
-              key={selectedPastBroadcast.youtubeId}
-              src={`https://www.youtube.com/embed/${selectedPastBroadcast.youtubeId}?rel=0&autoplay=1`}
-              title={language === Language.ZH ? (selectedPastBroadcast.title.zh || selectedPastBroadcast.title.en) : (selectedPastBroadcast.title.en || selectedPastBroadcast.title.zh)}
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="h-full w-full"
-            />
-          </div>
-        </div>
-      )}
 
       {renderPastBroadcasts()}
     </div>
