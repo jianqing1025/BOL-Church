@@ -24,6 +24,13 @@ type NavLink =
   | { href: string; key: string; subLinks?: never }
   | { key: string; subLinks: NavSubLink[]; href?: never };
 
+const BOLD_NAV_KEYS = new Set([
+  'header.navSermons',
+  'photosPage.navChurchPhotos',
+  'eventsPage.navOnlineBibleStudy',
+  'sermonsPage.navLiveStream',
+]);
+
 const useHeaderStyle = (isTransparent: boolean, useHeroBackground: boolean) => {
     const [isScrolled, setIsScrolled] = useState(!isTransparent);
 
@@ -174,6 +181,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
     setPhotoSlideshowOpen(false);
     window.dispatchEvent(new CustomEvent<SlideshowMode>('bolccop:start-photo-slideshow', { detail: mode }));
   };
+  const isBoldNavItem = (key: string | undefined) => Boolean(key && BOLD_NAV_KEYS.has(key));
 
   return (
       <header
@@ -211,7 +219,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                     <div className="absolute left-0 top-full z-10 w-56 pt-2">
                       <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
                         {link.subLinks.map(subLink => (
-                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className={`block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200 ${isBoldNavItem(subLink.key) ? 'font-bold' : ''}`}>
                             {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
                            </a>
                         ))}
@@ -265,7 +273,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               disabled={photoGateActive}
               className={`rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm transition-all ${photoGateActive ? 'cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
             >
-              上传
+              {uploadLabel}
             </button>
             <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
               {isMenuOpen ? <CloseIcon /> : <MenuIcon />}
@@ -301,7 +309,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                     <div className="absolute left-0 top-full z-10 w-56 pt-2">
                       <div className="rounded-xl border border-white/30 bg-white/80 p-2 shadow-lg backdrop-blur-lg">
                         {link.subLinks.map(subLink => (
-                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className="block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200">
+                           <a key={subLink.key ?? subLink.href} href={subLink.href} onClick={event => navigateTo(event, subLink.href)} className={`block px-4 py-2 text-gray-900 hover:bg-white/50 rounded-lg whitespace-nowrap transition-colors duration-200 ${isBoldNavItem(subLink.key) ? 'font-bold' : ''}`}>
                             {'key' in subLink ? t(subLink.key) : (language === Language.EN ? subLink.label.en : subLink.label.zh)}
                            </a>
                         ))}
@@ -338,7 +346,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
               {navLinks.map(link => (
                 link.key === 'header.navEvents' ? (
                     <React.Fragment key="mobile-photos-before-events">
-                      <a href="/photos" onClick={event => navigateTo(event, '/photos')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                      <a href="/photos" onClick={event => navigateTo(event, '/photos')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-bold">
                         {t('photosPage.navChurchPhotos')}
                       </a>
                       <div className="flex flex-col items-center gap-2">
@@ -346,7 +354,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                             {t(link.key)}
                         </a>
                       </div>
-                      <a href="/meeting" onClick={event => navigateTo(event, '/meeting')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                      <a href="/meeting" onClick={event => navigateTo(event, '/meeting')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-bold">
                         {t('eventsPage.navOnlineBibleStudy')}
                       </a>
                     </React.Fragment>
@@ -356,7 +364,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                     </a>
                 ) : (
                     <div key={link.key} className="flex flex-col items-center gap-2">
-                      <a href={link.subLinks[0].href} onClick={event => navigateTo(event, link.subLinks[0].href)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                      <a href={link.subLinks[0].href} onClick={event => navigateTo(event, link.subLinks[0].href)} className={`text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg ${isBoldNavItem(link.key) ? 'font-bold' : 'font-semibold'}`}>
                           {t(link.key)}
                       </a>
                     </div>

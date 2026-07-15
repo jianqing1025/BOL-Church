@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { ChatMessage, SystemMessage } from '../../meeting/chatProtocol';
+import { useLocalization } from '../../hooks/useLocalization';
 
 export type DisplayMessage = ChatMessage | SystemMessage;
 
@@ -9,6 +10,7 @@ interface MessageListProps {
 }
 
 export const MessageList: React.FC<MessageListProps> = ({ messages, ownUserId }) => {
+  const { t } = useLocalization();
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -18,7 +20,9 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, ownUserId })
         if (m.type === 'system') {
           return (
             <div key={`sys-${i}-${m.createdAt}`} className="text-center text-xs text-gray-500">
-              {m.text}
+              {'event' in m
+                ? t(m.event === 'joined' ? 'meeting.memberJoined' : 'meeting.memberLeft').replace('{name}', m.name)
+                : m.text}
             </div>
           );
         }

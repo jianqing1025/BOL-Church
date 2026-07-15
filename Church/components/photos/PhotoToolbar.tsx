@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowUpDown, CheckSquare, ChevronDown, Download, Expand, Film, FolderInput,
   Grid2X2, Heart, Image as ImageIcon, LayoutDashboard, LayoutTemplate,
-  MoreVertical, Shrink, Trash2, Waves, X,
+  MoreVertical, Shrink, Trash2, Waves, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -253,8 +253,8 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         />
         <div className="ml-auto flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
-            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className={`${iconBtn} font-bold text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom In">+</button>
-            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className={`${iconBtn} font-bold text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom Out">-</button>
+            <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className={`${iconBtn} text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom In" aria-label="Zoom In"><ZoomIn size={17} /></button>
+            <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className={`${iconBtn} text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom Out" aria-label="Zoom Out"><ZoomOut size={17} /></button>
           </div>
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
             <button type="button" onClick={() => props.viewMode === 'square' ? props.onSetGridDisplayMode(props.gridDisplayMode === 'fill' ? 'ratio' : 'fill') : props.onSetViewMode('square')} className={`${iconBtn} ${props.viewMode === 'square' ? 'bg-white text-rose-500 shadow-sm' : 'text-gray-400'}`} title="Grid"><GridModeIcon mode={props.viewMode === 'square' ? props.gridDisplayMode : 'fill'} /></button>
@@ -297,8 +297,8 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
         <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
           {props.isDeleteMode && <span className="mr-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-500">DEL</span>}
           {props.isSelectMode && <span className="mr-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500">{props.selectedCount > 0 ? `${props.selectedCount} selected` : 'SEL'}</span>}
-          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-base font-bold leading-none text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom In">+</button>
-          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-base font-bold leading-none text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom Out">-</button>
+          <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom In" aria-label="Zoom In"><ZoomIn size={18} /></button>
+          <button type="button" onClick={() => props.onSetColumns(Math.min(40, props.columns + 1))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-rose-50 hover:text-rose-500" title="Zoom Out" aria-label="Zoom Out"><ZoomOut size={18} /></button>
           <button type="button" onClick={() => setMoreOpen(true)} className={`rounded-lg p-2 ${moreOpen ? 'bg-rose-50 text-rose-500' : 'text-gray-600 hover:bg-gray-100'}`} title="More"><MoreVertical size={18} /></button>
         </div>
       </div>

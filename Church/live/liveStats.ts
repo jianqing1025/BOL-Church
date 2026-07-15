@@ -12,6 +12,16 @@ export function computeTotalOnline(websiteTotal: number, youtubePeak: number | n
   return websiteTotal + (youtubePeak ?? 0);
 }
 
+/**
+ * Give very small archived live-stream totals a modest one-time display boost.
+ * The boosted value is persisted when the stream is archived, so it does not
+ * change whenever the public endpoint is polled.
+ */
+export function boostLowOnlineTotal(total: number, random: () => number = Math.random): number {
+  if (total >= 5) return total;
+  return total + 3 + Math.floor(random() * 4);
+}
+
 export type StreamEndDecision = 'live' | 'ended' | 'transient-miss';
 
 // search.list 间歇性返回空。仅当上次在直播、本次搜索为空、且 liveStreamingDetails

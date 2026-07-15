@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextPeak, computeTotalOnline, decideStreamEnd } from './liveStats';
+import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd } from './liveStats';
 
 describe('nextPeak', () => {
   it('returns current when no prior peak', () => {
@@ -25,6 +25,18 @@ describe('computeTotalOnline', () => {
   it('treats missing youtube peak as 0', () => {
     expect(computeTotalOnline(128, null)).toBe(128);
     expect(computeTotalOnline(0, undefined)).toBe(0);
+  });
+});
+
+describe('boostLowOnlineTotal', () => {
+  it('adds between 3 and 6 when the total is below 5', () => {
+    expect(boostLowOnlineTotal(0, () => 0)).toBe(3);
+    expect(boostLowOnlineTotal(4, () => 0.999999)).toBe(10);
+  });
+
+  it('does not change totals of 5 or more', () => {
+    expect(boostLowOnlineTotal(5, () => 0)).toBe(5);
+    expect(boostLowOnlineTotal(20, () => 0.5)).toBe(20);
   });
 });
 

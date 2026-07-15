@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Users, ScreenShareOff } from 'lucide-react';
-import type { MeetingRoom } from '../../constants/meetingRooms';
+import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
 import { LiveKitService } from '../../services/livekitService';
@@ -33,7 +33,7 @@ const formatElapsed = (seconds: number): string => {
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   room, name, password, messages, members, ownUserId, onSend, onLeave,
 }) => {
-  const { t } = useLocalization();
+  const { language, t } = useLocalization();
   const lk = useLiveKit(room, name, password);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
@@ -77,7 +77,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           <span className="truncate">{t('meeting.brandTitle')}</span>
         </button>
         <div className="flex min-w-0 items-center gap-3">
-          <span className="truncate font-bold">{room.name}</span>
+          <span className="truncate font-bold">{localizeMeetingRoomText(room.name, language)}</span>
           <span className="shrink-0 tabular-nums text-sm text-gray-400">{formatElapsed(elapsed)}</span>
           {localSharing && (
             <button

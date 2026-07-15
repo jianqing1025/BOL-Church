@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalization } from '../../hooks/useLocalization';
-import { MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
+import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
 import type { ServerMessage } from '../../meeting/chatProtocol';
@@ -11,7 +11,7 @@ import PageHeader from '../PageHeader';
 import MinistrySecondaryNav from '../MinistrySecondaryNav';
 
 export type Stage = 'auth' | 'pick' | 'room';
-type RoomWithActivity = MeetingRoom & { activeCount?: number; imageUrl?: string; schedule?: string };
+type RoomWithActivity = MeetingRoom & { activeCount?: number };
 
 interface MeetingPageProps {
   /** Reports the current stage so the shell can hide chrome for the in-room view. */
@@ -23,7 +23,7 @@ const readName = (): string => {
 };
 
 export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
-  const { t } = useLocalization();
+  const { language, t } = useLocalization();
   const [stage, setStage] = useState<Stage>('auth');
   const [name, setName] = useState(readName);
   const [password, setPassword] = useState('');
@@ -155,21 +155,21 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
               >
                 {(r.activeCount ?? 0) > 0 && (
                   <div className="absolute right-4 top-4 z-10 rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white shadow">
-                    正在聚会
+                    {t('meeting.inProgress')}
                   </div>
                 )}
-                <img src={r.imageUrl} alt={r.name} className="h-36 w-full object-cover sm:h-48" />
+                <img src={r.imageUrl} alt={localizeMeetingRoomText(r.name, language)} className="h-36 w-full object-cover sm:h-48" />
                 <div className="flex min-h-24 items-center justify-between gap-4 p-4 sm:min-h-28 sm:p-6">
                   <div className="min-w-0">
-                    <h3 className="mb-1 text-lg font-bold text-gray-900 sm:mb-2 sm:text-xl">{r.name}</h3>
-                    <p className="text-gray-600">{r.schedule}</p>
+                    <h3 className="mb-1 text-lg font-bold text-gray-900 sm:mb-2 sm:text-xl">{localizeMeetingRoomText(r.name, language)}</h3>
+                    <p className="text-gray-600">{localizeMeetingRoomText(r.schedule, language)}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => enterRoom(r)}
                     className="shrink-0 rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
-                    加入
+                    {t('meeting.join')}
                   </button>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, FolderInput, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
+import { zipSync } from 'fflate';
 import { api } from '../../api';
 import type { ChurchPhoto } from '../../data';
 import { useLocalization } from '../../hooks/useLocalization';
@@ -11,7 +12,7 @@ import { Lightbox } from './Lightbox';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { SlideshowOverlay } from './slideshows/SlideshowOverlay';
 import type { GridDisplayMode, SlideshowMode, SortDir, SortField, ViewMode } from './types';
-import { churchConfirm } from '../ChurchDialog';
+import { churchConfirm, churchPermissionConfirm } from '../ChurchDialog';
 import { buildPaginationNumbers } from '../../utils/pagination';
 import { useAdmin } from '../../hooks/useAdmin';
 import { buildMediaSlots } from '../../media';
@@ -112,6 +113,45 @@ const uniqueLabels = (values: string[]): string[] => {
 };
 const fileBaseName = (url: string) => decodeURIComponent(url.split('/').pop() || 'photo.jpg').replace(/\?.*$/, '');
 
+const safeDownloadName = (name: string): string => name
+  .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-')
+  .replace(/[. ]+$/g, '')
+  .trim() || 'photo.jpg';
+
+const extensionForType = (contentType: string): string => ({
+  'image/avif': '.avif',
+  'image/gif': '.gif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/svg+xml': '.svg',
+  'image/webp': '.webp',
+}[contentType.split(';')[0].toLowerCase()] || '');
+
+const downloadName = (photo: ChurchPhoto, response: Response): string => {
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try { return safeDownloadName(decodeURIComponent(encoded)); } catch { /* use metadata below */ }
+  }
+  const sourceName = fileBaseName(photo.src);
+  const sourceExtension = sourceName.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0] || extensionForType(response.headers.get('Content-Type') || '');
+  const title = safeDownloadName(photo.title || sourceName);
+  return /\.[a-zA-Z0-9]{1,10}$/.test(title) ? title : `${title}${sourceExtension || '.jpg'}`;
+};
+
+const saveBlob = (blob: Blob, name: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 const screenNumber = (screen: Screen, index: number, isCurrent: boolean): BrowserDisplay => {
   // ScreenDetailed exposes full-screen origin via left/top; availLeft/availTop are
   // the work area. For a fullscreen slideshow window we want the FULL screen origin,
@@ -154,6 +194,17 @@ const listBrowserDisplays = async (): Promise<BrowserDisplay[]> => {
   } catch (error) {
     slideshowLog('getScreenDetails failed/denied:', error);
     return [];
+  }
+};
+
+const windowManagementPermissionState = async (): Promise<PermissionState | null> => {
+  try {
+    const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
+    if (!perms?.query) return null;
+    const status = await perms.query({ name: 'window-management' as PermissionName });
+    return status.state;
+  } catch {
+    return null;
   }
 };
 
@@ -473,17 +524,50 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
     }
   }, [currentUser, selectedPhotos, uploaderId, showNotice, t]);
 
-  const downloadPhotos = useCallback((items: ChurchPhoto[]) => {
-    items.forEach((photo, i) => window.setTimeout(() => {
-      const link = document.createElement('a');
-      link.href = photo.src;
-      link.download = photo.title || fileBaseName(photo.src);
-      link.rel = 'noopener';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }, i * 150));
-  }, []);
+  const downloadPhotos = useCallback(async (items: ChurchPhoto[]) => {
+    if (items.length === 0) return;
+    setError('');
+    const files: Record<string, Uint8Array> = {};
+    const usedNames = new Set<string>();
+
+    try {
+      for (let index = 0; index < items.length; index++) {
+        setNotice(t('photosPage.downloadingPhotos')
+          .replace('{current}', String(index + 1))
+          .replace('{total}', String(items.length)));
+        const photo = items[index];
+        const response = await fetch(`/api/photos/${encodeURIComponent(photo.id)}/download`, { credentials: 'same-origin' });
+        const contentType = response.headers.get('Content-Type') || '';
+        if (!response.ok || /(?:text\/html|application\/json)/i.test(contentType)) {
+          throw new Error(`Download failed (${response.status})`);
+        }
+
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        let name = downloadName(photo, response);
+        const dot = name.lastIndexOf('.');
+        const stem = dot > 0 ? name.slice(0, dot) : name;
+        const extension = dot > 0 ? name.slice(dot) : '';
+        let copy = 2;
+        while (usedNames.has(name.toLowerCase())) name = `${stem} (${copy++})${extension}`;
+        usedNames.add(name.toLowerCase());
+        files[name] = bytes;
+      }
+
+      if (items.length === 1) {
+        const [name, bytes] = Object.entries(files)[0];
+        saveBlob(new Blob([bytes.buffer as ArrayBuffer]), name);
+      } else {
+        const archive = zipSync(files, { level: 0 });
+        const date = new Date().toISOString().slice(0, 10);
+        saveBlob(new Blob([archive.buffer as ArrayBuffer], { type: 'application/zip' }), `church-photos-${date}.zip`);
+      }
+      showNotice(t('photosPage.downloadComplete'));
+    } catch (err) {
+      setNotice('');
+      console.error('[photos] download failed', err);
+      setError(t('photosPage.downloadFailed'));
+    }
+  }, [showNotice, t]);
 
   const exportMetadata = useCallback(() => {
     const blob = new Blob([JSON.stringify(filteredPhotos, null, 2)], { type: 'application/json' });
@@ -520,6 +604,17 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
     const nextSelection: SlideshowSelection = { type: 'photo', mode, data: filteredPhotos };
 
     try {
+      if (window.getScreenDetails && await windowManagementPermissionState() !== 'granted') {
+        const allowed = await churchPermissionConfirm(t('photosPage.windowPermissionMessage'), {
+          title: t('photosPage.windowPermissionTitle'),
+          confirmLabel: t('meeting.permissionContinue'),
+          cancelLabel: t('meeting.permissionCancel'),
+        });
+        if (!allowed) {
+          setActiveSlideshow(nextSelection);
+          return;
+        }
+      }
       const displays = await listBrowserDisplays();
       if (displays.length > 1) {
         setSlideshowDisplayPicker({ open: true, displays, pending: nextSelection });
@@ -689,7 +784,7 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
         onToggleDeleteMode={() => setIsDeleteMode((v) => !v)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={() => setIsFullscreen((v) => !v)}
-        onExportOrDownload={() => (isSelectMode && selectedIds.size > 0 ? downloadPhotos(selectedPhotos) : exportMetadata())}
+        onExportOrDownload={() => { if (isSelectMode && selectedIds.size > 0) void downloadPhotos(selectedPhotos); else exportMetadata(); }}
         onBulkDelete={bulkDelete}
         onMoveSelected={openMoveSelected}
       />
@@ -773,7 +868,7 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
           <div className="mr-1 border-r border-gray-200 px-3 text-sm font-bold text-gray-600">{selectedIds.size}</div>
           <button type="button" onClick={() => void copyLinks()} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-blue-50 hover:text-blue-600"><Copy size={18} /><span className="text-[9px] font-bold uppercase">Copy</span></button>
           <button type="button" onClick={openMoveSelected} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-orange-50 hover:text-orange-600"><FolderInput size={18} /><span className="text-[9px] font-bold uppercase">{t('photosPage.moveSelected')}</span></button>
-          <button type="button" onClick={() => downloadPhotos(selectedPhotos)} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-green-50 hover:text-green-600"><Download size={18} /><span className="text-[9px] font-bold uppercase">{t('photosPage.download')}</span></button>
+          <button type="button" onClick={() => void downloadPhotos(selectedPhotos)} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-green-50 hover:text-green-600"><Download size={18} /><span className="text-[9px] font-bold uppercase">{t('photosPage.download')}</span></button>
           <button type="button" onClick={() => void bulkDelete()} className="flex min-w-[56px] flex-col items-center gap-1 rounded-lg p-2 text-gray-600 hover:bg-red-50 hover:text-red-600"><Trash2 size={18} /><span className="text-[9px] font-bold uppercase">Delete</span></button>
           <button type="button" onClick={clearSelection} className="ml-1 rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-500"><X size={18} /></button>
         </div>
@@ -812,7 +907,7 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
           onNavigate={setLightboxIndex}
           isFavorite={(id) => favorites.has(id)}
           onToggleFavorite={toggleFavorite}
-          onDownload={(p) => downloadPhotos([p])}
+          onDownload={(p) => { void downloadPhotos([p]); }}
         />
       )}
 
@@ -876,7 +971,7 @@ const PhotosPage: React.FC<{ onGateChange?: (active: boolean) => void }> = ({ on
           labels={{ favorite: t('photosPage.favorite'), download: t('photosPage.download'), deleteMine: t('photosPage.deleteMine'), select: t('photosPage.add') }}
           onClose={() => setContextMenu(null)}
           onFavorite={() => toggleFavorite(contextMenu.id)}
-          onDownload={() => contextPhoto && downloadPhotos([contextPhoto])}
+          onDownload={() => { if (contextPhoto) void downloadPhotos([contextPhoto]); }}
           onDelete={() => contextPhoto && void deleteOwnPhoto(contextPhoto)}
           onSelect={() => { setIsSelectMode(true); toggleSelection(contextMenu.id); }}
         />

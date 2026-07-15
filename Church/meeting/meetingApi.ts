@@ -26,6 +26,14 @@ function jsonCors(env: MeetingEnv, data: unknown, status = 200): Response {
   });
 }
 
+async function readActiveCount(env: MeetingEnv, roomId: string): Promise<number> {
+  const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(roomId));
+  const res = await stub.fetch('https://meeting-room.local/status');
+  if (!res.ok) return 0;
+  const body = await res.json().catch(() => ({})) as { activeCount?: unknown };
+  return typeof body.activeCount === 'number' ? body.activeCount : 0;
+}
+
 /** Handles every /api/meeting/* request. Returns null if the path is not ours. */
 export async function handleMeeting(request: Request, env: MeetingEnv, url: URL): Promise<Response | null> {
   const path = url.pathname;
@@ -40,7 +48,13 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
   }
 
   if (path === '/api/meeting/rooms' && request.method === 'GET') {
-    return jsonCors(env, { rooms: MEETING_ROOMS });
+    const rooms = await Promise.all(
+      MEETING_ROOMS.map(async (room) => ({
+        ...room,
+        activeCount: await readActiveCount(env, room.id),
+      })),
+    );
+    return jsonCors(env, { rooms });
   }
 
   if (path === '/api/meeting/verify' && request.method === 'POST') {

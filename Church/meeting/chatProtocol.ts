@@ -13,11 +13,17 @@ export interface ChatMessage {
   text: string;
   createdAt: number;
 }
-export interface SystemMessage {
+export type SystemMessage = {
+  type: 'system';
+  event: 'joined' | 'left';
+  name: string;
+  createdAt: number;
+} | {
+  /** Backward compatibility for clients connected during a Worker rollout. */
   type: 'system';
   text: string;
   createdAt: number;
-}
+};
 export interface PresenceMessage {
   type: 'presence';
   users: { id: string; name: string }[];

@@ -83,7 +83,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     ? t('photosPage.noFileChosen')
     : queue.length === 1
       ? queue[0].name
-      : `${queue.length} \u5f35\u5716\u7247\u5df2\u9078\u53d6`;
+      : `${queue.length} ${t('photosPage.filesSelected')}`;
 
   const reset = () => {
     setQueue([]);
@@ -232,7 +232,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex h-[47px] items-center justify-center gap-1 rounded-lg bg-blue-600 px-4 text-sm font-extrabold text-white shadow-md transition-all hover:bg-blue-700 hover:shadow-lg"
               >
-                <span>{'\u9078\u64c7\u5716\u7247'}</span><span className="font-black">{'[批量]'}</span>
+                <span>{t('photosPage.selectImages')}</span>
               </button>
             </div>
           </div>

@@ -11,7 +11,7 @@ import {
   type SyncTarget,
   type TrainingRow,
 } from './sync/classifier';
-import { nextPeak, computeTotalOnline } from './live/liveStats';
+import { nextPeak, computeTotalOnline, boostLowOnlineTotal } from './live/liveStats';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
 import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
@@ -2047,6 +2047,35 @@ async function handlePhotoObject(env: Env, key: string): Promise<Response> {
   return new Response(object.body, { headers });
 }
 
+async function handlePhotoDownload(env: Env, id: string): Promise<Response> {
+  await ensurePhotoTables(env);
+  const row = await env.PHOTOS_DB.prepare(
+    'SELECT object_key, title FROM photos WHERE id = ? AND hidden = 0'
+  ).bind(id).first<{ object_key: string; title: string }>();
+  if (!row) return notFound('Photo not found');
+
+  const object = await env.CHURCH_PHOTOS_BUCKET.get(row.object_key);
+  if (!object) return notFound('Photo file not found');
+
+  const objectName = row.object_key.split('/').pop() || 'photo.jpg';
+  const extensionMatch = objectName.match(/(\.[a-zA-Z0-9]{1,10})$/);
+  const extension = extensionMatch?.[1] || '';
+  const title = (row.title || 'photo')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-')
+    .replace(/[. ]+$/g, '')
+    .trim() || 'photo';
+  const fileName = /\.[a-zA-Z0-9]{1,10}$/.test(title) ? title : `${title}${extension}`;
+  const asciiName = sanitizeFileName(fileName);
+  const encodedName = encodeURIComponent(fileName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Cache-Control', 'private, max-age=0, must-revalidate');
+  headers.set('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`);
+  return new Response(object.body, { headers });
+}
+
 async function handlePhotoUpload(request: Request, env: Env): Promise<Response> {
   await ensurePhotoTables(env);
   const formData = await request.formData();
@@ -2622,7 +2651,7 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
       const websiteTotal = await countWebsiteUnique(env, videoId);
       const archiveState = await getLiveStreamStateRow(env);
       const youtubePeak = (archiveState as any).youtube_peak != null ? Number((archiveState as any).youtube_peak) : null;
-      onlineTotal = computeTotalOnline(websiteTotal, youtubePeak);
+      onlineTotal = boostLowOnlineTotal(computeTotalOnline(websiteTotal, youtubePeak));
     } catch { /* keep archive resilient if live viewer state is unavailable */ }
     let archivedViewCount: number | null = null;
     let archivedDuration: number | null = null;
@@ -4094,6 +4123,11 @@ const worker: ExportedHandler<Env> = {
     }
 
     {
+      const downloadMatch = url.pathname.match(/^\/api\/photos\/([^/]+)\/download$/);
+      if (downloadMatch && request.method === 'GET') {
+        return handlePhotoDownload(env, decodeURIComponent(downloadMatch[1]));
+      }
+
       const favoriteMatch = url.pathname.match(/^\/api\/photos\/([^/]+)\/favorite$/);
       if (favoriteMatch && request.method === 'POST') {
         return handlePhotoFavoriteSet(request, env, decodeURIComponent(favoriteMatch[1]));

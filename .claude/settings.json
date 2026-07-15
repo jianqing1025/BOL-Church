@@ -84,7 +84,30 @@
       "Bash(python3 -c ' *)",
       "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/write_test.js\")",
       "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('D:/Repo/bolccop/Church/meeting/chatProtocol.ts', 'utf8'\\); const bad = [...s].map\\(\\(c,i\\)=>\\({i,code:c.charCodeAt\\(0\\),ch:JSON.stringify\\(c\\)}\\)\\).filter\\(x=>x.code<32&&![9,10,13].includes\\(x.code\\)\\); console.log\\('bad chars:', JSON.stringify\\(bad.slice\\(0,10\\)\\)\\);\")",
-      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/write_protocol.js\")"
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/write_protocol.js\")",
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--Repo-bolccop/b3e1a50f-d284-4df9-a198-aebd4121b37b/scratchpad/ws_smoke.mjs\")",
+      "Bash(taskkill //F //IM workerd.exe)",
+      "Bash(taskkill //F //IM wrangler.exe)",
+      "Bash(pkill -f \"wrangler dev\")",
+      "Bash(curl -s -o /dev/null -w \"port 8799: %{http_code}\\\\n\" --max-time 3 http://localhost:8799/api/meeting/health)",
+      "Bash(git push *)",
+      "Bash(gh pr *)",
+      "Bash(gh repo *)",
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { Write-Output \"gh: $\\($gh.Source\\)\"; gh auth status 2>&1 | Select-Object -First 3 } else { Write-Output \"gh not found\" })",
+      "Bash(git remote *)",
+      "Bash(npm run *)",
+      "Bash(grep -viE \"^\\\\s*$\")",
+      "Bash(curl -s https://dev.bolccop.org/api/meeting/health)",
+      "Bash(curl -s https://dev.bolccop.org/api/meeting/rooms)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('tailwind:', \\(p.dependencies&&p.dependencies.tailwindcss\\)||\\(p.devDependencies&&p.devDependencies.tailwindcss\\)||'not in package.json \\(likely CDN\\)'\\)\")",
+      "Bash(ls tailwind.config.*)",
+      "Bash(git commit -q -m 'fix\\(live\\): archive total online = website unique + youtube peak *)",
+      "Bash(grep -iA3 \"d1_databases\\\\|database_name\\\\|database_id\" wrangler.example.toml)",
+      "Bash(grep -iA3 \"d1_databases\\\\|database_name\\\\|database_id\" .tmp/wrangler.church-dev.toml)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Admin\\.claude"
     ]
   }
 }

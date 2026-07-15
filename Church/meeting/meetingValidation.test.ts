@@ -16,14 +16,14 @@ describe('validateAuth', () => {
 
 describe('validateJoin', () => {
   it('accepts a known room with good credentials', () => {
-    const r = validateJoin({ roomId: 'lobby', name: 'Andy', password: PW }, PW);
+    const r = validateJoin({ roomId: 'bible-study-1', name: 'Andy', password: PW }, PW);
     expect(r.ok).toBe(true);
-    if (r.ok) { expect(r.room.id).toBe('lobby'); expect(r.name).toBe('Andy'); }
+    if (r.ok) { expect(r.room.id).toBe('bible-study-1'); expect(r.name).toBe('Andy'); }
   });
   it('rejects unknown room / bad password / empty name', () => {
     expect(validateJoin({ roomId: 'nope', name: 'A', password: PW }, PW).ok).toBe(false);
-    expect(validateJoin({ roomId: 'lobby', name: 'A', password: 'x' }, PW).ok).toBe(false);
-    expect(validateJoin({ roomId: 'lobby', name: '', password: PW }, PW).ok).toBe(false);
+    expect(validateJoin({ roomId: 'bible-study-1', name: 'A', password: 'x' }, PW).ok).toBe(false);
+    expect(validateJoin({ roomId: 'bible-study-1', name: '', password: PW }, PW).ok).toBe(false);
   });
 });
 
@@ -31,9 +31,9 @@ describe('validateVideo', () => {
   it('accepts a video room', () => {
     expect(validateVideo({ roomId: 'prayer', name: 'A', password: PW }, PW).ok).toBe(true);
   });
-  it('rejects the lobby (no video) with status 403', () => {
+  it('rejects removed lobby as an invalid room id', () => {
     const r = validateVideo({ roomId: 'lobby', name: 'A', password: PW }, PW);
     expect(r.ok).toBe(false);
-    if (r.ok === false) expect(r.status).toBe(403);
+    if (r.ok === false) expect(r.status).toBe(400);
   });
 });

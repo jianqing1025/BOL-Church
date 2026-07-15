@@ -21,10 +21,16 @@ export class ChatRoom {
   constructor(_state: DurableObjectState, _env: unknown) {}
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'GET' && url.pathname.endsWith('/status')) {
+      return Response.json({ activeCount: this.sessions.size });
+    }
+
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected websocket', { status: 426 });
     }
-    const url = new URL(request.url);
+
     const roomId = url.searchParams.get('roomId') || 'lobby';
     const id = url.searchParams.get('uid') || crypto.randomUUID();
     const name = url.searchParams.get('name') || 'Guest';
@@ -36,7 +42,7 @@ export class ChatRoom {
     this.sessions.set(server, { id, name });
 
     this.sendTo(server, { type: 'welcome', roomId, userId: id, messages: this.messages });
-    this.broadcast({ type: 'system', text: `${name} 加入了房间`, createdAt: Date.now() });
+    this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
     this.broadcastPresence();
 
     server.addEventListener('message', (event: MessageEvent) => {
@@ -54,7 +60,7 @@ export class ChatRoom {
     const cleanup = () => {
       if (!this.sessions.has(server)) return;
       this.sessions.delete(server);
-      this.broadcast({ type: 'system', text: `${name} 离开了房间`, createdAt: Date.now() });
+      this.broadcast({ type: 'system', event: 'left', name, createdAt: Date.now() });
       this.broadcastPresence();
     };
     server.addEventListener('close', cleanup);
