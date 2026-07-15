@@ -58,56 +58,32 @@ export interface PhotoToolbarProps {
 
 const iconBtn = 'inline-flex h-7 w-7 items-center justify-center rounded-md transition-all';
 
-export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
-  const { t } = useLocalization();
-  const isCompact = useBreakpoint();
-  const [sortOpen, setSortOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [albumSheetOpen, setAlbumSheetOpen] = useState(false);
-  const [albumOverflowing, setAlbumOverflowing] = useState(false);
-  // 桌面端：單行能放下的 album chip 數量（其餘隱藏，溢出時收進浮層）
-  const [albumVisibleCount, setAlbumVisibleCount] = useState(999);
-  const [collectionSheetOpen, setCollectionSheetOpen] = useState(false);
-  const [collectionOverflowing, setCollectionOverflowing] = useState(false);
-  const sortRef = useRef<HTMLDivElement>(null);
-  const collectionRef = useRef<HTMLDivElement>(null);
-  const collectionMenuRef = useRef<HTMLDivElement>(null);
-  const albumRef = useRef<HTMLDivElement>(null);
-  const albumMenuRef = useRef<HTMLDivElement>(null);
-  const albumBtnRef = useRef<HTMLButtonElement>(null);
+interface ChipRenderOpts { onClick: () => void; hidden?: boolean; key: string }
 
-  const collectionFilters = ['All', ...props.collections];
-  const albumFilters = ['All', 'Favorites', ...props.albums];
-  const hasSelection = props.isSelectMode && props.selectedCount > 0;
+interface OverflowChipBarProps {
+  items: string[];
+  renderChip: (item: string, opts: ChipRenderOpts) => React.ReactNode;
+  onSelect: (item: string) => void;
+  label: string;
+  trailing?: React.ReactNode;
+}
 
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (sortRef.current && !sortRef.current.contains(target)) setSortOpen(false);
-      if (collectionMenuRef.current && !collectionMenuRef.current.contains(target)) setCollectionSheetOpen(false);
-      // 點浮層或切換按鈕以外的地方才收起（按鈕自身的 onClick 負責 toggle）
-      if (
-        albumMenuRef.current && !albumMenuRef.current.contains(target) &&
-        !(albumBtnRef.current && albumBtnRef.current.contains(target))
-      ) setAlbumSheetOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, []);
+/**
+ * 單行 chip 栏 + 溢出浮層（桌面/移動統一）：
+ * 用 ref 逐個測量 chip 右緣是否超出容器,得出可見數量,其餘隱藏;
+ * 僅在有隱藏項時於末尾顯示無竖線圓框 ▼ 按鈕(展開翻轉 ▲ 並高亮);
+ * 點擊彈絕對定位浮層蓋在下方網格上(網格不移動),以多行展示隱藏 chips;
+ * 點浮層內任一 chip(選中即收)、再點箭頭、Esc、點外部皆收起。
+ */
+const OverflowChipBar: React.FC<OverflowChipBarProps> = ({ items, renderChip, onSelect, label, trailing }) => {
+  const [open, setOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(999);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
-  // 桌面浮層：Esc 收起
-  useEffect(() => {
-    if (!albumSheetOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAlbumSheetOpen(false); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [albumSheetOpen]);
-
-  // 桌面 album 栏溢出測量：逐個量 chip 右緣是否超出容器寬度，得出可見數量；
-  // 溢出時末尾圓框按鈕作為 flex 兄弟出現、擠窄容器 → ResizeObserver 再算一輪收斂。
   useLayoutEffect(() => {
-    if (isCompact) return undefined;
-    const el = albumRef.current;
+    const el = measureRef.current;
     if (!el) return undefined;
     const measure = () => {
       const w = el.clientWidth;
@@ -117,169 +93,120 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
       for (let i = 0; i < kids.length; i++) {
         if (kids[i].getBoundingClientRect().right - base > w + 1) { count = i; break; }
       }
-      setAlbumVisibleCount(Math.max(1, count));
+      setVisibleCount(Math.max(1, count));
     };
     measure();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
     observer?.observe(el);
     window.addEventListener('resize', measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [albumFilters.join('|'), isCompact]);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [items.join('|')]);
 
   useEffect(() => {
-    document.body.style.overflow = moreOpen || (albumSheetOpen && isCompact) ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isCompact, moreOpen, albumSheetOpen]);
-
-  useEffect(() => {
-    const el = collectionRef.current;
-    if (!el) return;
-
-    const updateOverflow = () => {
-      setCollectionOverflowing(el.scrollWidth > el.clientWidth + 1);
+    if (!open) return undefined;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (popRef.current && !popRef.current.contains(target) && !(btnRef.current && btnRef.current.contains(target))) setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
 
-    updateOverflow();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateOverflow) : null;
-    observer?.observe(el);
-    window.addEventListener('resize', updateOverflow);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', updateOverflow);
-    };
-  }, [collectionFilters.join('|'), isCompact]);
+  const hasOverflow = visibleCount < items.length;
 
-  useEffect(() => {
-    const el = albumRef.current;
-    if (!el) return;
-
-    const updateOverflow = () => {
-      setAlbumOverflowing(el.scrollWidth > el.clientWidth + 1);
-    };
-
-    updateOverflow();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateOverflow) : null;
-    observer?.observe(el);
-    window.addEventListener('resize', updateOverflow);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', updateOverflow);
-    };
-  }, [albumFilters.join('|'), isCompact]);
-
-  const onWheelHorizontal = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
-  };
-
-  const collectionChips = (compact: boolean) => (
-    <div ref={collectionRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none', flexWrap: 'nowrap' }} onWheel={onWheelHorizontal}>
-      {collectionFilters.map((c) => (
-        <button
-          type="button"
-          key={c}
-          onClick={() => props.onSetCollection(c)}
-          className={`flex-shrink-0 rounded-md px-2.5 py-1 ${compact ? 'text-[11px]' : 'text-xs'} font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.selectedCollection === c ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}
-        >
-          {c === 'All' ? t('photosPage.all') : c}
-        </button>
-      ))}
-    </div>
-  );
-
-  const collectionExpandButton = (
-    <button
-      type="button"
-      onClick={() => setCollectionSheetOpen(true)}
-      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100"
-      title="Years"
-    >
-      <MoreVertical size={18} />
-    </button>
-  );
-
-  const collectionMenu = collectionSheetOpen && !isCompact && (
-    <div ref={collectionMenuRef} className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-gray-100 bg-white p-2 shadow-xl">
-      <div className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">Years</div>
-      <div className="max-h-72 overflow-y-auto">
-        {collectionFilters.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => { props.onSetCollection(c); setCollectionSheetOpen(false); }}
-            className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm font-bold ${props.selectedCollection === c ? 'bg-rose-500 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
-          >
-            {c === 'All' ? t('photosPage.all') : c}
-          </button>
-        ))}
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center gap-1.5">
+      <div ref={measureRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" style={{ flexWrap: 'nowrap' }}>
+        {items.map((it, i) => renderChip(it, { onClick: () => onSelect(it), hidden: i >= visibleCount, key: it }))}
       </div>
+      {hasOverflow && (
+        <button
+          ref={btnRef}
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          title={label}
+          className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border transition-all ${open ? 'border-rose-500 bg-rose-500 text-white shadow-md' : 'border-gray-200 bg-white text-gray-500 hover:border-rose-300 hover:text-rose-500'}`}
+        >
+          <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+      )}
+      {trailing}
+      {open && (
+        <div ref={popRef} className="absolute left-0 right-0 top-full z-50 mt-1 flex flex-wrap gap-1.5 rounded-xl border border-gray-100 bg-white p-2.5 shadow-xl">
+          {items.slice(visibleCount).map((it) => renderChip(it, { onClick: () => { onSelect(it); setOpen(false); }, hidden: false, key: `pop-${it}` }))}
+        </div>
+      )}
     </div>
   );
+};
 
-  const albumChips = (compact = false) => (
-    <div ref={albumRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none', flexWrap: 'nowrap' }} onWheel={onWheelHorizontal}>
-      {albumFilters.map((a) => a === 'Favorites' ? (
-        <button type="button" key="Favorites" onClick={() => props.onSetFilter('Favorites')} title={t('photosPage.favorite')} className={`flex flex-shrink-0 items-center justify-center rounded-md ${compact ? 'px-2' : 'px-2.5'} py-1 transition-all ${props.filter === 'Favorites' ? 'bg-rose-500 text-white shadow-md' : 'border border-rose-200 bg-rose-50 text-rose-400 hover:bg-rose-100'}`}>
-          <Heart size={compact ? 13 : 14} className={props.filter === 'Favorites' ? 'fill-current' : ''} />
-        </button>
-      ) : (
-        <button type="button" key={a} onClick={() => props.onSetFilter(a)} className={`flex-shrink-0 rounded-md ${compact ? 'px-2.5 text-[11px]' : 'px-3 text-xs'} py-1 font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.filter === a ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}>
-          {a === 'All' ? t('photosPage.all') : a}
-        </button>
-      ))}
-    </div>
-  );
+export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
+  const { t } = useLocalization();
+  const isCompact = useBreakpoint();
+  const [sortOpen, setSortOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
 
-  // compact（手機）用的 ··· 觸發底部抽屜，維持不變
-  const albumExpandButton = (
+  const collectionFilters = ['All', ...props.collections];
+  const albumFilters = ['All', 'Favorites', ...props.albums];
+  const hasSelection = props.isSelectMode && props.selectedCount > 0;
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = moreOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [moreOpen]);
+
+  // chip 渲染工廠（供 OverflowChipBar 的行內與浮層共用）。hidden 時保留佈局供測量、視覺隱藏、不可 focus。
+  const collectionChip = (compact: boolean) => (c: string, o: ChipRenderOpts) => (
     <button
       type="button"
-      onClick={() => setAlbumSheetOpen(true)}
-      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100"
-      title={t('photosPage.albums')}
+      key={o.key}
+      onClick={o.onClick}
+      style={o.hidden ? { visibility: 'hidden' } : undefined}
+      aria-hidden={o.hidden}
+      tabIndex={o.hidden ? -1 : undefined}
+      className={`flex-shrink-0 rounded-md px-2.5 py-1 ${compact ? 'text-[11px]' : 'text-xs'} font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.selectedCollection === c ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}
     >
-      <MoreVertical size={18} />
+      {c === 'All' ? t('photosPage.all') : c}
     </button>
   );
 
-  // 單個 album chip（桌面行內與浮層共用）。hidden 時保留佈局供測量，但視覺隱藏、不可 focus。
-  const renderAlbumChip = (a: string, onClick: () => void, opts?: { key?: string; hidden?: boolean }) => {
-    const style = opts?.hidden ? { visibility: 'hidden' as const } : undefined;
-    if (a === 'Favorites') return (
-      <button type="button" key={opts?.key ?? 'Favorites'} onClick={onClick} style={style} aria-hidden={opts?.hidden} tabIndex={opts?.hidden ? -1 : undefined} title={t('photosPage.favorite')} className={`flex flex-shrink-0 items-center justify-center rounded-md px-2.5 py-1 transition-all ${props.filter === 'Favorites' ? 'bg-rose-500 text-white shadow-md' : 'border border-rose-200 bg-rose-50 text-rose-400 hover:bg-rose-100'}`}>
-        <Heart size={14} className={props.filter === 'Favorites' ? 'fill-current' : ''} />
-      </button>
-    );
-    return (
-      <button type="button" key={opts?.key ?? a} onClick={onClick} style={style} aria-hidden={opts?.hidden} tabIndex={opts?.hidden ? -1 : undefined} className={`flex-shrink-0 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.filter === a ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}>
-        {a === 'All' ? t('photosPage.all') : a}
-      </button>
-    );
-  };
-
-  const albumHasOverflow = albumVisibleCount < albumFilters.length;
-
-  // 桌面圓框箭頭：僅溢出時顯示；展開翻轉為 ▲ 並高亮
-  const albumToggleButton = (
+  const albumChip = (compact: boolean) => (a: string, o: ChipRenderOpts) => a === 'Favorites' ? (
     <button
-      ref={albumBtnRef}
       type="button"
-      onClick={() => setAlbumSheetOpen((o) => !o)}
-      aria-expanded={albumSheetOpen}
-      title={t('photosPage.albums')}
-      className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border transition-all ${albumSheetOpen ? 'border-rose-500 bg-rose-500 text-white shadow-md' : 'border-gray-200 bg-white text-gray-500 hover:border-rose-300 hover:text-rose-500'}`}
+      key={o.key}
+      onClick={o.onClick}
+      style={o.hidden ? { visibility: 'hidden' } : undefined}
+      aria-hidden={o.hidden}
+      tabIndex={o.hidden ? -1 : undefined}
+      title={t('photosPage.favorite')}
+      className={`flex flex-shrink-0 items-center justify-center rounded-md ${compact ? 'px-2' : 'px-2.5'} py-1 transition-all ${props.filter === 'Favorites' ? 'bg-rose-500 text-white shadow-md' : 'border border-rose-200 bg-rose-50 text-rose-400 hover:bg-rose-100'}`}
     >
-      <ChevronDown size={15} className={`transition-transform ${albumSheetOpen ? 'rotate-180' : ''}`} />
+      <Heart size={compact ? 13 : 14} className={props.filter === 'Favorites' ? 'fill-current' : ''} />
     </button>
-  );
-
-  // 隱藏 chips 的多行浮層：絕對定位疊在下方網格之上，不推移網格
-  const albumPopover = albumSheetOpen && !isCompact && (
-    <div ref={albumMenuRef} className="absolute left-4 right-4 top-full z-50 mt-1 flex flex-wrap gap-1.5 rounded-xl border border-gray-100 bg-white p-2.5 shadow-xl">
-      {albumFilters.slice(albumVisibleCount).map((a) => renderAlbumChip(a, () => { props.onSetFilter(a); setAlbumSheetOpen(false); }, { key: `pop-${a}` }))}
-    </div>
+  ) : (
+    <button
+      type="button"
+      key={o.key}
+      onClick={o.onClick}
+      style={o.hidden ? { visibility: 'hidden' } : undefined}
+      aria-hidden={o.hidden}
+      tabIndex={o.hidden ? -1 : undefined}
+      className={`flex-shrink-0 rounded-md ${compact ? 'px-2.5 text-[11px]' : 'px-3 text-xs'} py-1 font-bold uppercase tracking-wide whitespace-nowrap transition-all ${props.filter === a ? 'bg-rose-500 text-white shadow-md' : 'border border-gray-200 bg-white text-gray-500 hover:border-rose-200'}`}
+    >
+      {a === 'All' ? t('photosPage.all') : a}
+    </button>
   );
 
   const countBadge = (
@@ -318,11 +245,12 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <ImageIcon size={20} className="text-rose-500" />
           <h1 className="text-lg font-extrabold text-gray-800">{t('photosPage.title')}</h1>
         </div>
-        <div className="relative flex min-w-0 flex-1 items-center gap-1">
-          {collectionChips(false)}
-          {collectionOverflowing && collectionExpandButton}
-          {collectionMenu}
-        </div>
+        <OverflowChipBar
+          items={collectionFilters}
+          renderChip={collectionChip(false)}
+          onSelect={props.onSetCollection}
+          label="Years"
+        />
         <div className="ml-auto flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
           <div className="flex items-center rounded-md bg-gray-100 p-0.5">
             <button type="button" onClick={() => props.onSetColumns(Math.max(1, props.columns - 1))} className={`${iconBtn} font-bold text-gray-500 hover:bg-white hover:text-rose-500 hover:shadow-sm`} title="Zoom In">+</button>
@@ -340,19 +268,14 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <button type="button" onClick={props.onToggleFullscreen} className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gray-800 text-white shadow-sm hover:bg-black" title="Fullscreen">{props.isFullscreen ? <Shrink size={16} /> : <Expand size={16} />}</button>
         </div>
       </div>
-      <div className="relative flex flex-nowrap items-center gap-3 border-t border-gray-100 px-4 py-1.5">
-        <div ref={albumRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" style={{ flexWrap: 'nowrap' }}>
-          {albumFilters.map((a, i) => renderAlbumChip(
-            a,
-            () => props.onSetFilter(a),
-            { key: a === 'Favorites' ? 'Favorites' : a, hidden: i >= albumVisibleCount },
-          ))}
-        </div>
-        <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
-          {albumHasOverflow && albumToggleButton}
-          {countBadge}
-        </div>
-        {albumPopover}
+      <div className="flex items-center gap-3 border-t border-gray-100 px-4 py-1.5">
+        <OverflowChipBar
+          items={albumFilters}
+          renderChip={albumChip(false)}
+          onSelect={props.onSetFilter}
+          label={t('photosPage.albums')}
+          trailing={countBadge}
+        />
       </div>
     </>
   );
@@ -365,7 +288,12 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <ImageIcon size={17} className="text-rose-500" />
           <h1 className="text-sm font-bold text-gray-800">{t('photosPage.title')}</h1>
         </div>
-        {collectionChips(true)}
+        <OverflowChipBar
+          items={collectionFilters}
+          renderChip={collectionChip(true)}
+          onSelect={props.onSetCollection}
+          label="Years"
+        />
         <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
           {props.isDeleteMode && <span className="mr-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-500">DEL</span>}
           {props.isSelectMode && <span className="mr-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-500">{props.selectedCount > 0 ? `${props.selectedCount} selected` : 'SEL'}</span>}
@@ -374,12 +302,14 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
           <button type="button" onClick={() => setMoreOpen(true)} className={`rounded-lg p-2 ${moreOpen ? 'bg-rose-50 text-rose-500' : 'text-gray-600 hover:bg-gray-100'}`} title="More"><MoreVertical size={18} /></button>
         </div>
       </div>
-      <div className="flex items-center gap-1 border-b border-gray-100 px-3 py-1.5">
-        {albumChips(true)}
-        <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-          {albumOverflowing && albumExpandButton}
-          {countBadge}
-        </div>
+      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5">
+        <OverflowChipBar
+          items={albumFilters}
+          renderChip={albumChip(true)}
+          onSelect={props.onSetFilter}
+          label={t('photosPage.albums')}
+          trailing={countBadge}
+        />
       </div>
     </>
   );
@@ -421,27 +351,6 @@ export const PhotoToolbar: React.FC<PhotoToolbarProps> = (props) => {
 
               <div className="mb-1 border-t border-gray-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Display</div>
               <button type="button" onClick={() => { props.onToggleFullscreen(); setMoreOpen(false); }} className={sheetRow}><Expand size={18} className="text-gray-600" /><span>{props.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span></button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Album list sheet (compact) */}
-      {albumSheetOpen && isCompact && (
-        <>
-          <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm" onClick={() => setAlbumSheetOpen(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-[201] rounded-t-2xl bg-white shadow-2xl">
-            <div className="flex justify-center pt-3"><div className="h-1 w-10 rounded-full bg-gray-200" /></div>
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2">
-              <span className="text-sm font-bold text-gray-800">{t('photosPage.albums')}</span>
-              <button type="button" onClick={() => setAlbumSheetOpen(false)} className="rounded-lg p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
-            </div>
-            <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto px-4 py-3 pb-8">
-              {albumFilters.map((a) => a === 'Favorites' ? (
-                <button type="button" key="Favorites" onClick={() => { props.onSetFilter('Favorites'); setAlbumSheetOpen(false); }} className={`flex items-center rounded-xl px-3 py-2 ${props.filter === 'Favorites' ? 'bg-rose-500 text-white' : 'border border-rose-200 bg-rose-50 text-rose-400'}`}><Heart size={16} className={props.filter === 'Favorites' ? 'fill-current' : ''} /></button>
-              ) : (
-                <button type="button" key={a} onClick={() => { props.onSetFilter(a); setAlbumSheetOpen(false); }} className={`rounded-xl px-3 py-2 text-sm font-bold ${props.filter === a ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{a === 'All' ? t('photosPage.all') : a}</button>
-              ))}
             </div>
           </div>
         </>
