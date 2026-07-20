@@ -713,10 +713,10 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const weeklyOffer = weekBuckets.map(b => sum(offerings.filter(o => inRange(o.date, b.start, b.end))));
   const weeklyExp = weekBuckets.map(b => sum(expenses.filter(e => inRange(e.date, b.start, b.end))));
 
-  // ---- 年度預算 = 已出支月份的平均 × 12（取整）----
+  // ---- 年度預算 = 已出支月份的平均 × 12，再上浮 5%（取整）----
   const activeMonthsExp = monthlyExp.filter(v => v > 0);
   const avgMonthlyExp = activeMonthsExp.length ? activeMonthsExp.reduce((s, v) => s + v, 0) / activeMonthsExp.length : 0;
-  const budgetTotal = Math.round(avgMonthlyExp * 12);
+  const budgetTotal = Math.round(avgMonthlyExp * 12 * 1.05);
 
   // ---- 支出分類 Doughnut（當年，全部狀態，Top 7 + 其他）----
   // 用類別短名（薪资福利/水电网络…）而非伺服器回傳的長全名
