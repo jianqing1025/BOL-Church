@@ -1,4 +1,4 @@
-import type { AppSettings, AuditLog, DashboardStats, Expense, ExpenseCategory, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
+import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ImportSummary, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -96,6 +96,15 @@ export const api = {
     return request<{ key: string; url: string }>('/api/public/claim-upload', { method: 'POST', body: form });
   },
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
+  backupExport: () => request<BackupData>('/api/backup/export'),
+  backupImport: (data: BackupData) =>
+    request<ImportSummary>('/api/backup/import', { method: 'POST', body: JSON.stringify(data) }),
+  backupRestoreFile: (key: string, file: File) => {
+    const form = new FormData();
+    form.append('key', key);
+    form.append('file', file);
+    return request<{ ok: true }>('/api/backup/restore-file', { method: 'POST', body: form });
+  },
   sendTaxStatement: (memberId: string, year: number, pdf?: string) =>
     request<{ ok: true }>('/api/reports/tax-statement/send', { method: 'POST', body: JSON.stringify({ memberId, year, pdf }) }),
   users: () => request<{ items: UserAccount[]; total: number }>('/api/users'),

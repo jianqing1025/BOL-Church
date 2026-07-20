@@ -197,3 +197,20 @@ export interface AppSettings {
   taxStatement: TaxStatementSettings;
   expenseNotify?: ExpenseNotifySettings;
 }
+
+export interface BackupData {
+  version: number;
+  exportedAt: string;
+  tables: Record<string, Record<string, unknown>[]>;
+  imageKeys: string[];
+}
+
+export interface ImportSummary {
+  tables: Record<string, { inserted: number; updated: number }>;
+  lockedUsers: number;
+}
+
+export interface ImportResult extends ImportSummary {
+  imagesRestored: number;
+  imagesFailed: number;
+}

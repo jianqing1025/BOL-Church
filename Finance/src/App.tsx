@@ -3,9 +3,10 @@ import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
 import { KpiCard, CategoryDoughnut, BudgetDoughnut, TrendLine, GroupedBar, CATEGORY_COLORS } from './components/dashboardCharts';
-import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
+import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
+import { exportBackup, importBackup, TABLE_LABELS } from './utils/backup';
 import {
   DEFAULT_REPLY_TO,
   DEFAULT_TAX_STATEMENT_HTML_TEMPLATE,
@@ -465,6 +466,129 @@ function Shell({ page, setPage, onOpenAccount }: {
 }
 
 
+function ImportSummaryView({ result }: { result: ImportResult }) {
+  const rows = Object.entries(result.tables).filter(([, v]) => v.inserted || v.updated);
+  return (
+    <div className="backup-summary">
+      {rows.length ? (
+        <table className="backup-summary-table">
+          <thead><tr><th>資料表</th><th>新增</th><th>更新</th></tr></thead>
+          <tbody>
+            {rows.map(([name, v]) => (
+              <tr key={name}>
+                <td>{TABLE_LABELS[name] || name}</td>
+                <td>{v.inserted}</td>
+                <td>{v.updated}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <p style={{ margin: 0 }}>沒有可導入的資料。</p>}
+      {result.lockedUsers > 0 && (
+        <p style={{ margin: '8px 0 0', color: '#b45309' }}>
+          新增 {result.lockedUsers} 個用戶帳號，需管理員重設密碼後才能登入。
+        </p>
+      )}
+      <p style={{ margin: '8px 0 0', color: '#68758a' }}>
+        圖片：已恢復 {result.imagesRestored}{result.imagesFailed ? `，失敗 ${result.imagesFailed}` : ''}
+      </p>
+    </div>
+  );
+}
+
+function BackupBar() {
+  const { hasPermission } = useAuth();
+  const { refreshAll } = useFinance();
+  const isDesktop = useIsDesktop();
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  if (!isDesktop || !hasPermission('super_admin', 'finance_admin')) return null;
+
+  const doExport = async () => {
+    setError(null);
+    setExporting(true);
+    try {
+      await exportBackup(setProgress);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '導出失敗');
+    } finally {
+      setExporting(false);
+      setProgress('');
+    }
+  };
+
+  const doImport = async (file: File) => {
+    setError(null);
+    setResult(null);
+    setImporting(true);
+    try {
+      const res = await importBackup(file, setProgress);
+      setResult(res);
+      await refreshAll();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '導入失敗');
+    } finally {
+      setImporting(false);
+      setProgress('');
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const closeImport = () => {
+    if (importing) return;
+    setShowImport(false);
+    setResult(null);
+    setError(null);
+  };
+
+  return (
+    <>
+      <div className="backup-bar">
+        <div className="backup-bar-info">
+          <strong>數據備份</strong>
+          <span>導出可查看／可再導入的完整備份（含圖片），或導入備份還原</span>
+        </div>
+        <div className="backup-bar-actions">
+          <button type="button" onClick={doExport} disabled={exporting}>
+            {exporting ? (progress || '導出中…') : '導出備份'}
+          </button>
+          <button type="button" className="primary" onClick={() => { setResult(null); setError(null); setShowImport(true); }}>
+            導入備份
+          </button>
+        </div>
+      </div>
+      {error && !showImport && <p className="error" style={{ margin: '6px 0 0' }}>{error}</p>}
+
+      {showImport && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <header><h2>導入備份</h2><button type="button" onClick={closeImport}>關閉</button></header>
+            <div className="form-grid">
+              <p style={{ margin: 0, fontSize: 13, color: '#68758a' }}>
+                選擇由本系統導出的 .zip 備份，或符合格式的來源資料。按主鍵合併／更新，不會刪除既有資料；圖片將一併恢復。
+              </p>
+              <input ref={fileRef} type="file" accept=".zip,application/zip" disabled={importing}
+                onChange={event => { const file = event.target.files?.[0]; if (file) doImport(file); }} />
+              {importing && <p style={{ margin: 0 }}>{progress || '處理中…'}</p>}
+              {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+              {result && <ImportSummaryView result={result} />}
+            </div>
+            <footer>
+              <button type="button" onClick={closeImport} disabled={importing}>{result ? '完成' : '取消'}</button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { dashboard, lookups, offerings, expenses } = useFinance();
   const years = useMemo(() => {
@@ -587,6 +711,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   return (
     <section className="page">
       <PageTitle title="數據看板" subtitle={`${year} 年度與待處理財務事項總覽`} />
+      <BackupBar />
       <Toolbar>
         <strong>{year} 年度資料</strong>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

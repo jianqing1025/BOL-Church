@@ -2,6 +2,7 @@
 
 import type { AppSettings, ExpenseNotifySettings, ExpenseStatus, MemberStatus, Role, TaxStatementSettings } from '../types';
 import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml, normalizeTaxStatementSettings } from '../shared/taxStatement';
+import { exportBackup, importBackup, type BackupData } from './backup';
 
 type Env = {
   DB: D1Database;
@@ -1049,6 +1050,37 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname === '/api/finance/dashboard') return dashboard(env, testFlag);
+
+        if (url.pathname === '/api/backup/export' && request.method === 'GET') {
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
+          return json(await exportBackup(env));
+        }
+
+        if (url.pathname === '/api/backup/import' && request.method === 'POST') {
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
+          const payload = await readJson<BackupData>(request);
+          const summary = await importBackup(env, payload);
+          const total = Object.values(summary.tables).reduce((acc, t) => acc + t.inserted + t.updated, 0);
+          await recordAudit(env, user, {
+            action: 'import',
+            entityType: 'backup',
+            entityId: 'backup',
+            entitySummary: `導入備份：${total} 筆（新增/更新）`,
+            after: summary
+          });
+          return json(summary);
+        }
+
+        if (url.pathname === '/api/backup/restore-file' && request.method === 'POST') {
+          if (!canManageSettings(user.role)) return error('Forbidden', 403);
+          const form = await request.formData();
+          const key = String(form.get('key') || '');
+          const file = form.get('file');
+          if (!key) return error('Missing key');
+          if (!(file instanceof File)) return error('Missing file');
+          await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type || 'application/octet-stream' } });
+          return json({ ok: true });
+        }
 
         if (url.pathname === '/api/settings' && request.method === 'GET') {
           return json(await readAppSettings(env));
