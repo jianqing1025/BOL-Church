@@ -22,27 +22,34 @@ const compactUsd = (v: number) => {
   return `$${Math.round(v)}`;
 };
 
-// 在圓環真實圓心（非容器中心）繪製標題+數值，避開圖例造成的偏移
-function centerTextPlugin(caption: string, value: string, valueColor = '#172033') {
-  return {
-    id: `centerText-${caption}`,
-    afterDatasetsDraw(chart: { ctx: CanvasRenderingContext2D; getDatasetMeta: (i: number) => { data: Array<{ x: number; y: number }> } }) {
-      const arc = chart.getDatasetMeta(0).data[0];
-      if (!arc) return;
-      const { ctx } = chart;
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = MUTED;
-      ctx.font = '600 11px system-ui, sans-serif';
-      ctx.fillText(caption, arc.x, arc.y - 10);
-      ctx.fillStyle = valueColor;
-      ctx.font = '800 18px system-ui, sans-serif';
-      ctx.fillText(value, arc.x, arc.y + 8);
-      ctx.restore();
-    },
-  };
-}
+// 在圓環真實圓心（非容器中心）繪製標題+數值，避開圖例造成的偏移。
+// 值由 options.plugins.centerText 提供（每次 re-render 都會更新），
+// 不能把值寫進 inline plugin 閉包——react-chartjs-2 更新時不會替換 plugins，會鎖死在首次渲染值。
+type CenterTextOptions = { caption?: string; value?: string; valueColor?: string };
+const centerTextPlugin = {
+  id: 'centerText',
+  afterDatasetsDraw(
+    chart: { ctx: CanvasRenderingContext2D; getDatasetMeta: (i: number) => { data: Array<{ x: number; y: number }> } },
+    _args: unknown,
+    opts: CenterTextOptions | undefined
+  ) {
+    if (!opts || !opts.value) return;
+    const arc = chart.getDatasetMeta(0).data[0];
+    if (!arc) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = MUTED;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText(opts.caption ?? '', arc.x, arc.y - 10);
+    ctx.fillStyle = opts.valueColor ?? '#172033';
+    ctx.font = '800 18px system-ui, sans-serif';
+    ctx.fillText(opts.value, arc.x, arc.y + 8);
+    ctx.restore();
+  },
+};
+ChartJS.register(centerTextPlugin as Parameters<typeof ChartJS.register>[0]);
 
 // ---------- KPI 卡（漸變底 + sparkline 曲線） ----------
 export interface KpiCardProps {
@@ -180,6 +187,7 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
     responsive: true, maintainAspectRatio: false, cutout: '62%',
     plugins: {
       legend: { display: false },   // 改用下方自訂數據列表
+      centerText: { caption: '年度支出', value: compactUsd(total) },
       tooltip: {
         callbacks: {
           label: (ctx: { label?: string; parsed: number }) => {
@@ -193,7 +201,7 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
   return (
     <>
       <div className="chart-canvas doughnut-wrap">
-        <Doughnut data={data} options={options} plugins={[centerTextPlugin('年度支出', compactUsd(total))]} />
+        <Doughnut data={data} options={options} />
       </div>
       <ul ref={listRef} className="cat-data-list" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {items.map((it, idx) => (
@@ -226,12 +234,13 @@ export function BudgetDoughnut({ used, budget }: { used: number; budget: number 
     responsive: true, maintainAspectRatio: false, cutout: '68%',
     plugins: {
       legend: { position: 'bottom' as const, labels: { color: INK, boxWidth: 12, padding: 10, font: { size: 11 } } },
+      centerText: { caption: '已使用', value: `${pct}%`, valueColor: over ? '#e34948' : '#172033' },
       tooltip: { callbacks: { label: (ctx: { label?: string; parsed: number }) => ` ${ctx.label}: ${currency(ctx.parsed)}` } },
     },
   };
   return (
     <div className="chart-canvas doughnut-wrap">
-      <Doughnut data={data} options={options} plugins={[centerTextPlugin('已使用', `${pct}%`, over ? '#e34948' : '#172033')]} />
+      <Doughnut data={data} options={options} />
     </div>
   );
 }
