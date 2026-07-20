@@ -604,6 +604,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   });
   const [trendMode, setTrendMode] = useState<'week' | 'month'>('month');
   const [showAllDonors, setShowAllDonors] = useState(false);
+  const [donorPeriod, setDonorPeriod] = useState<'year' | number>('year');
   if (!dashboard) return <Empty title="正在載入數據看板" />;
 
   const yearStr = String(year);
@@ -616,10 +617,17 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const prevYearOfferings = offerings.filter(o => (o.date || '').slice(0, 4) === prevYearStr);
   const prevYearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === prevYearStr);
 
-  // ---- 累計奉獻（當年，按奉獻人彙總，金額由大到小；匿名合併為一列；姓名中英文全顯示）----
+  // ---- 累計奉獻（按奉獻人彙總，金額由大到小；匿名合併為一列；姓名中英文全顯示）----
+  // 期間下拉：年度 或 一月～當前月（過去年度則 12 個月全開）
+  const donorMaxMonth = year === now.getFullYear() ? now.getMonth() + 1 : 12;
+  const donorMonthOptions = Array.from({ length: donorMaxMonth }, (_, i) => i + 1);
+  const effectiveDonorPeriod = donorPeriod === 'year' || donorPeriod <= donorMaxMonth ? donorPeriod : 'year';
+  const donorSourceOfferings = effectiveDonorPeriod === 'year'
+    ? yearOfferings
+    : yearOfferings.filter(o => Number((o.date || '').slice(5, 7)) === effectiveDonorPeriod);
   const membersById = new Map(members.map(m => [m.id, m]));
   const donorRankingMap = new Map<string, { memberId: string | null; fallbackName: string; total: number; count: number }>();
-  for (const o of yearOfferings) {
+  for (const o of donorSourceOfferings) {
     const key = o.memberId || 'anonymous';
     const entry = donorRankingMap.get(key) || { memberId: o.memberId, fallbackName: o.memberName || '匿名', total: 0, count: 0 };
     entry.total += o.amount;
@@ -797,9 +805,21 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
       </div>
 
       <div className="dash-bottom">
-        <Panel title="累計奉獻" action={<small className="panel-note" style={{ margin: 0 }}>{year} 年度 · 共 {donorRanking.length} 人</small>}>
+        <Panel
+          title="累計奉獻"
+          action={
+            <select
+              value={effectiveDonorPeriod}
+              onChange={event => { const v = event.target.value; setDonorPeriod(v === 'year' ? 'year' : Number(v)); setShowAllDonors(false); }}
+              style={{ width: 'auto' }}
+            >
+              <option value="year">{year} 年度</option>
+              {donorMonthOptions.map(m => <option key={m} value={m}>{m} 月</option>)}
+            </select>
+          }
+        >
           <table className="cum-table">
-            <colgroup><col style={{ width: '60%' }} /><col style={{ width: '20%' }} /><col style={{ width: '20%' }} /></colgroup>
+            <colgroup><col style={{ width: '50%' }} /><col style={{ width: '25%' }} /><col style={{ width: '25%' }} /></colgroup>
             <thead>
               <tr><th>名字</th><th className="num">筆數</th><th className="num">金額</th></tr>
             </thead>
