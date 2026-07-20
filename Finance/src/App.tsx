@@ -672,9 +672,10 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const weeklyOffer = weekBuckets.map(b => sum(offerings.filter(o => inRange(o.date, b.start, b.end))));
   const weeklyExp = weekBuckets.map(b => sum(expenses.filter(e => inRange(e.date, b.start, b.end))));
 
-  // ---- 年度預算 = 當年最早有支出的月份 × 12（取整）----
-  const firstMonthIdx = monthlyExp.findIndex(v => v > 0);
-  const budgetTotal = Math.round((firstMonthIdx >= 0 ? monthlyExp[firstMonthIdx] : 0) * 12);
+  // ---- 年度預算 = 已出支月份的平均 × 12（取整）----
+  const activeMonthsExp = monthlyExp.filter(v => v > 0);
+  const avgMonthlyExp = activeMonthsExp.length ? activeMonthsExp.reduce((s, v) => s + v, 0) / activeMonthsExp.length : 0;
+  const budgetTotal = Math.round(avgMonthlyExp * 12);
 
   // ---- 支出分類 Doughnut（當年，全部狀態，Top 7 + 其他）----
   // 用類別短名（薪资福利/水电网络…）而非伺服器回傳的長全名
@@ -763,7 +764,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
       <div className="two-col">
         <Panel title="預算 vs 實際">
           <BudgetDoughnut used={yearExpenseTotal} budget={budgetTotal} />
-          <p className="panel-note">年度預算 {currency(budgetTotal)}（首月 × 12）· 已用 {currency(yearExpenseTotal)} · 剩餘 {currency(Math.max(0, budgetTotal - yearExpenseTotal))}</p>
+          <p className="panel-note">年度預算 {currency(budgetTotal)} · 已用 {currency(yearExpenseTotal)} · 剩餘 {currency(Math.max(0, budgetTotal - yearExpenseTotal))}</p>
         </Panel>
         <Panel title="現金流">
           <p className="panel-note">{year} 年度各月收入與支出對比</p>
