@@ -1234,8 +1234,11 @@ td small {
 .pagination-info { color: #68758a; }
 .pagination-ctrl { display: flex; align-items: center; gap: 0.35rem; }
 .pagination-size { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
-/* 用固定的較矮控件高度壓縮整條區域，而非縮小文字 */
+/* 用固定的較矮控件高度壓縮整條區域，而非縮小文字；文字上下置中 */
 .pagination-ctrl button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 1.5rem;
   padding: 0 0.55rem;
   min-width: 1.7rem;
@@ -1244,7 +1247,8 @@ td small {
 .pagination-size select {
   height: 1.5rem;
   padding: 0 0.4rem;
-  line-height: 1;
+  line-height: 1.5rem;
+  vertical-align: middle;
 }
 .pagination-page { min-width: 3.2rem; text-align: center; font-variant-numeric: tabular-nums; }
 
