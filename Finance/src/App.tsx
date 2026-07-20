@@ -2873,7 +2873,7 @@ function Empty({ title }: { title: string }) {
 }
 
 function SimpleList({ items }: { items: string[] }) {
-  return <div className="simple-list">{items.length ? items.map(item => <span key={item}>{item}</span>) : <small>暫無資料</small>}</div>;
+  return <div className="simple-list">{items.length ? items.map((item, i) => <span key={i}>{item}</span>) : <small>暫無資料</small>}</div>;
 }
 
 function MemberForm({
