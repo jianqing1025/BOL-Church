@@ -17,6 +17,8 @@ import {
   normalizeTaxStatementSettings
 } from './shared/taxStatement';
 
+const APP_VERSION = '2.0.10';
+
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
 type AccountTab = 'profile' | 'password';
 type ExpenseEmailAction = {
@@ -445,8 +447,10 @@ function Shell({ page, setPage, onOpenAccount }: {
         ))}
       </nav>
       {user && (
-        <div className="user-card">
-          <div className="user-card-avatar">{userInitials(user.name, user.email)}</div>
+        <div className="sidebar-footer">
+          <div className="app-version">v{APP_VERSION}</div>
+          <div className="user-card">
+            <div className="user-card-avatar">{userInitials(user.name, user.email)}</div>
           <div className="user-card-id">
             <strong title={user.name}>{user.name}</strong>
             <small>{roleLabels[user.role]}</small>
@@ -459,6 +463,7 @@ function Shell({ page, setPage, onOpenAccount }: {
               <button type="button" className="danger" onClick={() => logout()}>登出</button>
             </div>
           </details>
+          </div>
         </div>
       )}
     </aside>

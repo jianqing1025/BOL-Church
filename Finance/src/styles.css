@@ -423,11 +423,24 @@ td small {
   color: #fff;
 }
 
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.app-version {
+  font-size: 0.72rem;
+  color: #8a98ad;
+  letter-spacing: 0.04em;
+  padding-left: 0.1rem;
+}
+
 .user-card {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin-top: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   padding-top: 1rem;
   position: relative;
@@ -1531,7 +1544,8 @@ td small {
     overflow-x: auto;
   }
 
-  .user-card {
+  .user-card,
+  .sidebar-footer {
     display: none;
   }
 
