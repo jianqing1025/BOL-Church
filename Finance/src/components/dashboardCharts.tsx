@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   ArcElement, LineElement, PointElement, BarElement,
@@ -105,10 +105,10 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
   );
 }
 
-// 一行最多 3 項，且各行盡量均分（2–3 行）：先定行數 ⌈N/3⌉，再回推列數 ⌈N/行數⌉
-function catListCols(n: number): number {
+// 一行最多 maxCols 項（窄屏 2、寬屏 3），且各行盡量均分：先定行數 ⌈N/maxCols⌉，再回推列數
+function catListCols(n: number, maxCols: number): number {
   if (n <= 1) return 1;
-  const rows = Math.ceil(n / 3);
+  const rows = Math.ceil(n / maxCols);
   return Math.max(1, Math.ceil(n / rows));
 }
 
@@ -125,6 +125,21 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
       hoverOffset: 4,
     }],
   };
+  // 依列表容器實際寬度決定每行上限：窄屏/縮放/手機 → 2 項，寬屏 → 3 項
+  const listRef = useRef<HTMLUListElement>(null);
+  const [maxCols, setMaxCols] = useState(3);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return undefined;
+    const update = () => setMaxCols(el.clientWidth < 400 ? 2 : 3);
+    update();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', update);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', update); };
+  }, []);
+  const cols = catListCols(items.length, maxCols);
+
   const colorOf = (label: string, idx: number) => (label === '其他' ? OTHER_COLOR : CATEGORY_COLORS[idx % CATEGORY_COLORS.length]);
   const options = {
     responsive: true, maintainAspectRatio: false, cutout: '62%',
@@ -145,7 +160,7 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
       <div className="chart-canvas doughnut-wrap">
         <Doughnut data={data} options={options} plugins={[centerTextPlugin('年度支出', compactUsd(total))]} />
       </div>
-      <ul className="cat-data-list" style={{ gridTemplateColumns: `repeat(${catListCols(items.length)}, minmax(0, 1fr))` }}>
+      <ul ref={listRef} className="cat-data-list" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {items.map((it, idx) => (
           <li key={it.label}>
             <span className="dot" style={{ background: colorOf(it.label, idx) }} />
