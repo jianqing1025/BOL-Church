@@ -604,7 +604,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   });
   const [trendMode, setTrendMode] = useState<'week' | 'month'>('month');
   const [showAllDonors, setShowAllDonors] = useState(false);
-  const [donorPeriod, setDonorPeriod] = useState<'year' | number>('year');
+  const [donorPeriod, setDonorPeriod] = useState<string>('year'); // 'year' | 'q1'..'q4' | 'm1'..'m12'
   if (!dashboard) return <Empty title="正在載入數據看板" />;
 
   const yearStr = String(year);
@@ -618,13 +618,28 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const prevYearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === prevYearStr);
 
   // ---- 累計奉獻（按奉獻人彙總，金額由大到小；匿名合併為一列；姓名中英文全顯示）----
-  // 期間下拉：年度 或 一月～當前月（過去年度則 12 個月全開）
+  // 期間下拉：年度 / 季度（只開到當季）/ 月份（只開到當月）；過去年度則季度、月份全開
   const donorMaxMonth = year === now.getFullYear() ? now.getMonth() + 1 : 12;
+  const donorMaxQuarter = Math.ceil(donorMaxMonth / 3);
   const donorMonthOptions = Array.from({ length: donorMaxMonth }, (_, i) => i + 1);
-  const effectiveDonorPeriod = donorPeriod === 'year' || donorPeriod <= donorMaxMonth ? donorPeriod : 'year';
-  const donorSourceOfferings = effectiveDonorPeriod === 'year'
-    ? yearOfferings
-    : yearOfferings.filter(o => Number((o.date || '').slice(5, 7)) === effectiveDonorPeriod);
+  const donorQuarterOptions = Array.from({ length: donorMaxQuarter }, (_, i) => i + 1);
+  const donorPeriodValid =
+    donorPeriod === 'year' ||
+    (donorPeriod.startsWith('q') && Number(donorPeriod.slice(1)) <= donorMaxQuarter) ||
+    (donorPeriod.startsWith('m') && Number(donorPeriod.slice(1)) <= donorMaxMonth);
+  const effectiveDonorPeriod = donorPeriodValid ? donorPeriod : 'year';
+  const donorMonthOf = (o: Offering) => Number((o.date || '').slice(5, 7));
+  const donorSourceOfferings = (() => {
+    if (effectiveDonorPeriod === 'year') return yearOfferings;
+    if (effectiveDonorPeriod.startsWith('q')) {
+      const q = Number(effectiveDonorPeriod.slice(1));
+      const lo = (q - 1) * 3 + 1;
+      const hi = q * 3;
+      return yearOfferings.filter(o => { const m = donorMonthOf(o); return m >= lo && m <= hi; });
+    }
+    const mm = Number(effectiveDonorPeriod.slice(1));
+    return yearOfferings.filter(o => donorMonthOf(o) === mm);
+  })();
   const membersById = new Map(members.map(m => [m.id, m]));
   const donorRankingMap = new Map<string, { memberId: string | null; fallbackName: string; total: number; count: number }>();
   for (const o of donorSourceOfferings) {
@@ -810,11 +825,12 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
           action={
             <select
               value={effectiveDonorPeriod}
-              onChange={event => { const v = event.target.value; setDonorPeriod(v === 'year' ? 'year' : Number(v)); setShowAllDonors(false); }}
+              onChange={event => { setDonorPeriod(event.target.value); setShowAllDonors(false); }}
               style={{ width: 'auto' }}
             >
               <option value="year">{year} 年度</option>
-              {donorMonthOptions.map(m => <option key={m} value={m}>{m} 月</option>)}
+              {donorQuarterOptions.map(q => <option key={`q${q}`} value={`q${q}`}>第{['一', '二', '三', '四'][q - 1]}季度</option>)}
+              {donorMonthOptions.map(m => <option key={`m${m}`} value={`m${m}`}>{m} 月</option>)}
             </select>
           }
         >
