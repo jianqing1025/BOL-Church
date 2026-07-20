@@ -68,11 +68,13 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
         fill: sparkType === 'area',
         borderWidth: 2,
         tension: 0.4,
-        pointRadius: sparkType === 'bar' ? 0 : 3.5,
-        pointHoverRadius: sparkType === 'bar' ? 0 : 3.5,
-        pointBackgroundColor: 'transparent',      // 空心圓圈（非實心點）
-        pointBorderColor: 'rgba(255,255,255,.9)',
-        pointBorderWidth: 1.5,
+        pointRadius: sparkType === 'bar' ? 0 : 4.5,
+        pointHoverRadius: sparkType === 'bar' ? 0 : 6,
+        pointBackgroundColor: 'transparent',        // 空心圓圈：透明填充
+        pointBorderColor: '#ffffff',                // 白色描邊環
+        pointBorderWidth: 1.2,                       // 細環，中心透出卡片色
+        pointHoverBackgroundColor: '#ffffff',
+        pointHoverBorderColor: '#ffffff',
         borderRadius: sparkType === 'bar' ? 3 : undefined,
         borderSkipped: false as const,
       }],
@@ -82,8 +84,19 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
   const options = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    layout: { padding: { top: 5, bottom: 3, left: 4, right: 4 } },  // 避免首尾節點圓圈被裁切
-    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    layout: { padding: { top: 6, bottom: 4, left: 6, right: 6 } },  // 避免首尾節點圓圈被裁切
+    interaction: { mode: 'nearest' as const, intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        enabled: true,
+        displayColors: false,
+        callbacks: {
+          title: () => '',
+          label: (ctx: { parsed: { y: number | null } }) => (sparkType === 'bar' ? `${ctx.parsed.y ?? 0}` : currency(ctx.parsed.y ?? 0)),
+        },
+      },
+    },
     scales: {
       x: { display: false, grid: { display: false } },
       y: { display: false, grid: { display: false }, min: sparkType === 'bar' ? 0 : undefined },
