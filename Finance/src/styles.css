@@ -1218,15 +1218,20 @@ td small {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.85rem;
+  gap: 0.4rem 0.6rem;
+  margin-top: 0.45rem;
   font-size: 0.85rem;
   color: #526176;
 }
 .pagination-info { color: #68758a; }
 .pagination-ctrl { display: flex; align-items: center; gap: 0.4rem; }
 .pagination-size { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
-.pagination-ctrl button { padding: 0.35rem 0.62rem; min-width: 2rem; }
+.pagination-ctrl button {
+  padding: 0.16rem 0.55rem;
+  min-width: 1.9rem;
+  line-height: 1.4;
+}
+.pagination-size select { padding-top: 0.16rem; padding-bottom: 0.16rem; }
 .pagination-page { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
 
 .bar-row {
