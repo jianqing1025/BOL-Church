@@ -533,6 +533,15 @@ function DashboardPage() {
   const monthlyDonors = monthLabels.map((_, i) => new Set(yearOfferings.filter(o => o.memberId && (o.date || '').startsWith(`${yearStr}-${String(i + 1).padStart(2, '0')}`)).map(o => o.memberId)).size);
   const monthlyPending = monthLabels.map((_, i) => yearExpenses.filter(e => e.status === 'pending' && (e.date || '').startsWith(`${yearStr}-${String(i + 1).padStart(2, '0')}`)).length);
 
+  // 當年只畫到當月（過去年度顯示滿 12 個月）；用於折線與卡片 sparkline，避免未來月補 0 拖平
+  const monthCap = year === now.getFullYear() ? now.getMonth() + 1 : 12;
+  const capLabels = monthLabels.slice(0, monthCap);
+  const capOffer = monthlyOffer.slice(0, monthCap);
+  const capExp = monthlyExp.slice(0, monthCap);
+  const capNet = monthlyNet.slice(0, monthCap);
+  const capDonors = monthlyDonors.slice(0, monthCap);
+  const capPending = monthlyPending.slice(0, monthCap);
+
   // ---- 週度序列（近 12 週）----
   const weekBuckets = Array.from({ length: 12 }, (_, i) => {
     const start = new Date(weekStart); start.setDate(start.getDate() - (11 - i) * 7);
@@ -560,9 +569,9 @@ function DashboardPage() {
     : catSorted;
 
   // ---- 新增記錄趨勢（金額，週/月切換）----
-  const trendLabels = trendMode === 'week' ? weekBuckets.map(b => b.label) : monthLabels;
-  const trendOffer = trendMode === 'week' ? weeklyOffer : monthlyOffer;
-  const trendExp = trendMode === 'week' ? weeklyExp : monthlyExp;
+  const trendLabels = trendMode === 'week' ? weekBuckets.map(b => b.label) : capLabels;
+  const trendOffer = trendMode === 'week' ? weeklyOffer : capOffer;
+  const trendExp = trendMode === 'week' ? weeklyExp : capExp;
 
   const INCOME_COLOR = CATEGORY_COLORS[0];
   const EXPENSE_COLOR = CATEGORY_COLORS[5];
@@ -589,19 +598,19 @@ function DashboardPage() {
       <Panel title="收入統計">
         <div className="kpi-grid">
           <KpiCard title="本週奉獻" value={currency(weekOfferingTotal)} delta={pct(weekOfferingTotal, prevWeekOfferingTotal)} accent="linear-gradient(135deg,#6366f1,#4f46e5)" spark={weeklyOffer} />
-          <KpiCard title="本月奉獻" value={currency(monthOfferingTotal)} delta={pct(monthOfferingTotal, prevMonthOfferingTotal)} accent="linear-gradient(135deg,#3b82f6,#2563eb)" spark={monthlyOffer} />
-          <KpiCard title="年度奉獻" value={currency(yearOfferingTotal)} delta={pct(yearOfferingTotal, sum(prevYearOfferings))} accent="linear-gradient(135deg,#14b8a6,#0d9488)" spark={monthlyOffer} sparkType="area" />
-          <KpiCard title="奉獻人數" value={`${donorCount}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={monthlyDonors} sparkType="bar" />
+          <KpiCard title="本月奉獻" value={currency(monthOfferingTotal)} delta={pct(monthOfferingTotal, prevMonthOfferingTotal)} accent="linear-gradient(135deg,#3b82f6,#2563eb)" spark={capOffer} />
+          <KpiCard title="年度奉獻" value={currency(yearOfferingTotal)} delta={pct(yearOfferingTotal, sum(prevYearOfferings))} accent="linear-gradient(135deg,#14b8a6,#0d9488)" spark={capOffer} sparkType="area" />
+          <KpiCard title="奉獻人數" value={`${donorCount}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={capDonors} sparkType="bar" />
         </div>
       </Panel>
 
       {/* 支出統計 */}
       <Panel title="支出統計">
         <div className="kpi-grid">
-          <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={monthlyExp} />
-          <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={monthlyExp} sparkType="area" />
-          <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={monthlyNet} sparkType="area" />
-          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={monthlyPending} sparkType="bar" />
+          <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={capExp} />
+          <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={capExp} sparkType="area" />
+          <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={capNet} sparkType="area" />
+          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" />
         </div>
       </Panel>
 
