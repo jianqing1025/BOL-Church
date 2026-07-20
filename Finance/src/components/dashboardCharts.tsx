@@ -52,9 +52,10 @@ export interface KpiCardProps {
   accent: string;          // CSS 漸變
   spark: number[];
   sparkType?: 'line' | 'area' | 'bar';
+  onClick?: () => void;    // 有值時把數字做成連結
 }
 
-export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line' }: KpiCardProps) {
+export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick }: KpiCardProps) {
   const white = 'rgba(255,255,255,.55)';
   const data = useMemo(() => ({
     labels: spark.map((_, i) => i + 1),
@@ -87,7 +88,9 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
   return (
     <article className="kpi-card" style={{ background: accent }}>
       <div className="kpi-head">
-        <strong>{value}</strong>
+        {onClick
+          ? <strong role="link" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} style={{ cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px' }}>{value}</strong>
+          : <strong>{value}</strong>}
         {hasDelta && (
           <span className="kpi-delta">{delta! >= 0 ? '▲' : '▼'} {Math.abs(delta!).toFixed(1)}%</span>
         )}

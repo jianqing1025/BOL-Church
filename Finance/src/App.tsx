@@ -465,7 +465,7 @@ function Shell({ page, setPage, onOpenAccount }: {
 }
 
 
-function DashboardPage() {
+function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { dashboard, lookups, offerings, expenses } = useFinance();
   const years = useMemo(() => {
     const set = new Set<string>();
@@ -607,10 +607,10 @@ function DashboardPage() {
       {/* 支出統計 */}
       <Panel title="支出統計">
         <div className="kpi-grid">
+          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" onClick={() => onNavigate('expenses')} />
           <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={capExp} />
           <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={capExp} sparkType="area" />
           <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={capNet} sparkType="area" />
-          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" />
         </div>
       </Panel>
 
@@ -3357,7 +3357,7 @@ export default function App() {
     if (page === 'reports') return <ReportsPage />;
     if (page === 'users') return <UsersPage />;
     if (page === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;
-    return <DashboardPage />;
+    return <DashboardPage onNavigate={navigateToPage} />;
   }, [page, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
   if (loading) return <Empty title="正在檢查登入狀態" />;
