@@ -2681,6 +2681,65 @@ function groupOfferingMethods(methods: OfferingMethod[]): [string, OfferingMetho
   return order.map(g => [g, map.get(g)!]);
 }
 
+// 可搜索的奉獻人選擇器：輸入即過濾，下方彈出匹配名單，含「匿名」項與鍵盤操作
+function MemberCombobox({ members, value, onChange }: { members: Member[]; value: string | null; onChange: (id: string | null) => void }) {
+  const label = (m: Member) => (memberDisplayName(m) || m.name || '（未命名）');
+  const selected = value ? members.find(m => m.id === value) ?? null : null;
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const sorted = useMemo(
+    () => [...members].sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || label(a).localeCompare(label(b))),
+    [members]
+  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter(m => `${label(m)} ${m.name} ${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''}`.toLowerCase().includes(q));
+  }, [sorted, query]);
+  const shown = filtered.slice(0, 60);
+
+  const pick = (id: string | null) => { onChange(id); setOpen(false); setQuery(''); };
+
+  return (
+    <div className="combobox" ref={wrapRef}>
+      <input
+        type="text"
+        value={open ? query : (selected ? label(selected) : '')}
+        placeholder="搜尋姓名，留空＝匿名"
+        onFocus={() => { setOpen(true); setQuery(''); setHi(0); }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setHi(0); }}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi(h => Math.min(h + 1, shown.length)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+          else if (e.key === 'Enter') { e.preventDefault(); if (hi === 0) pick(null); else pick(shown[hi - 1]?.id ?? null); }
+          else if (e.key === 'Escape') { setOpen(false); }
+        }}
+      />
+      {open && (
+        <ul className="combobox-menu">
+          <li className={hi === 0 ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(null); }} onMouseEnter={() => setHi(0)}>匿名</li>
+          {shown.map((m, i) => (
+            <li key={m.id} className={hi === i + 1 ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(m.id); }} onMouseEnter={() => setHi(i + 1)}>
+              {m.starred ? '★ ' : ''}{label(m)}
+            </li>
+          ))}
+          {shown.length === 0 && <li className="combobox-empty">無匹配</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function OfferingForm({
   offering,
   members,
@@ -2738,17 +2797,7 @@ function OfferingForm({
     <FormModal title="奉獻記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
       <label>
         奉獻人
-        <select
-          value={form.memberId ?? ''}
-          onChange={event => setForm({ ...form, memberId: event.target.value || null })}
-        >
-          <option value="">匿名</option>
-          {[...members]
-            .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
-            .map(item => (
-              <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
-            ))}
-        </select>
+        <MemberCombobox members={members} value={form.memberId ?? null} onChange={id => setForm({ ...form, memberId: id })} />
       </label>
       <label>奉獻金額<input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} required /></label>
       <label>

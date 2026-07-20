@@ -2108,3 +2108,41 @@ td small {
   .category-mgmt-head,
   .category-mgmt-row { grid-template-columns: 1fr 92px; }
 }
+
+/* 可搜索的奉獻人選擇器 */
+.combobox {
+  position: relative;
+}
+.combobox-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 60;
+  margin: 3px 0 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(25, 41, 70, 0.16);
+}
+.combobox-menu li {
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  color: #172033;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combobox-menu li.active {
+  background: #eef4ff;
+}
+.combobox-menu li.combobox-empty {
+  color: #98a2b3;
+  cursor: default;
+}
