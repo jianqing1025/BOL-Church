@@ -1226,15 +1226,16 @@ td small {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.2rem 0.6rem;
+  min-height: 1.7rem;
   /* .page 是 grid 且 gap:1.25rem，用負邊距抵銷掉大半，讓頁腳貼近表格、整區變矮 */
   margin-top: -0.85rem;
   font-size: 0.85rem;
   color: #526176;
 }
-.pagination-info { color: #68758a; }
+/* 每個元素都用 flex 垂直置中，確保文字/箭頭在 1.5rem 控件內上下居中 */
+.pagination-info { display: flex; align-items: center; color: #68758a; }
 .pagination-ctrl { display: flex; align-items: center; gap: 0.35rem; }
 .pagination-size { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
-/* 用固定的較矮控件高度壓縮整條區域，而非縮小文字；文字上下置中 */
 .pagination-ctrl button {
   display: inline-flex;
   align-items: center;
@@ -1242,15 +1243,18 @@ td small {
   height: 1.5rem;
   padding: 0 0.55rem;
   min-width: 1.7rem;
-  line-height: 1;
 }
 .pagination-size select {
   height: 1.5rem;
   padding: 0 0.4rem;
-  line-height: 1.5rem;
-  vertical-align: middle;
 }
-.pagination-page { min-width: 3.2rem; text-align: center; font-variant-numeric: tabular-nums; }
+.pagination-page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
+}
 
 .bar-row {
   display: grid;
