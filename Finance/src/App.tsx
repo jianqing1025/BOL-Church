@@ -548,22 +548,14 @@ function BackupBar() {
   };
 
   return (
-    <>
-      <div className="backup-bar">
-        <div className="backup-bar-info">
-          <strong>數據備份</strong>
-          <span>導出可查看／可再導入的完整備份（含圖片），或導入備份還原</span>
-        </div>
-        <div className="backup-bar-actions">
-          <button type="button" onClick={doExport} disabled={exporting}>
-            {exporting ? (progress || '導出中…') : '導出備份'}
-          </button>
-          <button type="button" className="primary" onClick={() => { setResult(null); setError(null); setShowImport(true); }}>
-            導入備份
-          </button>
-        </div>
-      </div>
-      {error && !showImport && <p className="error" style={{ margin: '6px 0 0' }}>{error}</p>}
+    <div className="backup-actions">
+      {error && !showImport && <span className="error" style={{ fontSize: 13 }}>{error}</span>}
+      <button type="button" onClick={doExport} disabled={exporting}>
+        {exporting ? (progress || '導出中…') : '導出備份'}
+      </button>
+      <button type="button" className="primary" onClick={() => { setResult(null); setError(null); setShowImport(true); }}>
+        導入備份
+      </button>
 
       {showImport && (
         <div className="modal-backdrop">
@@ -585,7 +577,7 @@ function BackupBar() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -710,9 +702,8 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
   return (
     <section className="page">
-      <PageTitle title="數據看板" subtitle={`${year} 年度與待處理財務事項總覽`} />
-      <BackupBar />
-      <Toolbar>
+      <PageTitle title="數據看板" subtitle={`${year} 年度與待處理財務事項總覽`} action={<BackupBar />} />
+      <Toolbar className="toolbar-inline">
         <strong>{year} 年度資料</strong>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           {dashboardYearAction}
@@ -2720,13 +2711,16 @@ function ReportsPage() {
   );
 }
 
-function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
+function PageTitle({ title, subtitle, action }: { title: string; subtitle: string; action?: React.ReactNode }) {
   return (
     <header className="page-title">
       <div>
         <h1>{title}</h1>
       </div>
-      <p>{subtitle}</p>
+      <div className="page-title-right">
+        <p>{subtitle}</p>
+        {action}
+      </div>
     </header>
   );
 }
@@ -2740,8 +2734,8 @@ function Panel({ title, children, action }: { title: string; children: React.Rea
   );
 }
 
-function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="toolbar">{children}</div>;
+function Toolbar({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={className ? `toolbar ${className}` : 'toolbar'}>{children}</div>;
 }
 
 function Badge({ children }: { children: React.ReactNode }) {

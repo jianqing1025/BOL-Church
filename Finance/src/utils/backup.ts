@@ -78,6 +78,24 @@ function escapeJsonForScript(json: string): string {
   return json.replace(/</g, '\\u003c');
 }
 
+// 產生 Excel 可直接開啟的 CSV（欄位同 backup.json 的原始欄位）
+function toCsv(rows: Record<string, unknown>[]): string {
+  if (!rows.length) return '';
+  const cols: string[] = [];
+  rows.forEach(r => Object.keys(r).forEach(c => { if (!cols.includes(c)) cols.push(c); }));
+  const esc = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(',')];
+  for (const r of rows) lines.push(cols.map(c => esc(r[c])).join(','));
+  return lines.join('\r\n');
+}
+
+// UTF-8 BOM：讓 Excel 正確辨識中文
+const CSV_BOM = '﻿';
+
 // 產生自包含查看頁：資料 inline 內嵌，file:// 直接打開；圖片以相對路徑顯示縮圖
 function buildViewerHtml(data: BackupData, urlMap: Record<string, string>): string {
   const payload = escapeJsonForScript(JSON.stringify({ data, urlMap, labels: TABLE_LABELS }));
@@ -181,10 +199,13 @@ const README = `信望愛靈糧堂 財務數據備份
 ============================
 
 檔案說明
-  backup.json  完整資料（再導入的唯一真實來源）
-  index.html   可視化查看頁，直接用瀏覽器打開即可瀏覽所有資料與圖片
-  images/      所有被引用的圖片，沿用原始儲存路徑（R2 key）
-  README.txt   本說明
+  backup.json    完整資料（再導入的唯一真實來源）
+  members.csv    成員（Excel 可直接開啟，UTF-8 BOM）
+  offerings.csv  奉獻記錄（同上）
+  expenses.csv   支出記錄（同上）
+  index.html     可視化查看頁，直接用瀏覽器打開即可瀏覽所有資料與圖片
+  images/        所有被引用的圖片，沿用原始儲存路徑（R2 key）
+  README.txt     本說明
 
 backup.json 格式
   {
@@ -221,6 +242,11 @@ export async function exportBackup(onProgress?: ProgressFn): Promise<void> {
   zip.file('backup.json', JSON.stringify(data, null, 2));
   zip.file('README.txt', README);
   zip.file('index.html', buildViewerHtml(data, buildUrlMap(data)));
+
+  // 三個主要資料表另存 CSV，方便用 Excel 查看／單獨發送（完整導入仍靠 backup.json）
+  zip.file('members.csv', CSV_BOM + toCsv(data.tables.members || []));
+  zip.file('offerings.csv', CSV_BOM + toCsv(data.tables.offerings || []));
+  zip.file('expenses.csv', CSV_BOM + toCsv(data.tables.expenses || []));
 
   const images = zip.folder('images');
   const keys = data.imageKeys || [];

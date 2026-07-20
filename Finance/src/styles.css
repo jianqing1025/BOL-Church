@@ -324,23 +324,8 @@ td small {
   line-height: 1.35;
 }
 
-.backup-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 14px 18px;
-  margin-bottom: 16px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.backup-bar-info { display: flex; flex-direction: column; gap: 2px; }
-.backup-bar-info strong { font-size: 15px; }
-.backup-bar-info span { font-size: 13px; color: #68758a; }
-.backup-bar-actions { display: flex; gap: 10px; }
+.page-title-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.backup-actions { display: flex; align-items: center; gap: 10px; }
 .backup-summary { margin-top: 4px; }
 .backup-summary-table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .backup-summary-table th, .backup-summary-table td { border: 1px solid #eef1f6; padding: 5px 10px; text-align: left; }
@@ -1895,6 +1880,12 @@ td small {
   .toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  /* 手機端：數據看板年度工具列維持同一行（標籤 + 年度下拉不換行） */
+  .toolbar.toolbar-inline {
+    flex-direction: row;
+    align-items: center;
   }
 
   /* 手機端：工具列按鈕（通知設置 / 新增支出）統一大小 */
