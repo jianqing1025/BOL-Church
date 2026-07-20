@@ -1767,10 +1767,18 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
   };
 
   const handleSaveCategories = async () => {
+    const cleaned = catRows.map(c => ({ id: c.id, name: c.name.trim(), shortName: c.shortName.trim() }));
+    if (cleaned.some(c => !c.name)) {
+      setError('類型名稱不能為空（請填寫或刪除該列）');
+      return;
+    }
     setBusy(true); setError(null); setCatSavedAt(false);
     try {
-      await api.updateExpenseCategories(catRows.map(c => ({ id: c.id, name: c.name.trim(), shortName: c.shortName.trim() })));
+      await api.updateExpenseCategories(cleaned);
       await onReload();
+      // 以資料庫實況重置（新列拿到真實 id，避免再次保存時重複新增）
+      const fresh = await api.expenseCategories();
+      setCatRows(fresh.map(c => ({ id: c.id, name: c.name, shortName: c.shortName ?? '' })));
       setCatSavedAt(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失敗');
@@ -1906,11 +1914,13 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
               <div className="category-mgmt-head">
                 <span>長類型（網站）</span>
                 <span>短類型（手機）</span>
+                <span aria-hidden="true"></span>
               </div>
               {catRows.map((row, idx) => (
                 <div key={row.id} className="category-mgmt-row">
                   <input
                     value={row.name}
+                    placeholder="長類型"
                     onChange={e => setCatRows(rows => rows.map((r, i) => i === idx ? { ...r, name: e.target.value } : r))}
                   />
                   <input
@@ -1918,10 +1928,17 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
                     placeholder="短類型"
                     onChange={e => setCatRows(rows => rows.map((r, i) => i === idx ? { ...r, shortName: e.target.value } : r))}
                   />
+                  <button type="button" className="danger category-mgmt-del" onClick={() => setCatRows(rows => rows.filter((_, i) => i !== idx))}>刪除</button>
                 </div>
               ))}
               {catRows.length === 0 && <div style={{ color: '#68758a', fontSize: '0.85rem' }}>暫無支出類型。</div>}
             </div>
+            <button
+              type="button"
+              onClick={() => setCatRows(rows => [...rows, { id: `new-${Date.now()}-${rows.length}`, name: '', shortName: '' }])}
+              style={{ width: 'fit-content' }}
+            >＋ 新增類型</button>
+            <p style={{ fontSize: '0.78rem', color: '#c0392b', margin: 0 }}>刪除類型後，原本使用該類型的支出會變為「未分類」。保存後生效。</p>
             {catSavedAt && <div style={{ color: '#1f9d55', fontSize: '0.85rem' }}>已保存。</div>}
           </div>
         )}

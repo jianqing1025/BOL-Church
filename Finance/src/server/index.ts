@@ -1127,14 +1127,29 @@ const worker: ExportedHandler<Env> = {
 
         if (url.pathname === '/api/expense-categories' && request.method === 'PUT') {
           if (!canManageSettings(user.role)) return error('Forbidden', 403);
-          const payload = await readJson<{ categories: Array<{ id: string; name: string; shortName: string }> }>(request);
+          const payload = await readJson<{ categories: Array<{ id?: string; name: string; shortName: string }> }>(request);
           const items = Array.isArray(payload?.categories) ? payload.categories : [];
+          const existingRows = await env.DB.prepare('SELECT id FROM expense_categories').all<{ id: string }>();
+          const existingIds = new Set((existingRows.results || []).map(r => r.id));
+          const keepIds = new Set<string>();
           for (const c of items) {
-            if (!c?.id) continue;
-            await env.DB
-              .prepare('UPDATE expense_categories SET name = ?, short_name = ? WHERE id = ?')
-              .bind(String(c.name ?? '').trim(), String(c.shortName ?? '').trim(), c.id)
-              .run();
+            const name = String(c?.name ?? '').trim();
+            if (!name) continue;
+            const shortName = String(c?.shortName ?? '').trim();
+            if (c?.id && existingIds.has(c.id)) {
+              await env.DB.prepare('UPDATE expense_categories SET name = ?, short_name = ? WHERE id = ?').bind(name, shortName, c.id).run();
+              keepIds.add(c.id);
+            } else {
+              const newId = id();
+              await env.DB.prepare("INSERT INTO expense_categories (id, name, short_name, budget_monthly, description, created_at) VALUES (?, ?, ?, 0, '', ?)").bind(newId, name, shortName, now()).run();
+              keepIds.add(newId);
+            }
+          }
+          // 移除不在清單中的類型：相關支出的分類設為未分類，再刪除
+          for (const oldId of existingIds) {
+            if (keepIds.has(oldId)) continue;
+            await env.DB.prepare('UPDATE expenses SET category_id = NULL WHERE category_id = ?').bind(oldId).run();
+            await env.DB.prepare('DELETE FROM expense_categories WHERE id = ?').bind(oldId).run();
           }
           return json({ ok: true });
         }

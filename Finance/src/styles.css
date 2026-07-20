@@ -2200,15 +2200,16 @@ td small {
   }
 }
 
-/* 支出類型管理 tab：長類型 / 短類型 兩欄輸入 */
+/* 支出類型管理 tab：長類型 / 短類型 兩欄輸入 + 刪除 */
 .category-mgmt { display: grid; gap: 0.4rem; max-height: 52vh; overflow-y: auto; }
 .category-mgmt-head,
-.category-mgmt-row { display: grid; grid-template-columns: 1fr 140px; gap: 0.6rem; align-items: center; }
+.category-mgmt-row { display: grid; grid-template-columns: 1fr 140px auto; gap: 0.6rem; align-items: center; }
 .category-mgmt-head { font-size: 0.74rem; font-weight: 700; color: #68758a; position: sticky; top: 0; background: #fff; padding-bottom: 0.2rem; }
 .category-mgmt-row input { width: 100%; }
+.category-mgmt-del { padding: 0.4rem 0.6rem; white-space: nowrap; }
 @media (max-width: 640px) {
   .category-mgmt-head,
-  .category-mgmt-row { grid-template-columns: 1fr 92px; }
+  .category-mgmt-row { grid-template-columns: 1fr 92px auto; }
 }
 
 /* 可搜索的奉獻人選擇器 */
