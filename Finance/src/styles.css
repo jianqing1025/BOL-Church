@@ -882,12 +882,16 @@ td small {
 .tax-summary {
   margin: 0 0 0.85rem;
   color: #526176;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
 }
 
-.tax-foot {
-  margin: 0.75rem 0 0;
-  font-size: 0.85rem;
+.tax-summary-extra {
   color: #68758a;
+  font-size: 0.9rem;
 }
 
 .tax-sent {

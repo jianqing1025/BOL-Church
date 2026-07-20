@@ -2633,7 +2633,11 @@ function AnnualTaxReportSection() {
   return (
     <Panel title="年度奉獻報稅證明" action={action}>
       <p className="tax-summary">
-        {year} 年度 · 共 <strong>{rows.length}</strong> 人參與奉獻 · 合計 <strong>{currency(grandTotal)}</strong>
+        <span>{year} 年度 · 共 <strong>{rows.length}</strong> 人參與奉獻 · 合計 <strong>{currency(grandTotal)}</strong></span>
+        <span className="tax-summary-extra">
+          {anonymousTotal > 0 && <>另有匿名奉獻 <strong>{currency(anonymousTotal)}</strong>（無法開立報稅證明）{' · '}</>}
+          總計奉獻 <strong>{currency(grandTotal + anonymousTotal)}</strong>
+        </span>
       </p>
       {rows.length ? (
         <div style={{ overflowX: 'auto' }}>
@@ -2667,9 +2671,6 @@ function AnnualTaxReportSection() {
         </div>
       ) : (
         <div className="empty">該年度暫無實名奉獻記錄</div>
-      )}
-      {anonymousTotal > 0 && (
-        <p className="tax-foot">另有匿名奉獻 {currency(anonymousTotal)}（無法開立報稅證明）</p>
       )}
       {editingMember && (
         <MemberForm
