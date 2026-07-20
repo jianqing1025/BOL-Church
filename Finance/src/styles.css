@@ -763,7 +763,8 @@ td small {
   margin: 0.6rem 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  /* 列數由組件依項數內聯設定（一行最多 3 項、行數盡量均分） */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem 0.9rem;
 }
 .cat-data-list li {

@@ -102,6 +102,13 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
   );
 }
 
+// 一行最多 3 項，且各行盡量均分（2–3 行）：先定行數 ⌈N/3⌉，再回推列數 ⌈N/行數⌉
+function catListCols(n: number): number {
+  if (n <= 1) return 1;
+  const rows = Math.ceil(n / 3);
+  return Math.max(1, Math.ceil(n / rows));
+}
+
 // ---------- 支出分類 Doughnut ----------
 export function CategoryDoughnut({ items }: { items: Array<{ label: string; value: number }> }) {
   const total = items.reduce((s, i) => s + i.value, 0);
@@ -135,7 +142,7 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
       <div className="chart-canvas doughnut-wrap">
         <Doughnut data={data} options={options} plugins={[centerTextPlugin('年度支出', compactUsd(total))]} />
       </div>
-      <ul className="cat-data-list">
+      <ul className="cat-data-list" style={{ gridTemplateColumns: `repeat(${catListCols(items.length)}, minmax(0, 1fr))` }}>
         {items.map((it, idx) => (
           <li key={it.label}>
             <span className="dot" style={{ background: colorOf(it.label, idx) }} />
