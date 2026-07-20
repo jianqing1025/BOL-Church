@@ -57,25 +57,32 @@ export interface KpiCardProps {
 
 export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick }: KpiCardProps) {
   const white = 'rgba(255,255,255,.55)';
-  const data = useMemo(() => ({
-    labels: spark.map((_, i) => i + 1),
-    datasets: [{
-      data: spark,
-      borderColor: white,
-      backgroundColor: sparkType === 'area' ? 'rgba(255,255,255,.20)' : sparkType === 'bar' ? 'rgba(255,255,255,.30)' : 'transparent',
-      fill: sparkType === 'area',
-      borderWidth: 2,
-      tension: 0.4,
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      borderRadius: sparkType === 'bar' ? 3 : undefined,
-      borderSkipped: false as const,
-    }],
-  }), [spark, sparkType]);
+  const data = useMemo(() => {
+    const d = spark.slice(-6);   // 只取最近 6 期
+    return {
+      labels: d.map((_, i) => i + 1),
+      datasets: [{
+        data: d,
+        borderColor: white,
+        backgroundColor: sparkType === 'area' ? 'rgba(255,255,255,.20)' : sparkType === 'bar' ? 'rgba(255,255,255,.30)' : 'transparent',
+        fill: sparkType === 'area',
+        borderWidth: 2,
+        tension: 0.4,
+        pointRadius: sparkType === 'bar' ? 0 : 3.5,
+        pointHoverRadius: sparkType === 'bar' ? 0 : 3.5,
+        pointBackgroundColor: 'rgba(255,255,255,.95)',
+        pointBorderColor: 'rgba(255,255,255,.5)',
+        pointBorderWidth: 1,
+        borderRadius: sparkType === 'bar' ? 3 : undefined,
+        borderSkipped: false as const,
+      }],
+    };
+  }, [spark, sparkType]);
 
   const options = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 5, bottom: 3, left: 4, right: 4 } },  // 避免首尾節點圓圈被裁切
     plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
       x: { display: false, grid: { display: false } },

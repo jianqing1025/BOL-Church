@@ -717,7 +717,7 @@ td small {
   padding: 0.9rem 1rem 0;
   color: #fff;
   overflow: hidden;
-  min-height: 128px;
+  min-height: 166px;          /* 較原 128px 增高約 30% */
   box-shadow: 0 10px 30px rgba(25, 41, 70, 0.10);
 }
 .kpi-head {
@@ -747,8 +747,8 @@ td small {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 46px;
-  padding: 0 2px;
+  height: 62px;
+  padding: 0 6px 4px;
 }
 .chart-canvas {
   position: relative;
