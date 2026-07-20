@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
+import { KpiCard, CategoryDoughnut, BudgetDoughnut, TrendLine, GroupedBar, CATEGORY_COLORS } from './components/dashboardCharts';
 import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
@@ -463,38 +464,6 @@ function Shell({ page, setPage, onOpenAccount }: {
   );
 }
 
-function StatCard({ title, value, note }: { title: string; value: string; note?: string }) {
-  return (
-    <article className="stat-card">
-      <span>{title}</span>
-      <strong>{value}</strong>
-      {note && <small>{note}</small>}
-    </article>
-  );
-}
-
-function MiniBars({ data }: { data: Array<{ label: string; amount?: number; offerings?: number; expenses?: number }> }) {
-  const max = Math.max(1, ...data.flatMap(item => [item.amount ?? 0, item.offerings ?? 0, item.expenses ?? 0]));
-  return (
-    <div className="chart">
-      {data.map(item => (
-        <div key={item.label} className="bar-row">
-          <span>{item.label}</span>
-          <div className="bar-track">
-            {'amount' in item ? (
-              <i style={{ width: `${((item.amount || 0) / max) * 100}%` }} />
-            ) : (
-              <>
-                <i style={{ width: `${((item.offerings || 0) / max) * 100}%` }} />
-                <b style={{ width: `${((item.expenses || 0) / max) * 100}%` }} />
-              </>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function DashboardPage() {
   const { dashboard, lookups, offerings, expenses } = useFinance();
@@ -513,54 +482,91 @@ function DashboardPage() {
     const sorted = Array.from(present).sort();
     return sorted.length ? Number(sorted[sorted.length - 1]) : current;
   });
+  const [trendMode, setTrendMode] = useState<'week' | 'month'>('month');
   if (!dashboard) return <Empty title="正在載入數據看板" />;
 
   const yearStr = String(year);
-
-  // 計算收入統計
+  const prevYearStr = String(year - 1);
   const now = new Date();
-  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // ---- 當年範圍（全部狀態；不含歷史年度）----
   const yearOfferings = offerings.filter(o => (o.date || '').slice(0, 4) === yearStr);
-  const weekOfferings = yearOfferings.filter(o => new Date(o.date) >= weekStart);
-  const monthOfferings = yearOfferings.filter(o => new Date(o.date) >= monthStart);
-  const totalOfferings = offerings;
-
-  const weekOfferingTotal = weekOfferings.reduce((sum, o) => sum + o.amount, 0);
-  const monthOfferingTotal = monthOfferings.reduce((sum, o) => sum + o.amount, 0);
-  const yearOfferingTotal = yearOfferings.reduce((sum, o) => sum + o.amount, 0);
-  const totalOfferingAmount = totalOfferings.reduce((sum, o) => sum + o.amount, 0);
-
-  // 計算支出統計
   const yearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === yearStr);
-  const monthExpenses = yearExpenses.filter(e => new Date(e.date) >= monthStart);
-  const totalExpenses = expenses;
+  const prevYearOfferings = offerings.filter(o => (o.date || '').slice(0, 4) === prevYearStr);
+  const prevYearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === prevYearStr);
 
-  const monthExpenseTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const yearExpenseTotal = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const totalExpenseAmount = totalExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const sum = (arr: Array<{ amount: number }>) => arr.reduce((s, x) => s + x.amount, 0);
+  const inRange = (d: string, start: Date, end: Date) => { const t = new Date(`${d}T00:00:00`); return t >= start && t < end; };
+  const pct = (cur: number, prev: number): number | null => (prev > 0 ? ((cur - prev) / prev) * 100 : null);
 
+  // 週/月邊界
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const weekStart = new Date(now); weekStart.setHours(0, 0, 0, 0); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+  const nextWeekStart = new Date(weekStart); nextWeekStart.setDate(nextWeekStart.getDate() + 7);
+
+  // ---- 收入指標 ----
+  const weekOfferingTotal = sum(offerings.filter(o => inRange(o.date, weekStart, nextWeekStart)));
+  const prevWeekOfferingTotal = sum(offerings.filter(o => inRange(o.date, prevWeekStart, weekStart)));
+  const monthOfferingTotal = sum(offerings.filter(o => inRange(o.date, monthStart, new Date(now.getFullYear(), now.getMonth() + 1, 1))));
+  const prevMonthOfferingTotal = sum(offerings.filter(o => inRange(o.date, prevMonthStart, monthStart)));
+  const yearOfferingTotal = sum(yearOfferings);
+  const donorCount = new Set(yearOfferings.filter(o => o.memberId).map(o => o.memberId)).size;
+  const prevDonorCount = new Set(prevYearOfferings.filter(o => o.memberId).map(o => o.memberId)).size;
+
+  // ---- 支出指標 ----
+  const monthExpenseTotal = sum(expenses.filter(e => inRange(e.date, monthStart, new Date(now.getFullYear(), now.getMonth() + 1, 1))));
+  const prevMonthExpenseTotal = sum(expenses.filter(e => inRange(e.date, prevMonthStart, monthStart)));
+  const yearExpenseTotal = sum(yearExpenses);
   const pendingExpenses = yearExpenses.filter(e => e.status === 'pending');
-  const budgetTotal = (lookups?.expenseCategories ?? []).reduce((sum, item) => sum + item.budgetMonthly * 12, 0);
-  const approvedTotal = yearExpenses.filter(item => item.status === 'approved').reduce((sum, item) => sum + item.amount, 0);
-  const budgetUsed = budgetTotal ? Math.min(100, Math.round((approvedTotal / budgetTotal) * 100)) : 0;
-  const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
-  const incomeExpenseTrend = monthLabels.map((label, index) => {
-    const month = `${yearStr}-${String(index + 1).padStart(2, '0')}`;
-    return {
-      label,
-      offerings: yearOfferings.filter(item => (item.date || '').startsWith(month)).reduce((sum, item) => sum + item.amount, 0),
-      expenses: yearExpenses.filter(item => (item.date || '').startsWith(month) && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
-    };
+  const netBalance = yearOfferingTotal - yearExpenseTotal;
+  const prevNet = sum(prevYearOfferings) - sum(prevYearExpenses);
+
+  // ---- 月度序列（當年 12 個月）----
+  const monthLabels = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
+  const monthOf = (list: Array<{ date: string; amount: number }>, i: number) =>
+    sum(list.filter(x => (x.date || '').startsWith(`${yearStr}-${String(i + 1).padStart(2, '0')}`)));
+  const monthlyOffer = monthLabels.map((_, i) => monthOf(yearOfferings, i));
+  const monthlyExp = monthLabels.map((_, i) => monthOf(yearExpenses, i));
+  const monthlyNet = monthLabels.map((_, i) => monthlyOffer[i] - monthlyExp[i]);
+  const monthlyDonors = monthLabels.map((_, i) => new Set(yearOfferings.filter(o => o.memberId && (o.date || '').startsWith(`${yearStr}-${String(i + 1).padStart(2, '0')}`)).map(o => o.memberId)).size);
+  const monthlyPending = monthLabels.map((_, i) => yearExpenses.filter(e => e.status === 'pending' && (e.date || '').startsWith(`${yearStr}-${String(i + 1).padStart(2, '0')}`)).length);
+
+  // ---- 週度序列（近 12 週）----
+  const weekBuckets = Array.from({ length: 12 }, (_, i) => {
+    const start = new Date(weekStart); start.setDate(start.getDate() - (11 - i) * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    return { label: `${start.getMonth() + 1}/${start.getDate()}`, start, end };
   });
-  const offeringTrend = monthLabels.map((label, index) => {
-    const month = `${yearStr}-${String(index + 1).padStart(2, '0')}`;
-    return {
-      label,
-      amount: yearOfferings.filter(item => (item.date || '').startsWith(month)).reduce((sum, item) => sum + item.amount, 0)
-    };
-  });
+  const weeklyOffer = weekBuckets.map(b => sum(offerings.filter(o => inRange(o.date, b.start, b.end))));
+  const weeklyExp = weekBuckets.map(b => sum(expenses.filter(e => inRange(e.date, b.start, b.end))));
+
+  // ---- 年度預算 = 當年最早有支出的月份 × 12（取整）----
+  const firstMonthIdx = monthlyExp.findIndex(v => v > 0);
+  const budgetTotal = Math.round((firstMonthIdx >= 0 ? monthlyExp[firstMonthIdx] : 0) * 12);
+
+  // ---- 支出分類 Doughnut（當年，全部狀態，Top 7 + 其他）----
+  // 用類別短名（薪资福利/水电网络…）而非伺服器回傳的長全名
+  const catShort = new Map((lookups?.expenseCategories ?? []).map(c => [c.id, c.shortName?.trim() || c.name]));
+  const catMap = new Map<string, number>();
+  for (const e of yearExpenses) {
+    const label = (e.categoryId && catShort.get(e.categoryId)) || e.categoryName?.trim() || '未分類';
+    catMap.set(label, (catMap.get(label) || 0) + e.amount);
+  }
+  const catSorted = [...catMap.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  const catDoughnut = catSorted.length > 8
+    ? [...catSorted.slice(0, 7), { label: '其他', value: catSorted.slice(7).reduce((s, x) => s + x.value, 0) }]
+    : catSorted;
+
+  // ---- 新增記錄趨勢（金額，週/月切換）----
+  const trendLabels = trendMode === 'week' ? weekBuckets.map(b => b.label) : monthLabels;
+  const trendOffer = trendMode === 'week' ? weeklyOffer : monthlyOffer;
+  const trendExp = trendMode === 'week' ? weeklyExp : monthlyExp;
+
+  const INCOME_COLOR = CATEGORY_COLORS[0];
+  const EXPENSE_COLOR = CATEGORY_COLORS[5];
+
   const dashboardYearAction = (
     <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
       {years.length
@@ -579,52 +585,65 @@ function DashboardPage() {
         </div>
       </Toolbar>
 
-      {/* 收入部分 */}
+      {/* 收入統計 */}
       <Panel title="收入統計">
-        <div className="stats-grid">
-          <StatCard title="本週奉獻" value={currency(weekOfferingTotal)} />
-          <StatCard title="本月奉獻" value={currency(monthOfferingTotal)} />
-          <StatCard title="年度奉獻" value={currency(yearOfferingTotal)} />
-          <StatCard title="所有奉獻" value={currency(totalOfferingAmount)} />
+        <div className="kpi-grid">
+          <KpiCard title="本週奉獻" value={currency(weekOfferingTotal)} delta={pct(weekOfferingTotal, prevWeekOfferingTotal)} accent="linear-gradient(135deg,#6366f1,#4f46e5)" spark={weeklyOffer} />
+          <KpiCard title="本月奉獻" value={currency(monthOfferingTotal)} delta={pct(monthOfferingTotal, prevMonthOfferingTotal)} accent="linear-gradient(135deg,#3b82f6,#2563eb)" spark={monthlyOffer} />
+          <KpiCard title="年度奉獻" value={currency(yearOfferingTotal)} delta={pct(yearOfferingTotal, sum(prevYearOfferings))} accent="linear-gradient(135deg,#14b8a6,#0d9488)" spark={monthlyOffer} sparkType="area" />
+          <KpiCard title="奉獻人數" value={`${donorCount}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={monthlyDonors} sparkType="bar" />
         </div>
       </Panel>
 
-      {/* 支出部分 */}
+      {/* 支出統計 */}
       <Panel title="支出統計">
-        <div className="stats-grid">
-          <StatCard title="本月支出" value={currency(monthExpenseTotal)} note={`年度預算剩餘 ${currency(Math.max(0, budgetTotal - approvedTotal))}`} />
-          <StatCard title="年度支出" value={currency(yearExpenseTotal)} />
-          <StatCard title="所有支出" value={currency(totalExpenseAmount)} />
-          <StatCard title="待審批支出" value={`${pendingExpenses.length}`} note="需要財務同工處理" />
+        <div className="kpi-grid">
+          <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={monthlyExp} />
+          <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={monthlyExp} sparkType="area" />
+          <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={monthlyNet} sparkType="area" />
+          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={monthlyPending} sparkType="bar" />
         </div>
       </Panel>
 
-      {/* 動態部分 */}
-      <div className="two-col finance-overview">
+      {/* 支出分類 + 新增記錄趨勢 */}
+      <div className="two-col">
+        <Panel title="支出分類">
+          {catDoughnut.length ? <CategoryDoughnut items={catDoughnut} /> : <Empty title="本年度暫無支出" />}
+        </Panel>
+        <Panel
+          title="新增記錄趨勢"
+          action={
+            <div className="seg-toggle">
+              <button type="button" className={trendMode === 'week' ? 'active' : ''} onClick={() => setTrendMode('week')}>週趨勢</button>
+              <button type="button" className={trendMode === 'month' ? 'active' : ''} onClick={() => setTrendMode('month')}>月趨勢</button>
+            </div>
+          }
+        >
+          <TrendLine
+            labels={trendLabels}
+            series={[
+              { label: '奉獻', data: trendOffer, color: INCOME_COLOR },
+              { label: '支出', data: trendExp, color: EXPENSE_COLOR },
+            ]}
+          />
+        </Panel>
+      </div>
+
+      {/* 預算 vs 實際 + 現金流 */}
+      <div className="two-col">
         <Panel title="預算 vs 實際">
-          <div className="budget-overview">
-            <div>
-              <span>已審批支出</span>
-              <strong>{currency(approvedTotal)}</strong>
-            </div>
-            <div>
-              <span>年度預算</span>
-              <strong>{currency(budgetTotal)}</strong>
-            </div>
-          </div>
-          <div className="budget-meter" aria-label={`Budget used ${budgetUsed}%`}>
-            <i style={{ width: `${budgetUsed}%` }} />
-          </div>
-          <p className="panel-note">已使用 {budgetUsed}% · 剩餘 {currency(Math.max(0, budgetTotal - approvedTotal))}</p>
-          <MiniBars data={(lookups?.expenseCategories ?? []).map(category => ({
-            label: category.shortName?.trim() || category.name,
-            offerings: category.budgetMonthly * 12,
-            expenses: yearExpenses.filter(item => item.categoryId === category.id && item.status === 'approved').reduce((sum, item) => sum + item.amount, 0)
-          }))} />
+          <BudgetDoughnut used={yearExpenseTotal} budget={budgetTotal} />
+          <p className="panel-note">年度預算 {currency(budgetTotal)}（首月 × 12）· 已用 {currency(yearExpenseTotal)} · 剩餘 {currency(Math.max(0, budgetTotal - yearExpenseTotal))}</p>
         </Panel>
         <Panel title="現金流">
-          <p className="panel-note">{year} 年度收入與核准支出對比</p>
-          <MiniBars data={incomeExpenseTrend} />
+          <p className="panel-note">{year} 年度各月收入與支出對比</p>
+          <GroupedBar
+            labels={monthLabels}
+            series={[
+              { label: '收入', data: monthlyOffer, color: INCOME_COLOR },
+              { label: '支出', data: monthlyExp, color: EXPENSE_COLOR },
+            ]}
+          />
         </Panel>
       </div>
 
@@ -634,15 +653,6 @@ function DashboardPage() {
         </Panel>
         <Panel title="最近支出">
           <SimpleList items={yearExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
-        </Panel>
-      </div>
-
-      <div className="two-col">
-        <Panel title="奉獻趨勢">
-          <MiniBars data={offeringTrend} />
-        </Panel>
-        <Panel title="待審核支出">
-          <SimpleList items={pendingExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description} ${currency(item.amount)}`)} />
         </Panel>
       </div>
     </section>

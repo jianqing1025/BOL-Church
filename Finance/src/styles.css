@@ -705,6 +705,77 @@ td small {
   font-size: 1.7rem;
 }
 
+/* ---- 圖表看板 ---- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+.kpi-card {
+  position: relative;
+  border-radius: 10px;
+  padding: 0.9rem 1rem 0;
+  color: #fff;
+  overflow: hidden;
+  min-height: 128px;
+  box-shadow: 0 10px 30px rgba(25, 41, 70, 0.10);
+}
+.kpi-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.kpi-head strong {
+  font-size: 1.55rem;
+  line-height: 1.1;
+  font-weight: 800;
+}
+.kpi-delta {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap;
+}
+.kpi-title {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+.kpi-spark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 46px;
+  padding: 0 2px;
+}
+.chart-canvas {
+  position: relative;
+  height: 280px;
+}
+.doughnut-wrap {
+  height: 260px;
+}
+.seg-toggle {
+  display: inline-flex;
+  border: 1px solid #dbe3ef;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.seg-toggle button {
+  border: 0;
+  background: #fff;
+  color: #68758a;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.seg-toggle button.active {
+  background: #1f6feb;
+  color: #fff;
+}
+
 .two-col {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1398,7 +1469,8 @@ td small {
     display: none;
   }
 
-  .stats-grid {
+  .stats-grid,
+  .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
