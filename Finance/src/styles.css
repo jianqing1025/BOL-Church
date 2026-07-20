@@ -928,8 +928,8 @@ td small {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 0.35rem 1rem;
+  justify-content: flex-start;
+  gap: 0.35rem 0.4rem;
 }
 
 .tax-summary-extra {

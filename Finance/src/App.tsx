@@ -2716,6 +2716,7 @@ function AnnualTaxReportSection() {
       <p className="tax-summary">
         <span>{year} 年度 · 共 <strong>{rows.length}</strong> 人參與奉獻 · 合計 <strong>{currency(grandTotal)}</strong></span>
         <span className="tax-summary-extra">
+          {' · '}
           {anonymousTotal > 0 && <>另有匿名奉獻 <strong>{currency(anonymousTotal)}</strong>（無法開立報稅證明）{' · '}</>}
           總計奉獻 <strong>{currency(grandTotal + anonymousTotal)}</strong>
         </span>
