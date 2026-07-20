@@ -434,7 +434,7 @@ td small {
   font-size: 0.72rem;
   color: #8a98ad;
   letter-spacing: 0.04em;
-  padding-left: 0.1rem;
+  text-align: right;
 }
 
 .user-card {

@@ -7,6 +7,7 @@ import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Im
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import { exportBackup, importBackup, TABLE_LABELS } from './utils/backup';
+import { APP_VERSION } from './version';
 import {
   DEFAULT_REPLY_TO,
   DEFAULT_TAX_STATEMENT_HTML_TEMPLATE,
@@ -16,8 +17,6 @@ import {
   buildTaxStatementHtml,
   normalizeTaxStatementSettings
 } from './shared/taxStatement';
-
-const APP_VERSION = '2.0.10';
 
 type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
 type AccountTab = 'profile' | 'password';
@@ -448,7 +447,7 @@ function Shell({ page, setPage, onOpenAccount }: {
       </nav>
       {user && (
         <div className="sidebar-footer">
-          <div className="app-version">v{APP_VERSION}</div>
+          <div className="app-version">Version: {APP_VERSION}</div>
           <div className="user-card">
             <div className="user-card-avatar">{userInitials(user.name, user.email)}</div>
           <div className="user-card-id">
