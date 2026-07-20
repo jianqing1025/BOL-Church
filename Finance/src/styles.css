@@ -875,8 +875,34 @@ td small {
 .dash-bottom-right .panel {
   flex: 1;
 }
+.cum-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.9rem;
+}
+.cum-table th,
+.cum-table td {
+  padding: 0.4rem 0.35rem;
+  border-bottom: 1px solid #eef1f6;
+  text-align: left;
+  vertical-align: top;
+}
+.cum-table th {
+  font-size: 0.78rem;
+  color: #68758a;
+  font-weight: 600;
+}
+.cum-table tbody tr:last-child td { border-bottom: none; }
+.cum-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cum-table td.cum-name { word-break: break-word; }
+.cum-table td.num:last-child { font-weight: 700; }
+.cum-empty { color: #94a3b8; font-style: italic; text-align: center; }
 .cum-more { margin-top: 0.9rem; width: 100%; }
-.donor-all-wrap { overflow: auto; max-height: 60vh; }
 
 .panel {
   padding: 1rem;

@@ -798,10 +798,25 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       <div className="dash-bottom">
         <Panel title="累計奉獻" action={<small className="panel-note" style={{ margin: 0 }}>{year} 年度 · 共 {donorRanking.length} 人</small>}>
-          <SimpleList items={donorRanking.slice(0, 11).map(d => `${d.name} ${currency(d.total)}`)} />
+          <table className="cum-table">
+            <colgroup><col style={{ width: '60%' }} /><col style={{ width: '20%' }} /><col style={{ width: '20%' }} /></colgroup>
+            <thead>
+              <tr><th>名字</th><th className="num">筆數</th><th className="num">金額</th></tr>
+            </thead>
+            <tbody>
+              {(showAllDonors ? donorRanking : donorRanking.slice(0, 11)).map((d, i) => (
+                <tr key={i}>
+                  <td className="cum-name">{d.name}</td>
+                  <td className="num">{d.count}</td>
+                  <td className="num">{currency(d.total)}</td>
+                </tr>
+              ))}
+              {!donorRanking.length && <tr><td colSpan={3} className="cum-empty">本年度暫無奉獻記錄</td></tr>}
+            </tbody>
+          </table>
           {donorRanking.length > 11 && (
-            <button type="button" className="cum-more" onClick={() => setShowAllDonors(true)}>
-              展開全部 {donorRanking.length} 人
+            <button type="button" className="cum-more" onClick={() => setShowAllDonors(v => !v)}>
+              {showAllDonors ? '收起' : `展開全部 ${donorRanking.length} 人`}
             </button>
           )}
         </Panel>
@@ -815,32 +830,6 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </div>
       </div>
 
-      {showAllDonors && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <header><h2>{year} 年度奉獻匯總（共 {donorRanking.length} 人）</h2><button type="button" onClick={() => setShowAllDonors(false)}>關閉</button></header>
-            <div className="donor-all-wrap">
-              <table className="tax-report-table">
-                <thead><tr><th>#</th><th>奉獻人</th><th className="desk-only">筆數</th><th>累計金額</th></tr></thead>
-                <tbody>
-                  {donorRanking.map((d, i) => (
-                    <tr key={i}>
-                      <td>{i + 1}</td>
-                      <td>{d.name}</td>
-                      <td className="desk-only">{d.count}</td>
-                      <td>{currency(d.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <footer>
-              <strong>合計 {currency(donorRanking.reduce((s, d) => s + d.total, 0))}</strong>
-              <button type="button" onClick={() => setShowAllDonors(false)}>關閉</button>
-            </footer>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
