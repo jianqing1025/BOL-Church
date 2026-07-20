@@ -2706,7 +2706,7 @@ function MemberCombobox({ members, value, onChange }: { members: Member[]; value
     if (!q) return sorted;
     return sorted.filter(m => `${label(m)} ${m.name} ${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''}`.toLowerCase().includes(q));
   }, [sorted, query]);
-  const shown = filtered.slice(0, 60);
+  const shown = filtered;
 
   const pick = (id: string | null) => { onChange(id); setOpen(false); setQuery(''); };
 
