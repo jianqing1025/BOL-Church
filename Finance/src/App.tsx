@@ -824,7 +824,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
               <tr><th>名字</th><th className="num">筆數</th><th className="num">金額</th></tr>
             </thead>
             <tbody>
-              {(showAllDonors ? donorRanking : donorRanking.slice(0, 11)).map((d, i) => (
+              {(showAllDonors ? donorRanking : donorRanking.slice(0, 15)).map((d, i) => (
                 <tr key={i}>
                   <td className="cum-name">{d.name}</td>
                   <td className="num">{d.count}</td>
@@ -834,7 +834,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
               {!donorRanking.length && <tr><td colSpan={3} className="cum-empty">本年度暫無奉獻記錄</td></tr>}
             </tbody>
           </table>
-          {donorRanking.length > 11 && (
+          {donorRanking.length > 15 && (
             <button type="button" className="cum-more" onClick={() => setShowAllDonors(v => !v)}>
               {showAllDonors ? '收起' : `展開全部 ${donorRanking.length} 人`}
             </button>
@@ -842,10 +842,10 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </Panel>
         <div className="dash-bottom-right">
           <Panel title="最近奉獻">
-            <SimpleList items={yearOfferings.slice(0, 5).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
+            <SimpleList items={yearOfferings.slice(0, 8).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
           </Panel>
           <Panel title="最近支出">
-            <SimpleList items={yearExpenses.slice(0, 5).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
+            <SimpleList items={yearExpenses.slice(0, 8).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
           </Panel>
         </div>
       </div>
