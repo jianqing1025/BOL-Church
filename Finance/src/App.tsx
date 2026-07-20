@@ -2283,12 +2283,13 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
   );
 }
 
-function TaxStatementModal({ member, year, offerings, settings, onClose }: {
+function TaxStatementModal({ member, year, offerings, settings, onClose, onSent }: {
   member: Member;
   year: number;
   offerings: Offering[];
   settings: TaxStatementSettings;
   onClose: () => void;
+  onSent?: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [sending, setSending] = useState(false);
@@ -2370,6 +2371,7 @@ function TaxStatementModal({ member, year, offerings, settings, onClose }: {
     try {
       await api.sendTaxStatement(member.id, year, pdf);
       setResult({ ok: true, message: `已發送至 ${member.email}` });
+      onSent?.();
     } catch (caught) {
       setResult({ ok: false, message: caught instanceof Error ? caught.message : '發送失敗' });
     } finally {
@@ -2654,11 +2656,12 @@ function TaxSettingsModal({
 }
 
 function AnnualTaxReportSection() {
-  const { members, offerings, settings, saveMember, saveSettings } = useFinance();
+  const { members, offerings, settings, auditLogs, saveMember, saveSettings } = useFinance();
   const { hasPermission } = useAuth();
   const [taxMember, setTaxMember] = useState<Member | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sentThisSession, setSentThisSession] = useState<Set<string>>(new Set());
 
   const years = useMemo(() => {
     const set = new Set<string>();
@@ -2697,6 +2700,19 @@ function AnnualTaxReportSection() {
       .sort((a, b) => b.total - a.total);
     return { rows, anonymousTotal: anonymous, grandTotal: rows.reduce((sum, row) => sum + row.total, 0) };
   }, [offerings, year, memberById]);
+
+  // 已發送狀態：來自操作日誌（跨重整持久），加上本次登入期間剛發送的（即時反饋）
+  const sentMemberIds = useMemo(() => {
+    const set = new Set<string>();
+    const marker = `報稅文件 ${year} `;
+    for (const log of auditLogs) {
+      if (log.entityType === 'tax_statement' && log.action === 'send' && (log.entitySummary || '').startsWith(marker)) {
+        set.add(log.entityId);
+      }
+    }
+    return set;
+  }, [auditLogs, year]);
+  const isSent = (memberId: string) => sentMemberIds.has(memberId) || sentThisSession.has(`${year}:${memberId}`);
 
   const action = (
     <div className="tax-report-actions">
@@ -2743,7 +2759,11 @@ function AnnualTaxReportSection() {
                   <td>{currency(row.total)}</td>
                   <td className="actions">
                     <button onClick={() => setEditingMember(row.member)}>編輯</button>
-                    <button className="primary" onClick={() => setTaxMember(row.member)}><span className="desk-only">生成年度帳單</span><span className="mob-only">帳單</span></button>
+                    <button
+                      className={isSent(row.member.id) ? 'tax-sent' : 'primary'}
+                      title={isSent(row.member.id) ? '已發送至郵箱' : undefined}
+                      onClick={() => setTaxMember(row.member)}
+                    ><span className="desk-only">生成年度帳單</span><span className="mob-only">帳單</span></button>
                   </td>
                 </tr>
                 );
@@ -2768,6 +2788,7 @@ function AnnualTaxReportSection() {
           offerings={offerings}
           settings={settings.taxStatement}
           onClose={() => setTaxMember(null)}
+          onSent={() => setSentThisSession(prev => new Set(prev).add(`${year}:${taxMember.id}`))}
         />
       )}
       {settingsOpen && (

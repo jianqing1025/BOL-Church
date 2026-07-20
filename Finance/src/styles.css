@@ -39,6 +39,16 @@ button.primary {
   color: #fff;
 }
 
+/* 報稅帳單已發送：淡灰底，區分發送狀況 */
+button.tax-sent {
+  background: #e8ebf0;
+  color: #7a8699;
+  border-color: #dfe4ec;
+}
+button.tax-sent:hover {
+  background: #dee2e9;
+}
+
 button:disabled,
 button:disabled:hover,
 button.primary:disabled,
