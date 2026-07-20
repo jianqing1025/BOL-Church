@@ -824,7 +824,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
               <tr><th>名字</th><th className="num">筆數</th><th className="num">金額</th></tr>
             </thead>
             <tbody>
-              {(showAllDonors ? donorRanking : donorRanking.slice(0, 15)).map((d, i) => (
+              {(showAllDonors ? donorRanking : donorRanking.slice(0, 16)).map((d, i) => (
                 <tr key={i}>
                   <td className="cum-name">{d.name}</td>
                   <td className="num">{d.count}</td>
@@ -834,7 +834,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
               {!donorRanking.length && <tr><td colSpan={3} className="cum-empty">本年度暫無奉獻記錄</td></tr>}
             </tbody>
           </table>
-          {donorRanking.length > 15 && (
+          {donorRanking.length > 16 && (
             <button type="button" className="cum-more" onClick={() => setShowAllDonors(v => !v)}>
               {showAllDonors ? '收起' : `展開全部 ${donorRanking.length} 人`}
             </button>
