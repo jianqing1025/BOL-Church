@@ -304,6 +304,7 @@ td small {
 .expenses-table td:nth-child(3),
 .expenses-table .expense-category-col {
   width: 50ch;
+  min-width: 50ch;
   max-width: 50ch;
   white-space: normal;
   overflow-wrap: anywhere;
