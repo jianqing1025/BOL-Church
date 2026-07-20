@@ -115,12 +115,11 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
       hoverOffset: 4,
     }],
   };
+  const colorOf = (label: string, idx: number) => (label === '其他' ? OTHER_COLOR : CATEGORY_COLORS[idx % CATEGORY_COLORS.length]);
   const options = {
     responsive: true, maintainAspectRatio: false, cutout: '62%',
-    layout: { padding: { bottom: 4 } },
     plugins: {
-      // 底部圖例 → 圓環水平居中，中心總額才對得齊
-      legend: { position: 'bottom' as const, labels: { color: INK, boxWidth: 12, padding: 8, font: { size: 11 } } },
+      legend: { display: false },   // 改用下方自訂數據列表
       tooltip: {
         callbacks: {
           label: (ctx: { label?: string; parsed: number }) => {
@@ -132,9 +131,21 @@ export function CategoryDoughnut({ items }: { items: Array<{ label: string; valu
     },
   };
   return (
-    <div className="chart-canvas doughnut-wrap">
-      <Doughnut data={data} options={options} plugins={[centerTextPlugin('年度支出', compactUsd(total))]} />
-    </div>
+    <>
+      <div className="chart-canvas doughnut-wrap">
+        <Doughnut data={data} options={options} plugins={[centerTextPlugin('年度支出', compactUsd(total))]} />
+      </div>
+      <ul className="cat-data-list">
+        {items.map((it, idx) => (
+          <li key={it.label}>
+            <span className="dot" style={{ background: colorOf(it.label, idx) }} />
+            <span className="cat-name" title={it.label}>{it.label}</span>
+            <span className="cat-amt">{currency(it.value)}</span>
+            <span className="cat-pct">{total ? Math.round((it.value / total) * 100) : 0}%</span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

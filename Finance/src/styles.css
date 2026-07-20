@@ -757,6 +757,47 @@ td small {
 .doughnut-wrap {
   height: 260px;
 }
+/* 支出分類：圓環下方各類別數據列表（隨屏寬 2–4 列） */
+.cat-data-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.35rem 0.9rem;
+}
+.cat-data-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.cat-data-list .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.cat-data-list .cat-name {
+  flex: 1;
+  min-width: 0;
+  color: #52514e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-data-list .cat-amt {
+  color: #172033;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cat-data-list .cat-pct {
+  color: #898781;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.4em;
+  text-align: right;
+}
 .seg-toggle {
   display: inline-flex;
   border: 1px solid #dbe3ef;
