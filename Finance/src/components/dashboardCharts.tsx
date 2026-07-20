@@ -70,9 +70,9 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
         tension: 0.4,
         pointRadius: sparkType === 'bar' ? 0 : 3.5,
         pointHoverRadius: sparkType === 'bar' ? 0 : 3.5,
-        pointBackgroundColor: 'rgba(255,255,255,.95)',
-        pointBorderColor: 'rgba(255,255,255,.5)',
-        pointBorderWidth: 1,
+        pointBackgroundColor: 'transparent',      // 空心圓圈（非實心點）
+        pointBorderColor: 'rgba(255,255,255,.9)',
+        pointBorderWidth: 1.5,
         borderRadius: sparkType === 'bar' ? 3 : undefined,
         borderSkipped: false as const,
       }],
