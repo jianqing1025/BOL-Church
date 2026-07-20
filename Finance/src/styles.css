@@ -1226,7 +1226,8 @@ td small {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.2rem 0.6rem;
-  margin-top: 0.2rem;
+  /* .page 是 grid 且 gap:1.25rem，用負邊距抵銷掉大半，讓頁腳貼近表格、整區變矮 */
+  margin-top: -0.85rem;
   font-size: 0.85rem;
   color: #526176;
 }
