@@ -60,9 +60,10 @@ export interface KpiCardProps {
   spark: number[];
   sparkType?: 'line' | 'area' | 'bar';
   onClick?: () => void;    // 有值時把數字做成連結
+  sub?: string;            // 次要指標（顯示在標題下方）
 }
 
-export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick }: KpiCardProps) {
+export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick, sub }: KpiCardProps) {
   const white = 'rgba(255,255,255,.55)';
 
   // 掛在 body 上的浮層 tooltip：不受卡片 overflow 裁剪，小畫布也能完整顯示
@@ -138,6 +139,7 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
         )}
       </div>
       <span className="kpi-title">{title}</span>
+      {sub && <span className="kpi-sub">{sub}</span>}
       <div className="kpi-spark">
         {sparkType === 'bar'
           ? <Bar data={data} options={options} />

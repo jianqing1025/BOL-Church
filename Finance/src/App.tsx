@@ -763,14 +763,14 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
           <KpiCard title="本週奉獻" value={currency(weekOfferingTotal)} delta={pct(weekOfferingTotal, prevWeekOfferingTotal)} accent="linear-gradient(135deg,#6366f1,#4f46e5)" spark={weeklyOffer} />
           <KpiCard title="本月奉獻" value={currency(monthOfferingTotal)} delta={pct(monthOfferingTotal, prevMonthOfferingTotal)} accent="linear-gradient(135deg,#3b82f6,#2563eb)" spark={capOffer} />
           <KpiCard title="年度奉獻" value={currency(yearOfferingTotal)} delta={pct(yearOfferingTotal, sum(prevYearOfferings))} accent="linear-gradient(135deg,#14b8a6,#0d9488)" spark={capOffer} sparkType="area" />
-          <KpiCard title="奉獻人數" value={`${donorCount}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={capDonors} sparkType="bar" />
+          <KpiCard title="奉獻人數" value={`${donorCount}`} sub={`奉獻筆數 ${yearOfferings.length}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={capDonors} sparkType="bar" />
         </div>
       </Panel>
 
       {/* 支出統計 */}
       <Panel title="支出統計">
         <div className="kpi-grid">
-          <KpiCard title="待審批支出" value={`${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" onClick={() => onNavigate('expenses')} />
+          <KpiCard title="支出筆數" value={`${yearExpenses.length}`} sub={`待審批 ${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" onClick={() => onNavigate('expenses')} />
           <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={capExp} />
           <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={capExp} sparkType="area" />
           <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={capNet} sparkType="area" />
