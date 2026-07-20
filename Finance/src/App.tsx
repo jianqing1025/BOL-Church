@@ -1158,6 +1158,7 @@ function MembersPage() {
       }
       return (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name);
     });
+  const pager = usePagination(filtered, `${query}|${activeOnly ? 1 : 0}|${sortKey}|${sortDir}`);
 
   return (
     <section className="page">
@@ -1234,7 +1235,7 @@ function MembersPage() {
           </tr>
         </thead>
         <tbody>
-          {filtered.map(member => {
+          {pager.pageItems.map(member => {
             const displayName = [member.firstName, member.lastName].filter(Boolean).join(' ');
             const phone = member.phone || member.homePhone || '';
             const address = [member.address, member.city, member.stateRegion, member.postalCode].filter(Boolean);
@@ -1310,6 +1311,7 @@ function MembersPage() {
         </tbody>
       </table>
       </div>
+      <Pagination {...pager} />
     </section>
   );
 }
@@ -1348,6 +1350,48 @@ function AttachmentPreviewModal({ url, title = '查看附件', onClose }: { url:
 
 const Lightbox = AttachmentPreviewModal;
 
+const PAGE_SIZE_OPTIONS = [100, 200, 500, 1000];
+
+// 通用分頁：每頁 100/200/500/1000（預設 200）。resetKey 變化（篩選/排序）時回到第 1 頁。
+function usePagination<T>(items: T[], resetKey?: string) {
+  const [pageSize, setPageSize] = useState(200);
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [resetKey, pageSize]);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  const pageItems = items.slice(start, start + pageSize);
+  return { pageItems, page: safePage, setPage, pageSize, setPageSize, total, totalPages, start };
+}
+
+function Pagination({ page, totalPages, pageSize, total, start, setPage, setPageSize }: {
+  page: number; totalPages: number; pageSize: number; total: number; start: number;
+  setPage: (p: number) => void; setPageSize: (n: number) => void;
+}) {
+  if (total === 0) return null;
+  const from = start + 1;
+  const to = Math.min(start + pageSize, total);
+  return (
+    <div className="pagination">
+      <div className="pagination-info">共 {total} 筆 · 第 {from}–{to} 筆</div>
+      <div className="pagination-ctrl">
+        <label className="pagination-size">每頁
+          <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))} style={{ width: 'auto' }}>
+            {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          條
+        </label>
+        <button type="button" disabled={page <= 1} onClick={() => setPage(1)} title="第一頁">«</button>
+        <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} title="上一頁">‹</button>
+        <span className="pagination-page">{page} / {totalPages}</span>
+        <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)} title="下一頁">›</button>
+        <button type="button" disabled={page >= totalPages} onClick={() => setPage(totalPages)} title="最後一頁">»</button>
+      </div>
+    </div>
+  );
+}
+
 function OfferingsPage() {
   const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
   const { hasPermission } = useAuth();
@@ -1383,6 +1427,7 @@ function OfferingsPage() {
     if (amtSort === 'none') return filteredOfferings;
     return [...filteredOfferings].sort((a, b) => (amtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
   }, [filteredOfferings, amtSort]);
+  const pager = usePagination(displayOfferings, `${year}|${amtSort}`);
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const offeringMemberLabel = (item: Offering) =>
@@ -1441,7 +1486,7 @@ function OfferingsPage() {
           <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th onClick={cycleAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{amtSort === 'desc' ? ' ↓' : amtSort === 'asc' ? ' ↑' : ''}</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
-          {displayOfferings.map(item => (
+          {pager.pageItems.map(item => (
             <tr key={item.id}>
               <td data-label="日期">{shortDate(item.date)}</td>
               <td data-label="成員">{offeringMemberLabel(item)}</td>
@@ -1455,6 +1500,7 @@ function OfferingsPage() {
           ))}
         </tbody>
       </table>
+      <Pagination {...pager} />
     </section>
   );
 }
@@ -1499,6 +1545,7 @@ function ExpensesPage() {
     if (expAmtSort === 'none') return filteredExpenses;
     return [...filteredExpenses].sort((a, b) => (expAmtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
   }, [filteredExpenses, expAmtSort]);
+  const pager = usePagination(displayExpenses, `${year}|${expAmtSort}`);
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const categoryShortById = useMemo(() => {
@@ -1632,7 +1679,7 @@ function ExpensesPage() {
           </tr>
         </thead>
         <tbody>
-          {displayExpenses.map(item => {
+          {pager.pageItems.map(item => {
             const approvalOp = (item.status === 'approved' || item.status === 'rejected')
               ? expenseOperatorDisplay(memberById, item.approvedBy, item.approvedByName, item.approvedAt) : null;
             const invoiceOp = item.invoicedAt ? expenseOperatorDisplay(memberById, item.invoicedBy, item.invoicedByName, item.invoicedAt) : null;
@@ -1708,6 +1755,7 @@ function ExpensesPage() {
           })}
         </tbody>
       </table>
+      <Pagination {...pager} />
     </section>
   );
 }
@@ -2262,6 +2310,7 @@ function AuditLogDetail({ log, onClose }: { log: AuditLog; onClose: () => void }
 
 function AuditLogTable({ logs }: { logs: AuditLog[] }) {
   const [detailLog, setDetailLog] = useState<AuditLog | null>(null);
+  const pager = usePagination(logs);
   if (!logs.length) return <SimpleList items={[]} />;
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -2270,7 +2319,7 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
           <tr><th>時間</th><th>操作人</th><th>操作</th><th className="desk-only">對象</th><th className="desk-only">原因／備註</th><th>詳情</th></tr>
         </thead>
         <tbody>
-          {logs.map(log => (
+          {pager.pageItems.map(log => (
             <tr key={log.id}>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <span className="desk-only">{dateTime(log.createdAt)}</span>
@@ -2295,6 +2344,7 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
           ))}
         </tbody>
       </table>
+      <Pagination {...pager} />
       {detailLog && <AuditLogDetail log={detailLog} onClose={() => setDetailLog(null)} />}
     </div>
   );

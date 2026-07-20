@@ -1212,6 +1212,23 @@ td small {
   gap: 0.8rem;
 }
 
+/* 列表分頁 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+  color: #526176;
+}
+.pagination-info { color: #68758a; }
+.pagination-ctrl { display: flex; align-items: center; gap: 0.4rem; }
+.pagination-size { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
+.pagination-ctrl button { padding: 0.35rem 0.62rem; min-width: 2rem; }
+.pagination-page { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+
 .bar-row {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
