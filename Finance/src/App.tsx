@@ -872,6 +872,13 @@ function MembersPage() {
   const [detail, setDetail] = useState<Member | null>(null);
   const [offeringMember, setOfferingMember] = useState<Offering | null>(null);
   const [deletingMember, setDeletingMember] = useState<Member | null>(null);
+  const [sortKey, setSortKey] = useState<'yearOffering' | 'totalOffering' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const toggleSort = (key: 'yearOffering' | 'totalOffering') => {
+    if (sortKey === key) setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+  const sortArrow = (key: 'yearOffering' | 'totalOffering') => (sortKey === key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
 
   const isDesktop = useIsDesktop();
   const [visibleCols, setVisibleCols] = useState<Set<MemberColKey>>(() => loadVisibleMemberCols());
@@ -941,7 +948,14 @@ function MembersPage() {
       }
       return true;
     })
-    .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name));
+    .sort((a, b) => {
+      if (sortKey) {
+        const av = sortKey === 'yearOffering' ? (yearOfferingMap.get(a.id) ?? 0) : a.totalOffering;
+        const bv = sortKey === 'yearOffering' ? (yearOfferingMap.get(b.id) ?? 0) : b.totalOffering;
+        if (av !== bv) return sortDir === 'desc' ? bv - av : av - bv;
+      }
+      return (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name);
+    });
 
   return (
     <section className="page">
@@ -1012,8 +1026,8 @@ function MembersPage() {
             <th className="desk-only" style={{ width: colWidth('phone'), display: colHidden('phone') ? 'none' : undefined }}>電話</th>
             <th className="desk-only" style={{ width: colWidth('email'), display: colHidden('email') ? 'none' : undefined }}>電郵</th>
             <th className="desk-only" style={{ width: colWidth('address'), display: colHidden('address') ? 'none' : undefined }}>地址</th>
-            <th className="col-year" style={{ width: colWidth('yearOffering'), display: colHidden('yearOffering') ? 'none' : undefined }}>今年奉獻</th>
-            <th className="desk-only" style={{ width: colWidth('totalOffering'), display: colHidden('totalOffering') ? 'none' : undefined }}>累計奉獻</th>
+            <th className="col-year" onClick={() => toggleSort('yearOffering')} title="點擊排序" style={{ width: colWidth('yearOffering'), display: colHidden('yearOffering') ? 'none' : undefined, cursor: 'pointer', userSelect: 'none' }}>今年奉獻{sortArrow('yearOffering')}</th>
+            <th className="desk-only" onClick={() => toggleSort('totalOffering')} title="點擊排序" style={{ width: colWidth('totalOffering'), display: colHidden('totalOffering') ? 'none' : undefined, cursor: 'pointer', userSelect: 'none' }}>累計奉獻{sortArrow('totalOffering')}</th>
             <th className="col-actions" style={{ width: colWidth('actions'), display: colHidden('actions') ? 'none' : undefined }}>操作</th>
           </tr>
         </thead>
@@ -1161,6 +1175,12 @@ function OfferingsPage() {
     [offerings, year]
   );
   const total = filteredOfferings.reduce((sum, item) => sum + item.amount, 0);
+  const [amtSort, setAmtSort] = useState<'none' | 'asc' | 'desc'>('none');
+  const cycleAmt = () => setAmtSort(s => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
+  const displayOfferings = useMemo(() => {
+    if (amtSort === 'none') return filteredOfferings;
+    return [...filteredOfferings].sort((a, b) => (amtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
+  }, [filteredOfferings, amtSort]);
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const offeringMemberLabel = (item: Offering) =>
@@ -1216,10 +1236,10 @@ function OfferingsPage() {
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
       <table className="offerings-table">
         <thead>
-          <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th>金額</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
+          <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th onClick={cycleAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{amtSort === 'desc' ? ' ↓' : amtSort === 'asc' ? ' ↑' : ''}</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
-          {filteredOfferings.map(item => (
+          {displayOfferings.map(item => (
             <tr key={item.id}>
               <td data-label="日期">{shortDate(item.date)}</td>
               <td data-label="成員">{offeringMemberLabel(item)}</td>
@@ -1271,6 +1291,12 @@ function ExpensesPage() {
     () => expenses.filter(item => (item.date || '').slice(0, 4) === String(year)),
     [expenses, year]
   );
+  const [expAmtSort, setExpAmtSort] = useState<'none' | 'asc' | 'desc'>('none');
+  const cycleExpAmt = () => setExpAmtSort(s => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
+  const displayExpenses = useMemo(() => {
+    if (expAmtSort === 'none') return filteredExpenses;
+    return [...filteredExpenses].sort((a, b) => (expAmtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
+  }, [filteredExpenses, expAmtSort]);
 
   const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const categoryShortById = useMemo(() => {
@@ -1399,12 +1425,12 @@ function ExpensesPage() {
       <table className="expenses-table">
         <thead>
           <tr>
-            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th>金額</th>
+            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th>
             <th>狀態</th><th>開票</th><th>入賬</th><th></th>
           </tr>
         </thead>
         <tbody>
-          {filteredExpenses.map(item => {
+          {displayExpenses.map(item => {
             const approvalOp = (item.status === 'approved' || item.status === 'rejected')
               ? expenseOperatorDisplay(memberById, item.approvedBy, item.approvedByName, item.approvedAt) : null;
             const invoiceOp = item.invoicedAt ? expenseOperatorDisplay(memberById, item.invoicedBy, item.invoicedByName, item.invoicedAt) : null;
