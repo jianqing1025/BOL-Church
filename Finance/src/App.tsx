@@ -586,7 +586,7 @@ function BackupBar() {
 }
 
 function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
-  const { dashboard, lookups, offerings, expenses } = useFinance();
+  const { dashboard, lookups, offerings, expenses, members } = useFinance();
   const years = useMemo(() => {
     const set = new Set<string>();
     for (const item of [...offerings, ...expenses]) {
@@ -616,16 +616,23 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const prevYearOfferings = offerings.filter(o => (o.date || '').slice(0, 4) === prevYearStr);
   const prevYearExpenses = expenses.filter(e => (e.date || '').slice(0, 4) === prevYearStr);
 
-  // ---- 累計奉獻（當年，按奉獻人彙總，金額由大到小；匿名合併為一列）----
-  const donorRankingMap = new Map<string, { name: string; total: number; count: number }>();
+  // ---- 累計奉獻（當年，按奉獻人彙總，金額由大到小；匿名合併為一列；姓名中英文全顯示）----
+  const membersById = new Map(members.map(m => [m.id, m]));
+  const donorRankingMap = new Map<string, { memberId: string | null; fallbackName: string; total: number; count: number }>();
   for (const o of yearOfferings) {
     const key = o.memberId || 'anonymous';
-    const entry = donorRankingMap.get(key) || { name: o.memberName || '匿名', total: 0, count: 0 };
+    const entry = donorRankingMap.get(key) || { memberId: o.memberId, fallbackName: o.memberName || '匿名', total: 0, count: 0 };
     entry.total += o.amount;
     entry.count += 1;
     donorRankingMap.set(key, entry);
   }
-  const donorRanking = [...donorRankingMap.values()].sort((a, b) => b.total - a.total);
+  const donorRanking = [...donorRankingMap.values()]
+    .map(e => ({
+      total: e.total,
+      count: e.count,
+      name: e.memberId ? (memberDisplayName(membersById.get(e.memberId)) || e.fallbackName) : '匿名'
+    }))
+    .sort((a, b) => b.total - a.total);
 
   const sum = (arr: Array<{ amount: number }>) => arr.reduce((s, x) => s + x.amount, 0);
   const inRange = (d: string, start: Date, end: Date) => { const t = new Date(`${d}T00:00:00`); return t >= start && t < end; };
@@ -791,19 +798,10 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       <div className="dash-bottom">
         <Panel title="累計奉獻" action={<small className="panel-note" style={{ margin: 0 }}>{year} 年度 · 共 {donorRanking.length} 人</small>}>
-          <ol className="cum-list">
-            {donorRanking.slice(0, 11).map((d, i) => (
-              <li key={i}>
-                <span className="cum-rank">{i + 1}</span>
-                <span className="cum-name" title={d.name}>{d.name}</span>
-                <span className="cum-amt">{currency(d.total)}</span>
-              </li>
-            ))}
-            {!donorRanking.length && <li className="cum-empty">本年度暫無奉獻記錄</li>}
-          </ol>
+          <SimpleList items={donorRanking.slice(0, 11).map(d => `${d.name} ${currency(d.total)}`)} />
           {donorRanking.length > 11 && (
             <button type="button" className="cum-more" onClick={() => setShowAllDonors(true)}>
-              More · 展開全部 {donorRanking.length} 人
+              展開全部 {donorRanking.length} 人
             </button>
           )}
         </Panel>
