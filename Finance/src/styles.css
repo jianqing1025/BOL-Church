@@ -765,12 +765,12 @@ td small {
   display: grid;
   /* 列數由組件依項數內聯設定（一行最多 3 項、行數盡量均分） */
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem 0.9rem;
+  gap: 0.4rem 2.2rem;          /* 加大列間距（項與項之間） */
 }
 .cat-data-list li {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;                 /* 縮小項內距離（分類名 ↔ 數據） */
   font-size: 0.8rem;
   min-width: 0;
 }
@@ -781,7 +781,7 @@ td small {
   flex-shrink: 0;
 }
 .cat-data-list .cat-name {
-  flex: 1;
+  flex: 0 1 auto;              /* 不再撐滿，緊挨數據；過長才截斷 */
   min-width: 0;
   color: #52514e;
   overflow: hidden;
@@ -789,15 +789,15 @@ td small {
   white-space: nowrap;
 }
 .cat-data-list .cat-amt {
+  flex-shrink: 0;
   color: #172033;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .cat-data-list .cat-pct {
+  flex-shrink: 0;
   color: #898781;
   font-variant-numeric: tabular-nums;
-  min-width: 2.4em;
-  text-align: right;
 }
 .seg-toggle {
   display: inline-flex;
