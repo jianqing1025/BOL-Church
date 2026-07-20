@@ -750,6 +750,22 @@ td small {
   height: 62px;
   padding: 0 6px 4px;
 }
+/* sparkline 節點 hover 浮層（掛在 body，不受卡片裁剪） */
+.spark-tip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  background: rgba(17, 32, 51, 0.92);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
 .chart-canvas {
   position: relative;
   height: 280px;

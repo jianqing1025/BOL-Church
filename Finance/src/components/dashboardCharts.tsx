@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   ArcElement, LineElement, PointElement, BarElement,
@@ -57,6 +57,28 @@ export interface KpiCardProps {
 
 export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick }: KpiCardProps) {
   const white = 'rgba(255,255,255,.55)';
+
+  // 掛在 body 上的浮層 tooltip：不受卡片 overflow 裁剪，小畫布也能完整顯示
+  const tipRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = document.createElement('div');
+    el.className = 'spark-tip';
+    document.body.appendChild(el);
+    tipRef.current = el;
+    return () => { el.remove(); };
+  }, []);
+  const externalTooltip = (ctx: { chart: { canvas: HTMLCanvasElement }; tooltip: { opacity: number; caretX: number; caretY: number; dataPoints?: Array<{ parsed: { y: number | null } }> } }) => {
+    const el = tipRef.current;
+    if (!el) return;
+    const tt = ctx.tooltip;
+    if (!tt.opacity) { el.style.opacity = '0'; return; }
+    const y = tt.dataPoints?.[0]?.parsed?.y ?? 0;
+    el.textContent = sparkType === 'bar' ? `${y}` : currency(y);
+    const r = ctx.chart.canvas.getBoundingClientRect();
+    el.style.opacity = '1';
+    el.style.left = `${r.left + tt.caretX}px`;
+    el.style.top = `${r.top + tt.caretY - 10}px`;
+  };
   const data = useMemo(() => {
     const d = spark.slice(-6);   // 只取最近 6 期
     return {
@@ -88,14 +110,7 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
     interaction: { mode: 'nearest' as const, intersect: false },
     plugins: {
       legend: { display: false },
-      tooltip: {
-        enabled: true,
-        displayColors: false,
-        callbacks: {
-          title: () => '',
-          label: (ctx: { parsed: { y: number | null } }) => (sparkType === 'bar' ? `${ctx.parsed.y ?? 0}` : currency(ctx.parsed.y ?? 0)),
-        },
-      },
+      tooltip: { enabled: false, external: externalTooltip },
     },
     scales: {
       x: { display: false, grid: { display: false } },
