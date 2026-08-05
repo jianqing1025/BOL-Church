@@ -302,7 +302,7 @@ td small {
 .expenses-table td:nth-child(2),
 .expenses-table .expense-description-col {
   width: 50ch;
-  min-width: 50ch;
+  min-width: 25ch;
   max-width: 50ch;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -314,7 +314,7 @@ td small {
 .expenses-table td:nth-child(3),
 .expenses-table .expense-category-col {
   width: 50ch;
-  min-width: 50ch;
+  min-width: 25ch;
   max-width: 50ch;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -672,7 +672,13 @@ td small {
 
 .page {
   display: grid;
+  min-width: 0;
   gap: 1.25rem;
+}
+
+.paginated-page {
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .page-title,
@@ -779,6 +785,56 @@ td small {
   margin-top: 0.1rem;
   font-size: 0.72rem;
   color: rgba(255, 255, 255, 0.72);
+}
+.kpi-metrics {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.kpi-metric {
+  display: grid;
+  align-content: start;
+  gap: 0.32rem;
+  min-width: 0;
+}
+.kpi-metric-primary {
+  flex: 0 0 50%;
+  padding-right: 0.85rem;
+}
+.kpi-metric-secondary {
+  flex: 0 0 50%;
+  padding-left: 0.85rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.38);
+}
+.kpi-metric-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+.kpi-metric strong {
+  font-size: 1.55rem;
+  line-height: 1.1;
+  font-weight: 800;
+}
+.kpi-metric-secondary strong {
+  font-size: 1.35rem;
+}
+.kpi-metric-secondary .kpi-metric-link {
+  width: fit-content;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.kpi-metric > span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.86rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .kpi-spark {
   position: absolute;
@@ -922,6 +978,7 @@ td small {
 .cum-more { margin-top: 0.9rem; width: 100%; }
 
 .panel {
+  min-width: 0;
   padding: 1rem;
 }
 
@@ -1219,6 +1276,10 @@ td small {
   gap: 0.8rem;
 }
 
+.recent-amount {
+  font-weight: 800;
+}
+
 /* 列表分頁 */
 .pagination {
   display: flex;
@@ -1230,30 +1291,83 @@ td small {
   /* .page 是 grid 且 gap:1.25rem，用負邊距抵銷掉大半，讓頁腳貼近表格、整區變矮 */
   margin-top: -0.85rem;
   font-size: 0.85rem;
+  line-height: 1;
   color: #526176;
 }
-/* 每個元素都用 flex 垂直置中，確保文字/箭頭在 1.5rem 控件內上下居中 */
-.pagination-info { display: flex; align-items: center; color: #68758a; }
-.pagination-ctrl { display: flex; align-items: center; gap: 0.35rem; }
-.pagination-size { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
+/* 固定 footer 內各元素的行盒高度，避免中文字、頁碼與原生 select 基線不一致。 */
+.pagination-info {
+  display: flex;
+  align-items: center;
+  height: 1.5rem;
+  color: #68758a;
+}
+.pagination-ctrl {
+  display: flex;
+  align-items: center;
+  min-height: 1.5rem;
+  gap: 0.35rem;
+}
+.pagination-size {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  gap: 0.3rem;
+  margin-right: 0.3rem;
+}
 .pagination-ctrl button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 1.5rem;
+  line-height: 1;
   padding: 0 0.55rem;
   min-width: 1.7rem;
 }
 .pagination-size select {
   height: 1.5rem;
-  padding: 0 0.4rem;
+  line-height: 1.5rem;
+  padding-block: 0;
+  padding-inline: 0.4rem;
 }
 .pagination-page {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  height: 1.5rem;
   min-width: 3.2rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* 分頁列表只讓表格橫向捲動；footer 分頁固定留在捲動區外。 */
+.paginated-table-scroll {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.paginated-table-scroll > table {
+  min-width: 100%;
+  margin: 0;
+}
+
+.members-table-scroll {
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(25, 41, 70, 0.06);
+}
+
+/* 與報表日誌一致：表格和 footer 同在 panel 內，不使用列表頁 grid 的負間距。 */
+.panel .paginated-table-scroll + .pagination {
+  margin-top: 0.5rem;
+}
+
+.paginated-list-panel {
+  display: grid;
+  gap: 0;
 }
 
 .bar-row {
@@ -1312,6 +1426,24 @@ td small {
 
 .actions button {
   padding: 0.48rem 0.62rem;
+}
+
+/* 成員操作按鈕：任何寬度都保持完整橫排文字。 */
+.members-table td.col-actions button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+/* 視窗收窄時優先改成 2 × 2，不把按鈕文字拆成直排。 */
+@media (max-width: 1600px) {
+  .members-table td.col-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, max-content);
+    align-content: center;
+    justify-content: start;
+    gap: 0.3rem !important;
+  }
 }
 
 .badge {
@@ -1481,6 +1613,19 @@ td small {
   margin: 0;
 }
 
+/* 本週新增成員的紅色標記，靠列的最右側 */
+.member-new-badge {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  flex-shrink: 0;
+  color: #dc2626;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  vertical-align: 0.08em;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1601,6 +1746,16 @@ td small {
 
 .modal header button:hover {
   background: #f8d0d0;
+}
+
+/* 彈窗標題列的新增按鈕：淡藍色背景 */
+.modal header button.modal-header-add {
+  background: #e0edff;
+  color: #1d4ed8;
+}
+
+.modal header button.modal-header-add:hover {
+  background: #c9dfff;
 }
 
 .form-grid {
@@ -1962,19 +2117,23 @@ td small {
   .mob-only { display: revert; }
   /* 標題文字收窄至內容寬度：財務系統 與 信望愛靈糧堂 右對齊 */
   .brand-text { width: auto; }
-  .members-table { width: 385px !important; }
+  .members-table { width: 440px !important; }
   .members-table .col-star { width: 35px !important; padding-left: 0.4rem !important; padding-right: 0.25rem !important; }
   .members-table th.col-star { padding-left: 0.4rem !important; padding-right: 0.25rem !important; }
   .members-table .col-name { width: 180px !important; }
   .members-table .col-year { width: 100px !important; }
   .members-table .col-actions {
-    width: 70px !important;
+    width: 125px !important;
     padding-left: 0.3rem !important;
     padding-right: 0.3rem !important;
   }
-  /* 編輯按鈕文字強制橫排，不逐字竖排 */
+  /* 四個操作都保留，按 2 × 2 排列。 */
+  .members-table .col-actions button.desk-only {
+    display: inline-flex;
+  }
   .members-table .col-actions button {
     white-space: nowrap;
+    word-break: keep-all;
     flex-shrink: 0;
   }
 }
@@ -2278,6 +2437,8 @@ td small {
   box-shadow: 0 14px 34px rgba(25, 41, 70, 0.16);
 }
 .combobox-menu li {
+  display: flex;             /* 名字靠左、new 標記靠右 */
+  align-items: center;
   padding: 0.5rem 0.65rem;
   border-radius: 6px;
   cursor: pointer;
@@ -2285,6 +2446,10 @@ td small {
   font-weight: 400;          /* 不加粗 */
   color: #172033;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combobox-menu li .combobox-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }

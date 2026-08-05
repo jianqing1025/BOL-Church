@@ -7,6 +7,7 @@ import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, Im
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import { exportBackup, importBackup, TABLE_LABELS } from './utils/backup';
+import { buildMemberRank, lastSundayStr, type MemberRank } from './utils/memberRank';
 import { APP_VERSION } from './version';
 import {
   DEFAULT_REPLY_TO,
@@ -738,6 +739,7 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
   const INCOME_COLOR = CATEGORY_COLORS[0];
   const EXPENSE_COLOR = CATEGORY_COLORS[5];
+  const recentFieldGap = '\u00a0'.repeat(5);
 
   const dashboardYearAction = (
     <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
@@ -763,14 +765,14 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
           <KpiCard title="本週奉獻" value={currency(weekOfferingTotal)} delta={pct(weekOfferingTotal, prevWeekOfferingTotal)} accent="linear-gradient(135deg,#6366f1,#4f46e5)" spark={weeklyOffer} />
           <KpiCard title="本月奉獻" value={currency(monthOfferingTotal)} delta={pct(monthOfferingTotal, prevMonthOfferingTotal)} accent="linear-gradient(135deg,#3b82f6,#2563eb)" spark={capOffer} />
           <KpiCard title="年度奉獻" value={currency(yearOfferingTotal)} delta={pct(yearOfferingTotal, sum(prevYearOfferings))} accent="linear-gradient(135deg,#14b8a6,#0d9488)" spark={capOffer} sparkType="area" />
-          <KpiCard title="奉獻人數" value={`${donorCount}`} sub={`奉獻筆數 ${yearOfferings.length}`} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={capDonors} sparkType="bar" />
+          <KpiCard title="奉獻人數" value={`${donorCount}`} secondary={{ label: '奉獻筆數', value: `${yearOfferings.length}` }} delta={pct(donorCount, prevDonorCount)} accent="linear-gradient(135deg,#8b5cf6,#7c3aed)" spark={capDonors} sparkType="bar" />
         </div>
       </Panel>
 
       {/* 支出統計 */}
       <Panel title="支出統計">
         <div className="kpi-grid">
-          <KpiCard title="支出筆數" value={`${yearExpenses.length}`} sub={`待審批 ${pendingExpenses.length}`} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" onClick={() => onNavigate('expenses')} />
+          <KpiCard title="支出筆數" value={`${yearExpenses.length}`} secondary={{ label: '待審批', value: `${pendingExpenses.length}`, onClick: () => onNavigate('expenses') }} accent="linear-gradient(135deg,#f43f5e,#e11d48)" spark={capPending} sparkType="bar" />
           <KpiCard title="本月支出" value={currency(monthExpenseTotal)} delta={pct(monthExpenseTotal, prevMonthExpenseTotal)} accent="linear-gradient(135deg,#64748b,#475569)" spark={capExp} />
           <KpiCard title="年度支出" value={currency(yearExpenseTotal)} delta={pct(yearExpenseTotal, sum(prevYearExpenses))} accent="linear-gradient(135deg,#f59e0b,#d97706)" spark={capExp} sparkType="area" />
           <KpiCard title="年度淨結餘" value={currency(netBalance)} delta={pct(netBalance, prevNet)} accent={netBalance >= 0 ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'} spark={capNet} sparkType="area" />
@@ -858,10 +860,18 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </Panel>
         <div className="dash-bottom-right">
           <Panel title="最近奉獻">
-            <SimpleList items={yearOfferings.slice(0, 8).map(item => `${shortDate(item.date)} ${item.memberName || '匿名'} ${currency(item.amount)}`)} />
+            <SimpleList items={yearOfferings.slice(0, 8).map(item => {
+              const name = item.memberId
+                ? (memberDisplayName(membersById.get(item.memberId)) || item.memberName || '未知成員')
+                : '匿名';
+              return <>{shortDate(item.date)}{recentFieldGap}{name}{recentFieldGap}<strong className="recent-amount">{currency(item.amount)}</strong></>;
+            })} />
           </Panel>
           <Panel title="最近支出">
-            <SimpleList items={yearExpenses.slice(0, 8).map(item => `${shortDate(item.date)} ${item.description || item.categoryName || '支出'} ${currency(item.amount)}`)} />
+            <SimpleList items={yearExpenses.slice(0, 8).map(item => {
+              const category = (item.categoryId && catShort.get(item.categoryId)) || item.categoryName?.trim() || '未分類';
+              return <>{shortDate(item.date)}{recentFieldGap}{category}{recentFieldGap}<strong className="recent-amount">{currency(item.amount)}</strong></>;
+            })} />
           </Panel>
         </div>
       </div>
@@ -1140,6 +1150,8 @@ function MembersPage() {
     return map;
   }, [offerings]);
 
+  const rank = useMemo(() => buildMemberRank(members, offerings), [members, offerings]);
+
   const filtered = members
     .filter(m => {
       if (activeOnly && m.status !== 'active') return false;
@@ -1156,12 +1168,12 @@ function MembersPage() {
         const bv = sortKey === 'yearOffering' ? (yearOfferingMap.get(b.id) ?? 0) : b.totalOffering;
         if (av !== bv) return sortDir === 'desc' ? bv - av : av - bv;
       }
-      return (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name);
+      return rank.compare(a, b) || a.name.localeCompare(b.name);
     });
   const pager = usePagination(filtered, `${query}|${activeOnly ? 1 : 0}|${sortKey}|${sortDir}`);
 
   return (
-    <section className="page">
+    <section className="page paginated-page">
       <PageTitle title="成員管理" subtitle="搜尋、分組、狀態與奉獻概覽" />
       <Toolbar>
         <input placeholder="搜尋姓名、電話或郵件" value={query} onChange={event => setQuery(event.target.value)} />
@@ -1219,8 +1231,9 @@ function MembersPage() {
           onSave={async payload => { await saveOffering(payload); setOfferingMember(null); }}
         />
       )}
-      <div style={{ overflowX: 'auto', borderRadius: 8, background: '#fff', boxShadow: '0 10px 30px rgba(25, 41, 70, 0.06)' }}>
-      <table className="members-table" style={{ tableLayout: 'fixed', width: isDesktop ? '100%' : 1889, boxShadow: 'none' }}>
+      <div className="panel paginated-list-panel">
+        <div className="paginated-table-scroll members-table-scroll">
+        <table className="members-table" style={{ tableLayout: 'fixed', width: isDesktop ? '100%' : 1889, boxShadow: 'none' }}>
         <thead>
           <tr>
             <th className="col-star" style={{ width: colWidth('star'), display: colHidden('star') ? 'none' : undefined }}></th>
@@ -1257,6 +1270,7 @@ function MembersPage() {
                       <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={displayName || member.name}>{displayName || member.name}</strong>
                       {displayName && <small style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={member.name}>{member.name}</small>}
                     </div>
+                    {rank.isNew(member.id) && <NewBadge />}
                     <button className="primary" style={{ flexShrink: 0, padding: '0.4rem 0.6rem', fontSize: '0.92rem', whiteSpace: 'nowrap' }} onClick={() => setOfferingMember(blankOffering(member.id))}><span className="desk-only">新增奉獻</span><span className="mob-only">奉獻</span></button>
                   </div>
                 </td>
@@ -1309,9 +1323,10 @@ function MembersPage() {
             );
           })}
         </tbody>
-      </table>
+        </table>
+        </div>
+        <Pagination {...pager} />
       </div>
-      <Pagination {...pager} />
     </section>
   );
 }
@@ -1434,7 +1449,7 @@ function OfferingsPage() {
     item.memberId ? (memberDisplayName(memberById.get(item.memberId)) || item.memberName || '未知成員') : '匿名';
 
   return (
-    <section className="page">
+    <section className="page paginated-page">
       <PageTitle title="奉獻記錄" subtitle="分類、支付方式、匿名奉獻與收據追蹤" />
       <Toolbar>
         <strong>目前列表合計：{currency(total)}</strong>
@@ -1481,7 +1496,9 @@ function OfferingsPage() {
         />
       )}
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
-      <table className="offerings-table">
+      <div className="panel paginated-list-panel">
+        <div className="paginated-table-scroll">
+        <table className="offerings-table">
         <thead>
           <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th onClick={cycleAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{amtSort === 'desc' ? ' ↓' : amtSort === 'asc' ? ' ↑' : ''}</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
@@ -1499,8 +1516,10 @@ function OfferingsPage() {
             </tr>
           ))}
         </tbody>
-      </table>
-      <Pagination {...pager} />
+        </table>
+        </div>
+        <Pagination {...pager} />
+      </div>
     </section>
   );
 }
@@ -1580,7 +1599,7 @@ function ExpensesPage() {
   };
 
   return (
-    <section className="page">
+    <section className="page paginated-page">
       <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
       <Toolbar>
         <strong>待審核：{pending.length}</strong>
@@ -1671,7 +1690,9 @@ function ExpensesPage() {
           onConfirm={confirmEmailAction}
         />
       )}
-      <table className="expenses-table">
+      <div className="panel paginated-list-panel">
+        <div className="paginated-table-scroll">
+        <table className="expenses-table">
         <thead>
           <tr>
             <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th>
@@ -1754,8 +1775,10 @@ function ExpensesPage() {
             );
           })}
         </tbody>
-      </table>
-      <Pagination {...pager} />
+        </table>
+        </div>
+        <Pagination {...pager} />
+      </div>
     </section>
   );
 }
@@ -2313,8 +2336,9 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
   const pager = usePagination(logs);
   if (!logs.length) return <SimpleList items={[]} />;
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table>
+    <>
+      <div className="paginated-table-scroll">
+        <table>
         <thead>
           <tr><th>時間</th><th>操作人</th><th>操作</th><th className="desk-only">對象</th><th className="desk-only">原因／備註</th><th>詳情</th></tr>
         </thead>
@@ -2343,10 +2367,11 @@ function AuditLogTable({ logs }: { logs: AuditLog[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
       <Pagination {...pager} />
       {detailLog && <AuditLogDetail log={detailLog} onClose={() => setDetailLog(null)} />}
-    </div>
+    </>
   );
 }
 
@@ -2873,7 +2898,7 @@ function ReportsPage() {
   const { auditLogs } = useFinance();
 
   return (
-    <section className="page reports-page">
+    <section className="page paginated-page reports-page">
       <PageTitle title="報表日誌" subtitle="月度收支、預算與操作日誌" />
 
       {/* 第二部分：年度奉獻報稅 */}
@@ -2922,7 +2947,7 @@ function Empty({ title }: { title: string }) {
   return <section className="page"><div className="empty">{title}</div></section>;
 }
 
-function SimpleList({ items }: { items: string[] }) {
+function SimpleList({ items }: { items: React.ReactNode[] }) {
   return <div className="simple-list">{items.length ? items.map((item, i) => <span key={i}>{item}</span>) : <small>暫無資料</small>}</div>;
 }
 
@@ -2933,7 +2958,7 @@ function MemberForm({
 }: {
   member: Member;
   onClose: () => void;
-  onSave: (payload: Partial<Member>) => Promise<void>;
+  onSave: (payload: Partial<Member>) => Promise<unknown>;
 }) {
   const [form, setForm] = useState(member);
   return (
@@ -2953,14 +2978,9 @@ function MemberForm({
   );
 }
 
-// 上一個星期日（今天為週日則取當天），回傳 yyyy-mm-dd（本地時區）
-function lastSundayStr(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - d.getDay());
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/** 本週新增成員的紅色標記，放在名字最後方 */
+function NewBadge() {
+  return <span className="member-new-badge">new</span>;
 }
 
 /** Group offering methods by groupName, preserving the (sort_order) input order.
@@ -2977,7 +2997,7 @@ function groupOfferingMethods(methods: OfferingMethod[]): [string, OfferingMetho
 }
 
 // 可搜索的奉獻人選擇器：輸入即過濾，下方彈出匹配名單，含「匿名」項與鍵盤操作
-function MemberCombobox({ members, value, onChange }: { members: Member[]; value: string | null; onChange: (id: string | null) => void }) {
+function MemberCombobox({ members, rank, value, onChange }: { members: Member[]; rank: MemberRank; value: string | null; onChange: (id: string | null) => void }) {
   const label = (m: Member) => (memberDisplayName(m) || m.name || '（未命名）');
   const selected = value ? members.find(m => m.id === value) ?? null : null;
   const [query, setQuery] = useState('');
@@ -2993,8 +3013,8 @@ function MemberCombobox({ members, value, onChange }: { members: Member[]; value
   }, [open]);
 
   const sorted = useMemo(
-    () => [...members].sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || label(a).localeCompare(label(b))),
-    [members]
+    () => [...members].sort((a, b) => rank.compare(a, b) || label(a).localeCompare(label(b))),
+    [members, rank]
   );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -3025,7 +3045,8 @@ function MemberCombobox({ members, value, onChange }: { members: Member[]; value
           <li className={hi === 0 ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(null); }} onMouseEnter={() => setHi(0)}>匿名</li>
           {shown.map((m, i) => (
             <li key={m.id} className={hi === i + 1 ? 'active' : ''} onMouseDown={e => { e.preventDefault(); pick(m.id); }} onMouseEnter={() => setHi(i + 1)}>
-              {m.starred ? '★ ' : ''}{label(m)}
+              <span className="combobox-name">{rank.isStar(m.id) ? '★ ' : ''}{label(m)}</span>
+              {rank.isNew(m.id) && <NewBadge />}
             </li>
           ))}
           {shown.length === 0 && <li className="combobox-empty">無匹配</li>}
@@ -3050,6 +3071,9 @@ function OfferingForm({
   onClose: () => void;
   onSave: (payload: Partial<Offering>) => Promise<void>;
 }) {
+  const { offerings, saveMember } = useFinance();
+  const rank = useMemo(() => buildMemberRank(members, offerings), [members, offerings]);
+  const [addingMember, setAddingMember] = useState<Member | null>(null);
   const [form, setForm] = useState<Offering>(() => {
     if (offering.id) return offering; // 編輯既有記錄：保留原值
     // 新增記錄：套用預設值（支付方式=支票、分類=主日奉獻、日期=上一個星期日）
@@ -3088,11 +3112,16 @@ function OfferingForm({
     </>
   );
 
+  const headerActions = (
+    <button type="button" className="modal-header-add" onClick={() => setAddingMember(blankMember())}>新增成員</button>
+  );
+
   return (
-    <FormModal title="奉獻記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
+    <>
+    <FormModal title="奉獻記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer} headerActions={headerActions}>
       <label>
         奉獻人
-        <MemberCombobox members={members} value={form.memberId ?? null} onChange={id => setForm({ ...form, memberId: id })} />
+        <MemberCombobox members={members} rank={rank} value={form.memberId ?? null} onChange={id => setForm({ ...form, memberId: id })} />
       </label>
       <label>奉獻金額<input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} required /></label>
       <label>
@@ -3121,6 +3150,18 @@ function OfferingForm({
         </div>
       )}
     </FormModal>
+    {addingMember && (
+      <MemberForm
+        member={addingMember}
+        onClose={() => setAddingMember(null)}
+        onSave={async payload => {
+          const created = await saveMember(payload);
+          setForm(f => ({ ...f, memberId: created.id }));
+          setAddingMember(null);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -3137,6 +3178,8 @@ function ExpenseForm({
   onClose: () => void;
   onSave: (payload: Partial<Expense>) => Promise<void>;
 }) {
+  const { offerings } = useFinance();
+  const rank = useMemo(() => buildMemberRank(members, offerings), [members, offerings]);
   const [form, setForm] = useState(expense);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -3178,9 +3221,10 @@ function ExpenseForm({
       <select value={form.paidBy ?? ''} onChange={event => setForm({ ...form, paidBy: event.target.value || null })}>
         <option value="">付款人</option>
         {[...members]
-          .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.name.localeCompare(b.name))
+          .sort((a, b) => rank.compare(a, b) || a.name.localeCompare(b.name))
           .map(item => (
-            <option key={item.id} value={item.id}>{item.starred ? '★ ' : ''}{memberDisplayName(item) || item.name}</option>
+            // 原生 option 無法內嵌樣式化元素，new 以純文字後綴呈現
+            <option key={item.id} value={item.id}>{rank.isStar(item.id) ? '★ ' : ''}{memberDisplayName(item) || item.name}{rank.isNew(item.id) ? ' · new' : ''}</option>
           ))}
       </select>
       <select value={form.paymentMethod} onChange={event => setForm({ ...form, paymentMethod: event.target.value })}>
@@ -3197,12 +3241,14 @@ function ExpenseForm({
   );
 }
 
-function FormModal({ title, children, onClose, onSubmit, footer }: { title: string; children: React.ReactNode; onClose: () => void; onSubmit: () => void | Promise<void>; footer?: React.ReactNode }) {
+function FormModal({ title, children, onClose, onSubmit, footer, headerActions }: { title: string; children: React.ReactNode; onClose: () => void; onSubmit: () => void | Promise<unknown>; footer?: React.ReactNode; headerActions?: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    // 巢狀彈窗時，內層表單送出不可冒泡觸發外層表單的 onSubmit
+    event.stopPropagation();
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -3217,7 +3263,13 @@ function FormModal({ title, children, onClose, onSubmit, footer }: { title: stri
   return (
     <div className="modal-backdrop">
       <form className="modal" onSubmit={handleSubmit}>
-        <header><h2>{title}</h2><button type="button" onClick={onClose}>關閉</button></header>
+        <header>
+          <h2>{title}</h2>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {headerActions}
+            <button type="button" onClick={onClose}>關閉</button>
+          </div>
+        </header>
         <div className="form-grid">{children}</div>
         {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
         <footer>{footer ?? <><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button></>}</footer>

@@ -60,10 +60,14 @@ export interface KpiCardProps {
   spark: number[];
   sparkType?: 'line' | 'area' | 'bar';
   onClick?: () => void;    // 有值時把數字做成連結
-  sub?: string;            // 次要指標（顯示在標題下方）
+  secondary?: {            // 與主指標並排顯示的次要指標
+    label: string;
+    value: string;
+    onClick?: () => void;
+  };
 }
 
-export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick, sub }: KpiCardProps) {
+export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line', onClick, secondary }: KpiCardProps) {
   const white = 'rgba(255,255,255,.55)';
 
   // 掛在 body 上的浮層 tooltip：不受卡片 overflow 裁剪，小畫布也能完整顯示
@@ -128,18 +132,36 @@ export function KpiCard({ title, value, delta, accent, spark, sparkType = 'line'
   }), [sparkType]);
 
   const hasDelta = delta !== undefined && delta !== null && Number.isFinite(delta);
+  const primaryValue = onClick
+    ? <strong role="link" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} style={{ cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px' }}>{value}</strong>
+    : <strong>{value}</strong>;
   return (
     <article className="kpi-card" style={{ background: accent }}>
-      <div className="kpi-head">
-        {onClick
-          ? <strong role="link" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} style={{ cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px' }}>{value}</strong>
-          : <strong>{value}</strong>}
-        {hasDelta && (
-          <span className="kpi-delta">{delta! >= 0 ? '▲' : '▼'} {Math.abs(delta!).toFixed(1)}%</span>
-        )}
-      </div>
-      <span className="kpi-title">{title}</span>
-      {sub && <span className="kpi-sub">{sub}</span>}
+      {secondary ? (
+        <div className="kpi-metrics">
+          <div className="kpi-metric kpi-metric-primary">
+            <div className="kpi-metric-value">
+              {primaryValue}
+              {hasDelta && <span className="kpi-delta">{delta! >= 0 ? '▲' : '▼'} {Math.abs(delta!).toFixed(1)}%</span>}
+            </div>
+            <span>{title}</span>
+          </div>
+          <div className="kpi-metric kpi-metric-secondary">
+            {secondary.onClick
+              ? <strong className="kpi-metric-link" role="link" tabIndex={0} onClick={secondary.onClick} onKeyDown={e => { if (e.key === 'Enter') secondary.onClick?.(); }}>{secondary.value}</strong>
+              : <strong>{secondary.value}</strong>}
+            <span>{secondary.label}</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="kpi-head">
+            {primaryValue}
+            {hasDelta && <span className="kpi-delta">{delta! >= 0 ? '▲' : '▼'} {Math.abs(delta!).toFixed(1)}%</span>}
+          </div>
+          <span className="kpi-title">{title}</span>
+        </>
+      )}
       <div className="kpi-spark">
         {sparkType === 'bar'
           ? <Bar data={data} options={options} />
