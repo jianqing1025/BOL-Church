@@ -148,7 +148,8 @@ const LiveStreamSection: React.FC = () => {
     try {
       const data = await api.liveRefresh();
       setState(data);
-      if (data.status !== 'live') {
+      // 檢查後轉成回放（直播剛結束）時卡片本身就會換成「查看回放」，不必再提示「尚未開始」
+      if (data.status === 'offline') {
         setRefreshMsg(t('liveChat.refreshNoChange'));
       }
     } catch (err) {

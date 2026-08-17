@@ -11,7 +11,7 @@ import {
   type SyncTarget,
   type TrainingRow,
 } from './sync/classifier';
-import { nextPeak, computeTotalOnline, boostLowOnlineTotal } from './live/liveStats';
+import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd } from './live/liveStats';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
 import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
@@ -2549,36 +2549,47 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
   const result = await probeYouTubeLive(config);
   const prev = await getLiveStreamStateRow(env);
 
-  // #2 修复:search.list 间歇性返回空。上次在直播、本次为空时,用 liveStreamingDetails
-  // 的 actualEndTime 确认是否真结束;未结束则视为瞬时漏检,保留 is_live / started_at / video_id。
-  if (!result.videoId && prev.is_live === 1 && prev.video_id) {
-    const details = await fetchLiveStreamingDetails(config.api_key, prev.video_id);
-    if (!details.actualEndTime) {
-      const peak = nextPeak((prev as any).youtube_peak ?? null, details.concurrentViewers);
-      await updateLiveStreamState(env, {
-        checked_at: Date.now(),
-        last_error: result.error,
-        youtube_viewers: details.concurrentViewers,
-        youtube_peak: peak,
-      });
-      await cleanupLiveData(env);
-      return getLiveStreamStateRow(env);
-    }
+  // 本次判定對象：search 有回就是它，沒回就沿用上次那支（可能只是 search 漏檢）。
+  // 對它取一次 liveStreamingDetails（1 unit），同時供「是否已結束」與並發數使用。
+  const candidateVideoId = result.videoId ?? prev.video_id ?? null;
+  const details = candidateVideoId
+    ? await fetchLiveStreamingDetails(config.api_key, candidateVideoId)
+    : { concurrentViewers: null, actualEndTime: null };
+
+  // search.list 兩個方向都不可靠 → 一律以 actualEndTime 為準（見 decideStreamEnd）
+  const decision = decideStreamEnd({
+    searchVideoId: result.videoId,
+    prevVideoId: prev.video_id,
+    prevIsLive: prev.is_live === 1,
+    actualEndTime: details.actualEndTime,
+  });
+
+  // 瞬時漏檢：search 為空但 YouTube 還沒給 actualEndTime → 保留 is_live / started_at / video_id
+  if (decision === 'transient-miss') {
+    const peak = nextPeak((prev as any).youtube_peak ?? null, details.concurrentViewers);
+    await updateLiveStreamState(env, {
+      checked_at: Date.now(),
+      last_error: result.error,
+      youtube_viewers: details.concurrentViewers,
+      youtube_peak: peak,
+    });
+    await cleanupLiveData(env);
+    return getLiveStreamStateRow(env);
   }
 
-  // 邊沿檢測：justEnded 已经过上面的 actualEndTime 确认
-  const justEnded = prev.is_live === 1 && prev.video_id && !result.videoId;
-  const pendingArchive = !prev.is_live && prev.video_id && !result.videoId;
-  const videoIdToArchive = justEnded || pendingArchive ? prev.video_id : null;
+  // 仍在直播的影片；decision==='ended' 時即使 search 還把它當直播也一律歸零
+  const liveVideoId = decision === 'live' ? result.videoId : null;
+  // 邊沿檢測：待歸檔的是上次那支；上次沒有（例如 search 滯後才發現已結束）就用本次這支
+  const videoIdToArchive = liveVideoId ? null : (prev.video_id ?? result.videoId ?? null);
 
-  // 寫狀態：is_live 跟最新探測；如果 videoIdToArchive 還在處理中，video_id 保留它直到歸檔成功
-  const newVideoId = result.videoId ?? videoIdToArchive ?? null;
-  const isNewVideo = !!result.videoId && prev.video_id !== result.videoId;
-  const startedAt = result.videoId
-    ? (prev.video_id === result.videoId && prev.started_at ? prev.started_at : Date.now())
+  // 寫狀態：is_live 跟最新判定；如果 videoIdToArchive 還在處理中，video_id 保留它直到歸檔成功
+  const newVideoId = liveVideoId ?? videoIdToArchive ?? null;
+  const isNewVideo = !!liveVideoId && prev.video_id !== liveVideoId;
+  const startedAt = liveVideoId
+    ? (prev.video_id === liveVideoId && prev.started_at ? prev.started_at : Date.now())
     : null;
   await updateLiveStreamState(env, {
-    is_live: result.videoId ? 1 : 0,
+    is_live: liveVideoId ? 1 : 0,
     video_id: newVideoId,
     started_at: startedAt,
     checked_at: Date.now(),
@@ -2590,15 +2601,14 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
     await tryArchiveAndNotify(env, config, videoIdToArchive);
   }
 
-  // 直播中:拉并发,更新峰值(新视频从 0 起算)
-  if (result.videoId && config.api_key) {
+  // 直播中:更新并发与峰值(新视频从 0 起算)
+  if (liveVideoId) {
     try {
-      const details = await fetchLiveStreamingDetails(config.api_key, result.videoId);
       const basePeak = isNewVideo ? 0 : ((prev as any).youtube_peak ?? null);
       const peak = nextPeak(basePeak, details.concurrentViewers);
       await updateLiveStreamState(env, { youtube_viewers: details.concurrentViewers, youtube_peak: peak });
     } catch { /* ignore */ }
-  } else if (!result.videoId) {
+  } else {
     // 非直播狀態：清零，避免顯示陳舊數字
     try { await updateLiveStreamState(env, { youtube_viewers: null }); } catch { /* ignore */ }
   }
@@ -3402,8 +3412,50 @@ async function buildPublicLiveStreamState(env: Env) {
   };
 }
 
+// 直播進行中時，公開頁的每次輪詢順手確認一次「這支影片還在播嗎」。
+// videos.list?part=liveStreamingDetails 只要 1 unit（search.list 要 100），
+// 所以可以密集跑：OBS 一停播，最慢下一輪輪詢直播頁就自己結束並轉回放，
+// 不必等 5 分鐘的 cron，也不必管理員去後台按「立即重新檢查」。
+const LIVE_END_HEARTBEAT_MS = 20_000;
+// 待歸檔重試放慢一些：VOD 可能要好幾分鐘才處理完，萬一影片被刪/轉私密會永遠歸檔不了，
+// 節流放寬可以把「卡住時每天燒掉的 quota」壓在一成以內。
+const PENDING_ARCHIVE_HEARTBEAT_MS = 180_000;
+
+async function heartbeatLiveEnd(env: Env): Promise<void> {
+  const state = await getLiveStreamStateRow(env);
+  if (!state.video_id) return;
+  const sinceLastCheck = Date.now() - (state.checked_at || 0);
+  const isLive = state.is_live === 1;
+  // 全站共用同一個節流窗口：不管同時有多少人在看，一個窗口內最多查一次
+  if (sinceLastCheck < (isLive ? LIVE_END_HEARTBEAT_MS : PENDING_ARCHIVE_HEARTBEAT_MS)) return;
+  const config = await getLiveStreamConfigRow(env);
+  if (!config.api_key) return;
+
+  // 已判定結束、只差 VOD 處理完 → 定期重試歸檔，讓頁面自己轉成「上次直播回放」
+  if (!isLive) {
+    await updateLiveStreamState(env, { checked_at: Date.now() });
+    await tryArchiveAndNotify(env, config, state.video_id);
+    return;
+  }
+
+  const details = await fetchLiveStreamingDetails(config.api_key, state.video_id);
+  if (details.actualEndTime) {
+    // 真的結束了 → 交給完整探測流程收尾（關直播、歸檔、設為上次直播回放）
+    await runProbeIfDue(env, true);
+    return;
+  }
+  // 還在播 → 順手更新並發數與峰值，並推進 checked_at
+  const peak = nextPeak((state as any).youtube_peak ?? null, details.concurrentViewers);
+  await updateLiveStreamState(env, {
+    checked_at: Date.now(),
+    youtube_viewers: details.concurrentViewers,
+    youtube_peak: peak,
+  });
+}
+
 async function handleLiveStreamPublic(env: Env): Promise<Response> {
   try {
+    try { await heartbeatLiveEnd(env); } catch { /* 心跳失敗不該影響取狀態 */ }
     const data = await buildPublicLiveStreamState(env);
     return json(data);
   } catch (err) {
@@ -3442,7 +3494,9 @@ async function handleLiveStreamGetConfig(request: Request, env: Env): Promise<Re
 }
 
 async function handleLiveStreamPutConfig(request: Request, env: Env): Promise<Response> {
-  const auth = await requireUser(request, env, 'owner');
+  // 直播設定下放給一般 Admin（contributor）：讀取(GET)、測試、立即重新檢查本來就是 contributor，
+  // 存檔卻卡在 owner，等於後台開了頁面卻按不下儲存。
+  const auth = await requireUser(request, env, 'contributor');
   if (auth instanceof Response) return auth;
   const payload = await readJson<{
     channelId?: string;
@@ -4023,15 +4077,11 @@ async function handleLiveChatPost(request: Request, env: Env): Promise<Response>
 }
 
 async function handleLivePublicRefresh(env: Env): Promise<Response> {
-  // 公開刷新：等同管理員「立即重新檢查」，但加 30 秒冷卻避免有人狂點刷光 YouTube API quota
+  // 直播頁刷新鈕 = 管理員後台「立即重新檢查」的同一條路徑：無條件強制探測。
+  // （不再看 enabled / manual_video_id / 冷卻——那些條件曾讓頁面刷不動、
+  //   非得管理員進後台按一次才會轉成回放。）
   try {
-    const state = await getLiveStreamStateRow(env);
-    const config = await getLiveStreamConfigRow(env);
-    const PUBLIC_REFRESH_COOLDOWN_MS = 30_000;
-    const sinceLastCheck = Date.now() - (state.checked_at || 0);
-    if (config.enabled && !config.manual_video_id && sinceLastCheck > PUBLIC_REFRESH_COOLDOWN_MS) {
-      await runProbeIfDue(env, true);
-    }
+    await runProbeIfDue(env, true);
     const data = await buildPublicLiveStreamState(env);
     return json(data);
   } catch (err) {

@@ -44,6 +44,13 @@ describe('decideStreamEnd', () => {
   it('is live when search returns a video', () => {
     expect(decideStreamEnd({ searchVideoId: 'X', prevVideoId: 'X', prevIsLive: true, actualEndTime: null })).toBe('live');
   });
+  it('is ended when search still returns the video but it already has actualEndTime', () => {
+    // OBS 停播後 search.list 索引會滯後數分鐘仍把它當直播返回；actualEndTime 才是真相。
+    expect(decideStreamEnd({ searchVideoId: 'X', prevVideoId: 'X', prevIsLive: true, actualEndTime: '2026-06-28T18:00:00Z' })).toBe('ended');
+  });
+  it('is live when a new stream starts right after the previous one ended', () => {
+    expect(decideStreamEnd({ searchVideoId: 'Y', prevVideoId: 'X', prevIsLive: false, actualEndTime: null })).toBe('live');
+  });
   it('is transient-miss when search empty but no actualEndTime', () => {
     expect(decideStreamEnd({ searchVideoId: null, prevVideoId: 'X', prevIsLive: true, actualEndTime: null })).toBe('transient-miss');
   });

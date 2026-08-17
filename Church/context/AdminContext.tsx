@@ -53,7 +53,9 @@ interface AdminContextType {
 
 export const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
-const ownerOnlySections = new Set(['homepage', 'users', 'livestream']);
+// 在線直播開放給一般 Admin（contributor）——後端 live-stream 各端點本來就只要求 contributor，
+// API key 也一律以遮罩形式回傳，不會外洩。首頁與帳號管理仍限 Owner。
+const ownerOnlySections = new Set(['homepage', 'users']);
 
 const setNestedValue = (obj: any, path: string, value: string) => {
   const keys = path.split('.');
