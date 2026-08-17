@@ -28,9 +28,15 @@ const SHARE_THRESHOLD = 0.65;  // 关键词在某类占比 >= 65% 才算该类�
 
 // ---- 硬编码兜底（与 server.ts 原 inferCategoryFromTitle / inferEntryTypeFromTitle 一致）----
 
+// 標題看起來像直播。注意自學習分類器會把 "Live" 學成 sunday-worship 的特徵並壓過這條規則，
+// 所以直播歸檔的對帳要直接用這個判斷去找當天的候選，不能只信 category。
+export function isLiveBroadcastTitle(title: string): boolean {
+  return /\blive\b|直播/i.test(title || '');
+}
+
 export function inferCategoryFromTitle(title: string): SermonCategoryDb {
   const text = title || '';
-  if (/\blive\b|直播/i.test(text)) return 'live-broadcast';
+  if (isLiveBroadcastTitle(text)) return 'live-broadcast';
   if (/敬拜|讚美|赞美|詩歌|诗歌|praise|worship|hymn/i.test(text)) return 'worship-praise';
   if (/醫治|医治|禱告會|祷告会|healing|prayer\s*meeting/i.test(text)) return 'healing-prayer';
   if (/見證|见证|testimony/i.test(text)) return 'testimony';

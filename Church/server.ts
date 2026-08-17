@@ -6,12 +6,14 @@ import {
   buildClassifier,
   classifySermonCategory,
   inferEntryTypeFromTitle,
+  isLiveBroadcastTitle,
   matchesTarget,
   type ClassifierModel,
   type SyncTarget,
   type TrainingRow,
 } from './sync/classifier';
 import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd } from './live/liveStats';
+import { qualifiesAsLiveBroadcast, pickDayRepresentative } from './live/liveArchive';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
 import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
@@ -2616,6 +2618,12 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
   // 順手清理過期 viewer / 老舊 chat
   await cleanupLiveData(env);
 
+  // 強制檢查（後台「立即重新檢查」＝直播頁刷新鈕）順手對帳最近幾天的直播列表，
+  // 讓「當天最長那場」的修正不必等下一次 uploads 同步。純 D1，不花 YouTube quota。
+  if (force) {
+    try { await reconcileRecentLiveBroadcastDays(env); } catch { /* ignore */ }
+  }
+
   return getLiveStreamStateRow(env);
 }
 
@@ -2649,6 +2657,106 @@ async function fetchYouTubeVideoSnippet(apiKey: string, videoId: string): Promis
   }
 }
 
+type LiveDayRow = {
+  id: string;
+  youtube_id: string;
+  title_en: string | null;
+  title_zh: string | null;
+  category: string | null;
+  duration_seconds: number | null;
+  hidden: number | null;
+};
+
+const LIVE_RECONCILE_WINDOW_DAYS = 14;
+
+/**
+ * 對帳某一天的直播條目（只讀寫 D1，不打 YouTube API）：
+ *   - 候選 = 當天「已是 live-broadcast」或「標題像直播」且長度達門檻、未被手動隱藏的影片
+ *   - 代表 = 候選中最長的那支；只有它會被收進 live-broadcast
+ *     （不能把所有標題含 live 的都收：講道標題本身就常叫 "Live Out Your Dream"，
+ *      直播剪出來的片段也叫 "…… Live ……"，全收會把列表灌爆）
+ *   - 已在 live-broadcast、但短於門檻的測試流 → 隱藏（不刪，統計與手動調整都留著）
+ *   - 其餘達標的同日條目維持原樣，該留的留
+ * 回傳當天的代表 videoId，供回放指標使用。
+ */
+async function reconcileLiveBroadcastDay(env: Env, date: string): Promise<string | null> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  await ensureCategoryColumn(env);
+  await ensureHiddenColumns(env);
+
+  const res = await env.DB.prepare(
+    `SELECT id, youtube_id, title_en, title_zh, category, duration_seconds, hidden
+     FROM sermons WHERE date = ? ORDER BY youtube_id ASC`
+  ).bind(date).all<LiveDayRow>();
+  const rows = res.results || [];
+  // 「這天有直播」的依據：已經有 live-broadcast 條目。沒有就不碰這天，免得把
+  // 純講道影片誤收進直播列表。
+  if (!rows.some(row => row.category === 'live-broadcast')) return null;
+
+  const candidates = rows.filter(row =>
+    !row.hidden
+    && (row.category === 'live-broadcast' || isLiveBroadcastTitle(`${row.title_en || ''} ${row.title_zh || ''}`))
+  );
+
+  const nowIso = new Date().toISOString();
+  const stmts: D1PreparedStatement[] = [];
+
+  // 太短 = 測試流 → 隱藏。時長還沒抓到（null）先放著，等 metadata 補齊下輪再判。
+  for (const row of rows) {
+    if (row.category !== 'live-broadcast' || row.hidden) continue;
+    if (row.duration_seconds != null && !qualifiesAsLiveBroadcast(row.duration_seconds)) {
+      stmts.push(env.DB.prepare('UPDATE sermons SET hidden = 1, updated_at = ? WHERE id = ?').bind(nowIso, row.id));
+    }
+  }
+
+  const representative = pickDayRepresentative(
+    candidates.map(row => ({ videoId: row.youtube_id, durationSeconds: row.duration_seconds }))
+  );
+  const repRow = representative ? candidates.find(row => row.youtube_id === representative) : null;
+  if (repRow && repRow.category !== 'live-broadcast') {
+    stmts.push(env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE id = ?").bind(nowIso, repRow.id));
+  }
+
+  if (stmts.length > 0) await env.DB.batch(stmts);
+  return representative;
+}
+
+/**
+ * 回放指標指向該日代表。預設只在指標為空、或指標本來就指著同一天的影片時才覆寫，
+ * 避免蓋掉管理員手動指定的影片或別天的回放；剛歸檔完的那天用 force 直接改寫。
+ */
+async function setReplayVideoForDay(env: Env, date: string, videoId: string, opts?: { force?: boolean }): Promise<void> {
+  const config = await getLiveStreamConfigRow(env);
+  const current = (config.manual_video_id || '').trim();
+  if (current === videoId) return;
+  if (current && !opts?.force) {
+    const row = await env.DB.prepare('SELECT date FROM sermons WHERE youtube_id = ? LIMIT 1')
+      .bind(current).first<{ date: string }>();
+    if (!row || row.date !== date) return;
+  }
+  try {
+    await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
+      .bind(videoId, Date.now()).run();
+  } catch { /* ignore */ }
+}
+
+/**
+ * 掃最近幾天有直播的日子重新對帳。正式崇拜的 VOD 常常在直播結束好幾小時後才進 uploads，
+ * 而且自學習分類器會把它判成主日崇拜——靠這步在每次同步後把當天最長的那支撈回直播列表。
+ */
+async function reconcileRecentLiveBroadcastDays(env: Env, days = LIVE_RECONCILE_WINDOW_DAYS): Promise<void> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const res = await env.DB.prepare(
+    "SELECT DISTINCT date FROM sermons WHERE date >= ? AND category = 'live-broadcast' ORDER BY date ASC"
+  ).bind(since).all<{ date: string }>();
+  for (const row of res.results || []) {
+    try {
+      const representative = await reconcileLiveBroadcastDay(env, row.date);
+      if (representative) await setReplayVideoForDay(env, row.date, representative);
+    } catch { /* 單日失敗不擋其他天 */ }
+  }
+}
+
 async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
   try {
     await ensureLiveStatsSchema(env);
@@ -2668,12 +2776,21 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     if (config.api_key) {
       const vm = (await fetchVideoMetadata(config.api_key, [videoId])).get(videoId);
       if (vm) { archivedViewCount = vm.viewCount; archivedDuration = vm.durationSeconds; }
+
+      // 收錄門檻：時長取不到 → VOD 還在處理，直接 return 等下一輪重試；
+      // 取得到但短於門檻 → 測試流，不收進直播列表也不當回放，但要結案免得一直重試。
+      if (!qualifiesAsLiveBroadcast(archivedDuration)) {
+        if (archivedDuration == null) return;
+        await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
+        await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
+        return;
+      }
     }
 
     // 已存在（多半是每日同步先把這支影片從 Uploads 匯入了）→ 認領為 live-broadcast，
     // 確保它出現在歷史直播區，並設為回放影片，寫入在线/播放数快照,然後清除 pending 狀態。
-    const exists = await env.DB.prepare("SELECT id, category FROM sermons WHERE youtube_id = ? LIMIT 1")
-      .bind(videoId).first<{ id: string; category: string }>();
+    const exists = await env.DB.prepare("SELECT id, category, date FROM sermons WHERE youtube_id = ? LIMIT 1")
+      .bind(videoId).first<{ id: string; category: string; date: string }>();
     if (exists) {
       const sets: string[] = ['live_online_total = ?'];
       const binds: unknown[] = [onlineTotal];
@@ -2685,10 +2802,9 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
       sets.push('updated_at = ?'); binds.push(new Date().toISOString());
       binds.push(exists.id);
       await env.DB.prepare(`UPDATE sermons SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
-      try {
-        await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
-          .bind(videoId, Date.now()).run();
-      } catch { /* ignore */ }
+      // 回放指向當天最長的那場（同一天可能還有更長的正式崇拜，不一定是剛結束這支）
+      const representative = await reconcileLiveBroadcastDay(env, exists.date);
+      await setReplayVideoForDay(env, exists.date, representative || videoId, { force: true });
       await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
       await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
       return;
@@ -2730,12 +2846,10 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     // 歸檔成功 → 清除 pending video_id
     await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
 
-    // 把剛結束的直播設為 manual_video_id —— /live 頁繼續放它當「上次直播回放」，
+    // /live 頁的「上次直播回放」指向當天最長的那場（不一定是剛結束這支），
     // 直到下次直播前 24h 自動清除（見 clearExpiredManualOverride）
-    try {
-      await env.DB.prepare('UPDATE live_stream_config SET manual_video_id = ?, updated_at = ? WHERE id = 1')
-        .bind(videoId, Date.now()).run();
-    } catch { /* ignore */ }
+    const representative = await reconcileLiveBroadcastDay(env, today);
+    await setReplayVideoForDay(env, today, representative || videoId, { force: true });
 
     // 通知 admin（只在我們真正新建了 sermon 時；認領既有行不重複發信）
     if (didInsert) {
@@ -3051,6 +3165,11 @@ async function syncChannelUploads(
       const vm = videoMetaMap.get(meta.videoId);
       const duration = vm?.durationSeconds ?? null;
       const views = vm?.viewCount ?? null;
+      // 直播類的測試流／片頭不收（只卡這個分類——每日天言本來就短，不能一起殺）
+      if (meta.category === 'live-broadcast' && meta.entryType === 'sermon' && !qualifiesAsLiveBroadcast(duration)) {
+        plannedSkips++;
+        continue;
+      }
       if (meta.entryType === 'sermon') {
         stmts.push(
           env.DB.prepare(
@@ -4722,7 +4841,11 @@ const worker: ExportedHandler<Env> = {
     if (event.cron === '0 */4 * * *') {
       ctx.waitUntil(
         syncAllChannels(env, { target: 'all' })
-          .then(result => sendUploadsSyncNotification(env, result))
+          .then(async result => {
+            // 同步剛拉進來的正式崇拜 VOD 可能才是當天最長的那場 → 回頭對帳直播列表
+            await reconcileRecentLiveBroadcastDays(env).catch(() => undefined);
+            await sendUploadsSyncNotification(env, result);
+          })
           .catch(() => undefined)
       );
     } else if (event.cron === '0 * * * *') {
