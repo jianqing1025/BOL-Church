@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
 import { KpiCard, CategoryDoughnut, BudgetDoughnut, TrendLine, GroupedBar, CATEGORY_COLORS } from './components/dashboardCharts';
-import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
+import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseReceiptSlot, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import { exportBackup, importBackup, TABLE_LABELS } from './utils/backup';
@@ -74,7 +74,8 @@ const roleLabels: Record<Role, string> = {
   super_admin: 'Super Admin',
   finance_admin: 'Admin',
   auditor: 'Reader',
-  dev: 'Dev'
+  dev: 'Dev',
+  counter: 'Counter'
 };
 
 function userInitials(name?: string, email?: string): string {
@@ -262,6 +263,7 @@ function ClaimPage() {
   });
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,9 +285,7 @@ function ClaimPage() {
 
   const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
 
-  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function uploadClaimFile(file: File) {
     setUploading(true);
     setError(null);
     try {
@@ -297,8 +297,13 @@ function ClaimPage() {
       setError(caught instanceof Error ? caught.message : '上傳附件失敗');
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
+  }
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) await uploadClaimFile(file);
   }
 
   async function submit(event: React.FormEvent) {
@@ -394,13 +399,133 @@ function ClaimPage() {
             </div>
             <div className="claim-actions">
               <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? '上傳中...' : form.receiptUrl ? '重新上傳憑證' : '上傳憑證'}</button>
+              {uploading ? (
+                <button type="button" disabled>上傳中...</button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => fileRef.current?.click()}>📁 瀏覽本機</button>
+                  <button type="button" onClick={() => setCameraOpen(true)}>📷 拍照</button>
+                </>
+              )}
               {form.receiptUrl && <a href={form.receiptUrl} target="_blank" rel="noreferrer">查看憑證</a>}
               <button className="primary" disabled={saving}>{saving ? '提交中...' : '提交請款單'}</button>
             </div>
           </form>
         )}
       </section>
+      {cameraOpen && (
+        <CameraCaptureModal
+          title="拍照上傳憑證"
+          onClose={() => setCameraOpen(false)}
+          onUse={async file => {
+            await uploadClaimFile(file);
+            setCameraOpen(false);
+          }}
+        />
+      )}
+    </main>
+  );
+}
+
+/**
+ * 手機掃碼後開啟的專用上傳頁（免登入）。token 從 URL fragment 讀，
+ * 只能往這個 session 上傳，讀不到系統裡的任何資料。
+ */
+function SnapPage({ sessionId }: { sessionId: string }) {
+  const token = useMemo(() => window.location.hash.replace(/^#/, ''), []);
+  const [status, setStatus] = useState<'checking' | 'ready' | 'invalid'>('checking');
+  const [uploaded, setUploaded] = useState(0);
+  const [max, setMax] = useState(MAX_RECEIPTS);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const state = await api.snapSession(sessionId, token);
+        setUploaded(state.uploaded);
+        setMax(state.max);
+        setStatus('ready');
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : '連結已失效');
+        setStatus('invalid');
+      }
+    })();
+  }, [sessionId, token]);
+
+  // 掃碼進來就是要拍照，直接開鏡頭；權限被拒時 CameraCaptureModal 會給退路
+  useEffect(() => {
+    if (status === 'ready' && !autoOpenedRef.current && uploaded < max) {
+      autoOpenedRef.current = true;
+      setCameraOpen(true);
+    }
+  }, [status, uploaded, max]);
+
+  const send = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = file.type.startsWith('image/') ? await compressImage(file) : file;
+      const upload = blob instanceof File
+        ? blob
+        : new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+      await api.snapUpload(sessionId, token, upload);
+      setUploaded(count => count + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '上傳失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const full = uploaded >= max;
+
+  return (
+    <main className="snap-page">
+      <h1>拍照上傳憑證</h1>
+      {status === 'checking' && <p>正在確認連結…</p>}
+      {status === 'invalid' && <p className="zoom-error">{error || '連結已失效，請在電腦上重新產生 QR Code。'}</p>}
+      {status === 'ready' && (
+        <>
+          <p className="snap-count">已上傳 {uploaded} / {max} 張{busy ? '（上傳中…）' : ''}</p>
+          {uploaded > 0 && <p className="snap-ok">照片已送到電腦上，可以繼續拍或關閉此頁。</p>}
+          {error && <p className="zoom-error">{error}</p>}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={async event => {
+              const files = Array.from(event.target.files ?? []).slice(0, max - uploaded);
+              event.target.value = '';
+              for (const file of files) await send(file);
+            }}
+          />
+          <div className="snap-actions">
+            <button type="button" className="primary" onClick={() => setCameraOpen(true)} disabled={busy || full}>
+              📷 開啟相機
+            </button>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={busy || full}>
+              🖼 從相簿選
+            </button>
+          </div>
+          {full && <p className="snap-count">已達上限 {max} 張。</p>}
+        </>
+      )}
+      {cameraOpen && (
+        <CameraCaptureModal
+          title="拍攝憑證"
+          onClose={() => setCameraOpen(false)}
+          onUse={async file => {
+            await send(file);
+            setCameraOpen(false);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -411,13 +536,16 @@ function Shell({ page, setPage, onOpenAccount }: {
   onOpenAccount: (tab: AccountTab) => void;
 }) {
   const { user, logout } = useAuth();
-  const items: Array<[Page, string]> = [
-    ['dashboard', '數據看板'],
-    ['members', '成員管理'],
-    ['offerings', '奉獻記錄'],
-    ['expenses', '支出管理'],
-    ['reports', '報表日誌']
-  ];
+  // Counter（點款人員）只記錄奉獻，導覽只留這一頁
+  const items: Array<[Page, string]> = user?.role === 'counter'
+    ? [['offerings', '奉獻記錄']]
+    : [
+        ['dashboard', '數據看板'],
+        ['members', '成員管理'],
+        ['offerings', '奉獻記錄'],
+        ['expenses', '支出管理'],
+        ['reports', '報表日誌']
+      ];
   if (user?.role === 'super_admin') items.push(['users', '用戶管理']);
 
   return (
@@ -1335,35 +1463,811 @@ function isImageAttachment(url: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url);
 }
 
-function AttachmentPreviewModal({ url, title = '查看附件', onClose }: { url: string; title?: string; onClose: () => void }) {
-  const isImage = isImageAttachment(url);
+// 憑證圖存在獨立網域（FILES_URL），跨域圖片畫進 canvas 會污染畫布使 toBlob 失敗。
+// 改走同源的 /api/files/<key> 代理讀取，key 即物件在 R2 的路徑。
+function sameOriginFileUrl(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.href);
+    if (parsed.origin === window.location.origin) return `${parsed.pathname}${parsed.search}`;
+    // pathname 已是百分號編碼，先解回原始 key 再重新編碼，否則中文／空白檔名會被編兩次
+    const key = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+    return `/api/files/${encodeURIComponent(key)}`;
+  } catch {
+    return url;
+  }
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('圖片載入失敗'));
+    img.src = src;
+  });
+}
+
+/** 取得可安全畫入 canvas 的圖片；release 用來釋放暫時的 object URL */
+async function fetchEditableImage(url: string): Promise<{ img: HTMLImageElement; release: () => void }> {
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
+    return { img: await loadImage(url), release: () => {} };
+  }
+  const response = await fetch(sameOriginFileUrl(url), { credentials: 'same-origin' });
+  if (!response.ok) throw new Error('圖片載入失敗');
+  const objectUrl = URL.createObjectURL(await response.blob());
+  try {
+    return { img: await loadImage(objectUrl), release: () => URL.revokeObjectURL(objectUrl) };
+  } catch (caught) {
+    URL.revokeObjectURL(objectUrl);
+    throw caught;
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('圖片處理失敗'))), 'image/jpeg', quality);
+  });
+}
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 6;
+const ZOOM_STEP = 0.25;
+const CROP_MIN_PX = 12;
+
+type CropRect = { x: number; y: number; w: number; h: number };
+
+/**
+ * 可縮放／拖曳的圖片檢視器：＋－按鈕、滾輪縮放、放大後拖曳平移、雙擊還原。
+ * 傳入 onSave 時額外提供旋轉／裁剪：每次操作都把結果畫成新的 JPEG 當作預覽，
+ * 按「保存」才把最終圖交給呼叫端決定要暫存進表單還是直接寫回記錄。
+ */
+function ZoomableImage({ src, alt, onSave, saveLabel = '保存', saveWhenUnchanged = false }: {
+  src: string;
+  alt: string;
+  onSave?: (file: File) => Promise<void>;
+  saveLabel?: string;
+  /** 拍照確認用：沒動過也能按下保存 */
+  saveWhenUnchanged?: boolean;
+}) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [workingSrc, setWorkingSrc] = useState(src);
+  const [cropMode, setCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [imgBox, setImgBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const cropStartRef = useRef<{ x: number; y: number } | null>(null);
+  const madeUrlsRef = useRef<string[]>([]);
+
+  const edited = workingSrc !== src;
+
+  // 換一張圖（例如支出詳情切換憑證，或保存後父層帶入新網址）時丟掉未保存的編輯
+  useEffect(() => {
+    setWorkingSrc(src);
+    setCropMode(false);
+    setCropRect(null);
+    setError(null);
+  }, [src]);
+
+  useEffect(() => () => { madeUrlsRef.current.forEach(URL.revokeObjectURL); }, []);
+
+  const reset = () => { setScale(1); setOffset({ x: 0, y: 0 }); };
+  const revertEdits = () => {
+    reset();
+    setWorkingSrc(src);
+    setCropMode(false);
+    setCropRect(null);
+    setError(null);
+  };
+  // 縮回原始大小時一併歸位，否則圖會停在偏移過的位置
+  const zoomTo = (next: number) => {
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(next.toFixed(2))));
+    setScale(clamped);
+    if (clamped === 1) setOffset({ x: 0, y: 0 });
+  };
+
+  // 裁剪座標以未縮放的圖片為基準，進入裁剪模式先把縮放歸位
+  useLayoutEffect(() => {
+    if (!cropMode) { setImgBox(null); return; }
+    const measure = () => {
+      const img = imgRef.current;
+      const frame = frameRef.current;
+      if (!img || !frame) return;
+      const ib = img.getBoundingClientRect();
+      const fb = frame.getBoundingClientRect();
+      setImgBox({ left: ib.left - fb.left, top: ib.top - fb.top, width: ib.width, height: ib.height });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [cropMode, workingSrc]);
+
+  const pushEdited = async (canvas: HTMLCanvasElement) => {
+    // 中間步驟用較高品質，避免多次旋轉／裁剪疊加後畫質崩壞
+    const url = URL.createObjectURL(await canvasToBlob(canvas, 0.92));
+    madeUrlsRef.current.push(url);
+    setWorkingSrc(url);
+    setCropRect(null);
+    reset();
+  };
+
+  const runEdit = async (job: (img: HTMLImageElement) => HTMLCanvasElement): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true);
+    setError(null);
+    let release = () => {};
+    try {
+      const loaded = await fetchEditableImage(workingSrc);
+      release = loaded.release;
+      await pushEdited(job(loaded.img));
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '圖片處理失敗');
+      return false;
+    } finally {
+      release();
+      setBusy(false);
+    }
+  };
+
+  const rotate = (deg: 90 | -90) => runEdit(img => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalHeight;
+    canvas.height = img.naturalWidth;
+    const ctx = canvas.getContext('2d')!;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((deg * Math.PI) / 180);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    return canvas;
+  });
+
+  const applyCrop = async () => {
+    if (!cropRect || !imgBox) return;
+    const box = imgBox;
+    const rect = cropRect;
+    const ok = await runEdit(img => {
+      const sx = Math.round((rect.x / box.width) * img.naturalWidth);
+      const sy = Math.round((rect.y / box.height) * img.naturalHeight);
+      const sw = Math.max(1, Math.round((rect.w / box.width) * img.naturalWidth));
+      const sh = Math.max(1, Math.round((rect.h / box.height) * img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = sw;
+      canvas.height = sh;
+      canvas.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      return canvas;
+    });
+    if (ok) setCropMode(false);
+  };
+
+  const save = async () => {
+    if (!onSave || busy || (!edited && !saveWhenUnchanged)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await (await fetch(workingSrc)).blob();
+      const source = new File([blob], 'receipt.jpg', { type: 'image/jpeg' });
+      const file = new File([await compressImage(source)], `receipt-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      await onSave(file);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '保存失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clampToBox = (value: number, max: number) => Math.min(max, Math.max(0, value));
+  const cropPointerDown = (event: React.PointerEvent) => {
+    if (!imgBox) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const start = {
+      x: clampToBox(event.clientX - bounds.left, imgBox.width),
+      y: clampToBox(event.clientY - bounds.top, imgBox.height)
+    };
+    cropStartRef.current = start;
+    setCropRect({ ...start, w: 0, h: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const cropPointerMove = (event: React.PointerEvent) => {
+    const start = cropStartRef.current;
+    if (!start || !imgBox) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = clampToBox(event.clientX - bounds.left, imgBox.width);
+    const y = clampToBox(event.clientY - bounds.top, imgBox.height);
+    setCropRect({ x: Math.min(start.x, x), y: Math.min(start.y, y), w: Math.abs(x - start.x), h: Math.abs(y - start.y) });
+  };
+  const cropPointerUp = () => {
+    cropStartRef.current = null;
+    setCropRect(current => (current && (current.w < CROP_MIN_PX || current.h < CROP_MIN_PX) ? null : current));
+  };
+
+  // React 的 onWheel 是被動監聽，preventDefault 會被忽略，只能自己掛
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setScale(current => {
+        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number((current - event.deltaY * 0.002).toFixed(2))));
+        if (next === 1) setOffset({ x: 0, y: 0 });
+        return next;
+      });
+    };
+    frame.addEventListener('wheel', onWheel, { passive: false });
+    return () => frame.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (scale <= 1) return;
+    dragRef.current = { x: event.clientX, y: event.clientY, ox: offset.x, oy: offset.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setOffset({ x: drag.ox + (event.clientX - drag.x), y: drag.oy + (event.clientY - drag.y) });
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  const canReset = edited || scale !== 1 || offset.x !== 0 || offset.y !== 0;
 
   return (
-    <div
-      className="attachment-modal-backdrop"
-      onClick={onClose}
-    >
-      <div className="attachment-modal" onClick={event => event.stopPropagation()}>
+    <div className="zoom-viewer">
+      <div
+        ref={frameRef}
+        className={`zoom-frame ${scale > 1 ? 'zoomed' : ''} ${cropMode ? 'cropping' : ''}`}
+        onPointerDown={cropMode ? undefined : onPointerDown}
+        onPointerMove={cropMode ? undefined : onPointerMove}
+        onPointerUp={cropMode ? undefined : endDrag}
+        onPointerCancel={cropMode ? undefined : endDrag}
+        onDoubleClick={cropMode ? undefined : reset}
+      >
+        <img
+          ref={imgRef}
+          src={workingSrc}
+          alt={alt}
+          draggable={false}
+          style={{ transform: cropMode ? undefined : `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
+        />
+        {cropMode && imgBox && (
+          <div
+            className={`crop-layer ${cropRect ? 'has-rect' : ''}`}
+            style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}
+            onPointerDown={cropPointerDown}
+            onPointerMove={cropPointerMove}
+            onPointerUp={cropPointerUp}
+            onPointerCancel={cropPointerUp}
+          >
+            {cropRect
+              ? <div className="crop-rect" style={{ left: cropRect.x, top: cropRect.y, width: cropRect.w, height: cropRect.h }} />
+              : <span className="crop-hint">在圖上拖曳框選要保留的範圍</span>}
+          </div>
+        )}
+      </div>
+      <div className="zoom-controls">
+        <button type="button" onClick={() => zoomTo(scale - ZOOM_STEP)} disabled={cropMode || scale <= ZOOM_MIN} aria-label="縮小">－</button>
+        <span>{Math.round(scale * 100)}%</span>
+        <button type="button" onClick={() => zoomTo(scale + ZOOM_STEP)} disabled={cropMode || scale >= ZOOM_MAX} aria-label="放大">＋</button>
+        {onSave && (
+          cropMode ? (
+            <>
+              <span className="zoom-sep" />
+              <button type="button" className="primary" onClick={applyCrop} disabled={!cropRect || busy}>套用裁剪</button>
+              <button type="button" onClick={() => { setCropMode(false); setCropRect(null); }} disabled={busy}>取消裁剪</button>
+            </>
+          ) : (
+            <>
+              <span className="zoom-sep" />
+              <button type="button" onClick={() => rotate(-90)} disabled={busy} title="向左旋轉 90°" aria-label="向左旋轉">⟲</button>
+              <button type="button" onClick={() => rotate(90)} disabled={busy} title="向右旋轉 90°" aria-label="向右旋轉">⟳</button>
+              <button type="button" onClick={() => { reset(); setCropMode(true); }} disabled={busy}>裁剪</button>
+            </>
+          )
+        )}
+        <button type="button" onClick={onSave ? revertEdits : reset} disabled={busy || !canReset}>還原</button>
+        {onSave && (
+          <button type="button" className="primary" onClick={save} disabled={busy || (!edited && !saveWhenUnchanged)}>
+            {busy ? '處理中…' : saveLabel}
+          </button>
+        )}
+      </div>
+      {error && <p className="zoom-error">{error}</p>}
+    </div>
+  );
+}
+
+// 憑證多圖：每階段上限，與後端 MAX_RECEIPTS_PER_SLOT 一致
+const MAX_RECEIPTS = 10;
+
+type GalleryItem = { url: string; slot: ExpenseReceiptSlot; label?: string };
+
+/** 一次上傳多個檔案，回傳「原清單 + 新網址」；超過上限的直接丟掉 */
+async function uploadReceiptFiles(
+  files: FileList | File[],
+  type: string,
+  entityId: string | undefined,
+  existing: string[]
+): Promise<string[]> {
+  const room = Math.max(0, MAX_RECEIPTS - existing.length);
+  const picked = Array.from(files).slice(0, room);
+  const added: string[] = [];
+  for (const file of picked) {
+    const blob = file.type.startsWith('image/') ? await compressImage(file) : file;
+    const upload = blob instanceof File
+      ? blob
+      : new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+    const { url } = await api.upload(upload, type, entityId);
+    added.push(url);
+  }
+  return [...existing, ...added];
+}
+
+/**
+ * 憑證瀏覽器：左右翻頁、鍵盤 ←→、底部縮圖列直接跳。
+ * 給了 onChange 與 upload 才會出現刪除／前後移／編輯；排序只在同一階段內作用。
+ */
+function GalleryModal({ items, startIndex = 0, title = '憑證', onClose, upload, onChange }: {
+  items: GalleryItem[];
+  startIndex?: number;
+  title?: string;
+  onClose: () => void;
+  upload?: (file: File) => Promise<string>;
+  onChange?: (next: GalleryItem[]) => Promise<void>;
+}) {
+  const [index, setIndex] = useState(startIndex);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const editable = Boolean(onChange && upload);
+
+  // 刪除後清單會變短，索引要跟著收斂
+  const safeIndex = items.length ? Math.min(index, items.length - 1) : 0;
+  const current = items[safeIndex];
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'ArrowLeft') setIndex(i => Math.max(0, i - 1));
+      if (event.key === 'ArrowRight') setIndex(i => Math.min(items.length - 1, i + 1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [items.length, onClose]);
+
+  const commit = async (next: GalleryItem[], nextIndex: number) => {
+    if (!onChange) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onChange(next);
+      setIndex(Math.max(0, Math.min(nextIndex, next.length - 1)));
+      if (next.length === 0) onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '操作失敗');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeCurrent = () => commit(items.filter((_, i) => i !== safeIndex), safeIndex);
+
+  // 只能跟同階段的鄰居互換，否則會把圖片挪到別的階段去
+  const neighbourInSameSlot = (step: -1 | 1) => {
+    const target = safeIndex + step;
+    if (target < 0 || target >= items.length) return -1;
+    return items[target].slot === current?.slot ? target : -1;
+  };
+  const move = (step: -1 | 1) => {
+    const target = neighbourInSameSlot(step);
+    if (target < 0) return;
+    const next = [...items];
+    [next[safeIndex], next[target]] = [next[target], next[safeIndex]];
+    return commit(next, target);
+  };
+
+  const replaceCurrent = async (file: File) => {
+    if (!upload || !current) return;
+    const url = await upload(file);
+    const next = items.map((item, i) => (i === safeIndex ? { ...item, url } : item));
+    await commit(next, safeIndex);
+  };
+
+  if (!current) return null;
+  const isImage = isImageAttachment(current.url);
+
+  return (
+    <div className="attachment-modal-backdrop" onClick={onClose}>
+      <div className="attachment-modal gallery-modal" onClick={event => event.stopPropagation()}>
         <header>
-          <h2>{title}</h2>
+          <h2>
+            {title}
+            {current.label && <span className="gallery-slot">{current.label}</span>}
+            <span className="gallery-count">{safeIndex + 1} / {items.length}</span>
+          </h2>
           <button type="button" onClick={onClose} aria-label="關閉">✕</button>
         </header>
-        <div className="attachment-modal-body">
-          {isImage ? (
-            <img src={url} alt={title} />
-          ) : (
-            <iframe src={url} title={title} />
-          )}
+        <div className="attachment-modal-body gallery-body">
+          <button
+            type="button"
+            className="gallery-nav"
+            onClick={() => setIndex(i => Math.max(0, i - 1))}
+            disabled={safeIndex === 0}
+            aria-label="上一張"
+          >‹</button>
+          <div className="gallery-stage">
+            {isImage
+              ? <ZoomableImage key={current.url} src={current.url} alt={current.label || title} onSave={editable ? replaceCurrent : undefined} />
+              : <iframe src={current.url} title={current.label || title} />}
+          </div>
+          <button
+            type="button"
+            className="gallery-nav"
+            onClick={() => setIndex(i => Math.min(items.length - 1, i + 1))}
+            disabled={safeIndex >= items.length - 1}
+            aria-label="下一張"
+          >›</button>
         </div>
+        {items.length > 1 && (
+          <div className="gallery-strip">
+            {items.map((item, i) => (
+              <button
+                key={`${item.url}-${i}`}
+                type="button"
+                className={`gallery-thumb ${i === safeIndex ? 'active' : ''}`}
+                onClick={() => setIndex(i)}
+                title={item.label ? `${item.label} · 第 ${i + 1} 張` : `第 ${i + 1} 張`}
+              >
+                {isImageAttachment(item.url) ? <img src={item.url} alt="" loading="lazy" /> : <span>PDF</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {error && <p className="zoom-error">{error}</p>}
         <footer>
-          <a href={url} download>下載附件</a>
+          {editable && (
+            <div className="gallery-actions">
+              <button type="button" onClick={() => move(-1)} disabled={busy || neighbourInSameSlot(-1) < 0}>← 前移</button>
+              <button type="button" onClick={() => move(1)} disabled={busy || neighbourInSameSlot(1) < 0}>後移 →</button>
+              <button type="button" className="danger" onClick={removeCurrent} disabled={busy}>刪除本張</button>
+            </div>
+          )}
+          <a href={current.url} download>下載附件</a>
         </footer>
       </div>
     </div>
   );
 }
 
-const Lightbox = AttachmentPreviewModal;
+/**
+ * 拍照上傳：開啟鏡頭 → 拍下 → 用同一套編輯器旋轉／裁剪 → 確認。
+ * 確認後才呼叫 onUse，取消或重拍都不會留下任何檔案。
+ */
+function CameraCaptureModal({ title = '拍照上傳', onClose, onUse }: {
+  title?: string;
+  onClose: () => void;
+  onUse: (file: File) => Promise<void>;
+}) {
+  const [shot, setShot] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const shotRef = useRef<string | null>(null);
+  const startingRef = useRef(false);
+  const closedRef = useRef(false);
+
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  };
+
+  // StrictMode 下 effect 會跑兩次，沒有這道閘會開出兩條流並漏掉第一條
+  const startStream = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('此瀏覽器不支援拍照，請改用「瀏覽本機」');
+      return;
+    }
+    if (startingRef.current || streamRef.current) return;
+    startingRef.current = true;
+    try {
+      // 手機上優先用後鏡頭拍憑證；桌機沒有這個概念，會自動忽略
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      });
+      // 取流期間元件可能已經關閉，這時要立刻把鏡頭放掉
+      if (closedRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setReady(true);
+    } catch {
+      setError('無法開啟鏡頭，請確認已允許相機權限，或改用「瀏覽本機」');
+    } finally {
+      startingRef.current = false;
+    }
+  };
+
+  // 卸載時關閉鏡頭，並釋放沒被採用的拍攝結果
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      closedRef.current = true;
+      stopStream();
+      if (shotRef.current) URL.revokeObjectURL(shotRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const capture = async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      const url = URL.createObjectURL(await canvasToBlob(canvas, 0.92));
+      shotRef.current = url;
+      setShot(url);
+      stopStream();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '拍照失敗');
+    }
+  };
+
+  const retake = () => {
+    if (shotRef.current) URL.revokeObjectURL(shotRef.current);
+    shotRef.current = null;
+    setShot(null);
+    setReady(false);
+    setError(null);
+  };
+
+  // 回到取景狀態時 video 才重新掛上，這時候再取流
+  useEffect(() => {
+    if (shot || streamRef.current) return;
+    void startStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shot]);
+
+  return (
+    <div className="attachment-modal-backdrop" onClick={onClose}>
+      <div className="attachment-modal camera-modal" onClick={event => event.stopPropagation()}>
+        <header>
+          <h2>{title}{shot && <span className="gallery-slot">可旋轉／裁剪後再確認</span>}</h2>
+          <button type="button" onClick={onClose} aria-label="關閉">✕</button>
+        </header>
+        <div className="attachment-modal-body camera-body">
+          {shot ? (
+            <ZoomableImage
+              src={shot}
+              alt="拍攝的憑證"
+              onSave={onUse}
+              saveLabel="使用這張"
+              saveWhenUnchanged
+            />
+          ) : (
+            <video ref={videoRef} className="camera-preview" playsInline muted />
+          )}
+        </div>
+        {error && <p className="zoom-error">{error}</p>}
+        <footer>
+          {shot
+            ? <button type="button" onClick={retake}>重拍</button>
+            : <button type="button" className="primary" onClick={capture} disabled={!ready}>拍照</button>}
+          <button type="button" onClick={onClose}>取消</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 手機掃碼上傳（桌面端）：建立一次性 session → 畫 QR → 每 2 秒輪詢新照片 → 自動加入清單。
+ * 用輪詢而非 SSE：視窗只開一分鐘上下，長連線的複雜度不划算。
+ */
+function QrUploadModal({ onClose, onUrls }: { onClose: () => void; onUrls: (urls: string[]) => void | Promise<void> }) {
+  const [qr, setQr] = useState<string | null>(null);
+  const [link, setLink] = useState<string>('');
+  const [received, setReceived] = useState(0);
+  const [expired, setExpired] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sessionRef = useRef<string | null>(null);
+  const seenRef = useRef(0);
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+
+    (async () => {
+      try {
+        const session = await api.createUploadSession();
+        if (stopped) { void api.closeUploadSession(session.id).catch(() => {}); return; }
+        sessionRef.current = session.id;
+        // token 放 fragment：不會進伺服器日誌，也不會隨 Referer 外洩
+        const url = `${window.location.origin}${session.snapPath}#${session.token}`;
+        setLink(url);
+        const qrcode = await import('qrcode');
+        setQr(await qrcode.toDataURL(url, { width: 320, margin: 1 }));
+
+        const poll = async () => {
+          if (stopped) return;
+          try {
+            const state = await api.uploadSession(session.id);
+            if (stopped) return;
+            if (state.urls.length > seenRef.current) {
+              const fresh = state.urls.slice(seenRef.current);
+              seenRef.current = state.urls.length;
+              setReceived(state.urls.length);
+              await onUrls(fresh);
+            }
+            if (state.closed) { setExpired(true); return; }
+          } catch {
+            // 單次輪詢失敗不中斷，下一輪再試
+          }
+          timer = window.setTimeout(poll, 2000);
+        };
+        timer = window.setTimeout(poll, 2000);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : '無法建立上傳連結');
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      // 關掉彈窗即作廢連結，避免它在有效期內還能被使用
+      if (sessionRef.current) void api.closeUploadSession(sessionRef.current).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal qr-modal" onClick={event => event.stopPropagation()}>
+        <header>
+          <h2>用手機拍照上傳</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <div className="qr-body">
+          {error ? (
+            <p className="zoom-error">{error}</p>
+          ) : qr ? (
+            <>
+              <img src={qr} alt="掃碼上傳" className="qr-image" />
+              <p className="qr-hint">用手機相機掃描上方 QR Code，開啟後即可拍照上傳。<br />照片會自動出現在這裡，可以連續拍多張。</p>
+              <p className="qr-status">
+                {expired ? '連結已失效，請關閉後重新開啟' : received > 0 ? `已收到 ${received} 張` : '等待手機上傳…'}
+              </p>
+              <small className="qr-link">{link}</small>
+            </>
+          ) : (
+            <p className="qr-hint">正在產生 QR Code…</p>
+          )}
+        </div>
+        <footer>
+          <button type="button" className="primary" onClick={onClose}>完成</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+const EXPENSE_SLOT_LABELS: Record<ExpenseReceiptSlot, string> = { submit: '提交', invoice: '開票', account: '入賬' };
+const EXPENSE_SLOTS: ExpenseReceiptSlot[] = ['submit', 'invoice', 'account'];
+
+function expenseSlotUrls(expense: Expense, slot: ExpenseReceiptSlot): string[] {
+  if (slot === 'invoice') return expense.invoiceReceiptUrls ?? [];
+  if (slot === 'account') return expense.accountReceiptUrls ?? [];
+  return expense.receiptUrls ?? [];
+}
+
+/** 一張支出的所有憑證，依提交→開票→入賬串成單一清單供連續瀏覽 */
+function expenseGalleryItems(expense: Expense): GalleryItem[] {
+  return EXPENSE_SLOTS.flatMap(slot =>
+    expenseSlotUrls(expense, slot).map(url => ({ url, slot, label: EXPENSE_SLOT_LABELS[slot] }))
+  );
+}
+
+/** 把瀏覽器改動後的扁平清單拆回三個階段，只送出真的變了的那幾段 */
+async function commitExpenseGallery(
+  expense: Expense,
+  next: GalleryItem[],
+  save: (id: string, slot: ExpenseReceiptSlot, urls: string[]) => Promise<void>
+) {
+  for (const slot of EXPENSE_SLOTS) {
+    const urls = next.filter(item => item.slot === slot).map(item => item.url);
+    if (urls.join('|') !== expenseSlotUrls(expense, slot).join('|')) {
+      await save(expense.id, slot, urls);
+    }
+  }
+}
+
+/** 表單裡的憑證縮圖列：只顯示已上傳的憑證，點縮圖開瀏覽器 */
+function ReceiptStrip({ urls, onOpen }: { urls: string[]; onOpen: (index: number) => void }) {
+  if (!urls.length) return <span className="receipt-strip-status">尚未上傳憑證</span>;
+  return (
+    <div className="receipt-strip">
+      {urls.map((url, i) => (
+        <button key={`${url}-${i}`} type="button" className="receipt-strip-thumb" onClick={() => onOpen(i)} title={`第 ${i + 1} 張`}>
+          {isImageAttachment(url) ? <img src={url} alt="" loading="lazy" /> : <span>PDF</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 表單底部的「上傳附件」：點開後三選一（瀏覽本機／攝像頭拍照／手機掃碼上傳） */
+function UploadMenu({ count, uploading, onFiles, onUrls }: {
+  count: number;
+  uploading: boolean;
+  onFiles: (files: File[]) => void | Promise<void>;
+  /** 掃碼上傳回來的照片已經在 R2 了，直接併入清單即可 */
+  onUrls: (urls: string[]) => void | Promise<void>;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const full = count >= MAX_RECEIPTS;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const pick = (run: () => void) => { setOpen(false); run(); };
+
+  return (
+    <div className="upload-menu-wrap" ref={wrapRef}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,.pdf"
+        multiple
+        style={{ display: 'none' }}
+        onChange={event => {
+          if (event.target.files?.length) onFiles(Array.from(event.target.files));
+          event.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        className={open ? 'primary' : ''}
+        onClick={() => setOpen(value => !value)}
+        disabled={uploading || full}
+        title={full ? `最多 ${MAX_RECEIPTS} 張` : undefined}
+      >
+        {uploading ? '上傳中…' : full ? `已滿 ${MAX_RECEIPTS} 張` : `上傳附件${count ? `（${count}）` : ''} ▾`}
+      </button>
+      {open && (
+        <div className="upload-menu-popover">
+          <button type="button" onClick={() => pick(() => fileRef.current?.click())}>📁 瀏覽本地</button>
+          <button type="button" onClick={() => pick(() => setCameraOpen(true))}>📷 攝像頭拍照</button>
+          <button type="button" onClick={() => pick(() => setQrOpen(true))}>📱 手機掃碼上傳</button>
+        </div>
+      )}
+      {cameraOpen && (
+        <CameraCaptureModal
+          onClose={() => setCameraOpen(false)}
+          onUse={async file => {
+            await onFiles([file]);
+            setCameraOpen(false);
+          }}
+        />
+      )}
+      {qrOpen && <QrUploadModal onClose={() => setQrOpen(false)} onUrls={onUrls} />}
+    </div>
+  );
+}
 
 const PAGE_SIZE_OPTIONS = [100, 200, 500, 1000];
 
@@ -1407,15 +2311,246 @@ function Pagination({ page, totalPages, pageSize, total, start, setPage, setPage
   );
 }
 
+type PrintPeriod = 'week' | 'month' | 'year';
+type PrintRange = { start: string; end: string; label: string };
+type PrintGroup = { name: string; rows: string[][]; count: number; total: number };
+
+const PRINT_PERIOD_LABELS: Record<PrintPeriod, string> = { week: '本週', month: '本月', year: '本年' };
+
+function isoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** 列印期間一律以今天為準，與工具列的年度下拉無關。週日起算至週六。 */
+function printRange(period: PrintPeriod, today = new Date()): PrintRange {
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let start: Date;
+  let end: Date;
+  if (period === 'week') {
+    start = new Date(base);
+    start.setDate(base.getDate() - base.getDay());
+    end = new Date(start);
+    end.setDate(start.getDate() + 6);
+  } else if (period === 'month') {
+    start = new Date(base.getFullYear(), base.getMonth(), 1);
+    end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+  } else {
+    start = new Date(base.getFullYear(), 0, 1);
+    end = new Date(base.getFullYear(), 11, 31);
+  }
+  const from = isoDate(start);
+  const to = isoDate(end);
+  return { start: from, end: to, label: `${from} ～ ${to}` };
+}
+
+function escapeHtmlText(value: string): string {
+  return value.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string));
+}
+
+/** 依分類分組並算出各組小計，組內依日期排序 */
+function groupForPrint<T>(
+  items: T[],
+  categoryOf: (item: T) => string,
+  amountOf: (item: T) => number,
+  dateOf: (item: T) => string,
+  cellsOf: (item: T) => string[]
+): PrintGroup[] {
+  const buckets = new Map<string, T[]>();
+  for (const item of items) {
+    const key = categoryOf(item) || '未分類';
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(item); else buckets.set(key, [item]);
+  }
+  return Array.from(buckets.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant'))
+    .map(([name, rows]) => {
+      const sorted = [...rows].sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
+      return {
+        name,
+        rows: sorted.map(cellsOf),
+        count: sorted.length,
+        total: sorted.reduce((sum, item) => sum + amountOf(item), 0)
+      };
+    });
+}
+
+/** 產出可直接列印的 A4 單頁 HTML，交給 iframe 顯示 */
+function buildPrintSheetHtml(options: {
+  title: string;
+  church: { nameEn: string; nameZh: string; address: string };
+  rangeLabel: string;
+  periodLabel: string;
+  headers: string[];
+  amountColumn: number;
+  groups: PrintGroup[];
+}): string {
+  const { title, church, rangeLabel, periodLabel, headers, amountColumn, groups } = options;
+  const colCount = headers.length;
+  const grandCount = groups.reduce((sum, group) => sum + group.count, 0);
+  const grandTotal = groups.reduce((sum, group) => sum + group.total, 0);
+  const alignAttr = (index: number) => (index === amountColumn ? ' class="num"' : '');
+
+  const body = groups.length
+    ? groups.map(group => `
+        <tr class="group"><th colspan="${colCount}">${escapeHtmlText(group.name)}</th></tr>
+        ${group.rows.map((cells, rowIndex) => `<tr${rowIndex % 2 ? ' class="alt"' : ''}>${cells.map((cell, i) => `<td${alignAttr(i)}>${escapeHtmlText(cell)}</td>`).join('')}</tr>`).join('')}
+        <tr class="subtotal">
+          <td colspan="${amountColumn}">小計 · ${group.count} 筆</td>
+          <td class="num">${currency(group.total)}</td>
+          ${colCount > amountColumn + 1 ? `<td colspan="${colCount - amountColumn - 1}"></td>` : ''}
+        </tr>`).join('')
+    : `<tr><td colspan="${colCount}" class="empty">此期間沒有資料</td></tr>`;
+
+  return `<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>${escapeHtmlText(title)}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #eef2f7; font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; color: #172033; }
+  .sheet { width: 190mm; margin: 8mm auto; padding: 8mm; background: #fff; }
+  h1 { margin: 0; font-size: 15pt; letter-spacing: 0.5px; }
+  .zh { margin: 2px 0 0; font-size: 11pt; }
+  .addr { margin: 2px 0 0; font-size: 8pt; color: #5b6779; }
+  .doc-title { margin: 10px 0 2px; font-size: 13pt; font-weight: 700; }
+  .meta { display: flex; justify-content: space-between; font-size: 8.5pt; color: #5b6779; border-bottom: 1.2px solid #172033; padding-bottom: 5px; }
+  header { text-align: center; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 8.5pt; }
+  th, td { padding: 3px 5px; border-bottom: 0.6px solid #d7dee8; vertical-align: top; word-break: break-word; }
+  thead th { background: #eef2f7; border-bottom: 1px solid #97a3b6; text-align: left; font-weight: 700; white-space: nowrap; }
+  td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.group th { background: #f6f8fb; text-align: left; font-size: 8.5pt; padding-top: 6px; }
+  tr.subtotal td { background: #fbfcfe; font-weight: 700; border-bottom: 1px solid #97a3b6; }
+  tr.grand td { border-top: 1.2px solid #172033; border-bottom: 1.2px solid #172033; font-weight: 700; font-size: 9.5pt; }
+  td.empty { text-align: center; color: #8a94a6; padding: 18px 0; }
+  tr.alt td { background: #f7f9fc; }
+  .signs { display: flex; gap: 10mm; margin-top: 12mm; font-size: 8.5pt; }
+  .signs div { flex: 1; border-top: 0.8px solid #172033; padding-top: 4px; color: #5b6779; }
+  @media print { body { background: #fff; } .sheet { width: auto; margin: 0; padding: 0; } }
+</style></head>
+<body><div class="sheet">
+  <header>
+    <h1>${escapeHtmlText(church.nameEn)}</h1>
+    <p class="zh">${escapeHtmlText(church.nameZh)}</p>
+    <p class="addr">${escapeHtmlText(church.address)}</p>
+    <p class="doc-title">${escapeHtmlText(title)}</p>
+  </header>
+  <div class="meta">
+    <span>期間：${escapeHtmlText(periodLabel)}　${escapeHtmlText(rangeLabel)}</span>
+    <span>列印時間：${escapeHtmlText(dateTime(new Date().toISOString()))}</span>
+  </div>
+  <table>
+    <thead><tr>${headers.map((label, i) => `<th${alignAttr(i)}>${escapeHtmlText(label)}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${body}
+      <tr class="grand">
+        <td colspan="${amountColumn}">總計 · ${grandCount} 筆</td>
+        <td class="num">${currency(grandTotal)}</td>
+        ${colCount > amountColumn + 1 ? `<td colspan="${colCount - amountColumn - 1}"></td>` : ''}
+      </tr>
+    </tbody>
+  </table>
+  <div class="signs"><div>製表人</div><div>覆核人</div><div>日期</div></div>
+</div></body></html>`;
+}
+
+function churchInfoForPrint(settings: AppSettings) {
+  const fields = settings?.taxStatement?.textFields ?? DEFAULT_TAX_STATEMENT_TEXT_FIELDS;
+  return {
+    nameEn: fields.churchNameEn || DEFAULT_TAX_STATEMENT_TEXT_FIELDS.churchNameEn,
+    nameZh: fields.churchNameZh || DEFAULT_TAX_STATEMENT_TEXT_FIELDS.churchNameZh,
+    address: fields.churchAddress || DEFAULT_TAX_STATEMENT_TEXT_FIELDS.churchAddress
+  };
+}
+
+function PrintPreviewModal({ title, fileBase, build, onClose }: {
+  title: string;
+  fileBase: string;
+  build: (range: PrintRange, periodLabel: string) => string;
+  onClose: () => void;
+}) {
+  const [period, setPeriod] = useState<PrintPeriod>('week');
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const range = printRange(period);
+  const html = build(range, PRINT_PERIOD_LABELS[period]);
+
+  const downloadPdf = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      const sheet = iframeRef.current?.contentDocument?.querySelector('.sheet') as HTMLElement | null;
+      if (!sheet) throw new Error('預覽尚未就緒');
+      // html2canvas / jspdf 是延遲載入的 chunk；部署新版後舊分頁會請求到已移除的檔案
+      const [canvasModule, pdfModule] = await Promise.all([import('html2canvas'), import('jspdf')]).catch(caught => {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        if (/dynamically imported module|Importing a module script failed/i.test(message)) {
+          throw new Error('系統已更新版本，請重新整理頁面後再試一次');
+        }
+        throw caught;
+      });
+      const canvas = await canvasModule.default(sheet, { scale: 2, backgroundColor: '#ffffff' });
+      const pdf = new pdfModule.jsPDF({ unit: 'mm', format: 'a4' });
+      const PAGE_W = 210;
+      const PAGE_H = 297;
+      const pxPerMm = canvas.width / PAGE_W;
+      const pageHeightPx = Math.floor(PAGE_H * pxPerMm);
+      for (let offsetY = 0, first = true; offsetY < canvas.height; offsetY += pageHeightPx, first = false) {
+        const sliceHeight = Math.min(pageHeightPx, canvas.height - offsetY);
+        const slice = document.createElement('canvas');
+        slice.width = canvas.width;
+        slice.height = sliceHeight;
+        slice.getContext('2d')!.drawImage(canvas, 0, offsetY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+        if (!first) pdf.addPage();
+        pdf.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PAGE_W, sliceHeight / pxPerMm);
+      }
+      pdf.save(`${fileBase}-${range.start}-${range.end}.pdf`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'PDF 生成失敗');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal print-modal" onClick={event => event.stopPropagation()}>
+        <header>
+          <h2>{title}</h2>
+          <button type="button" onClick={onClose}>關閉</button>
+        </header>
+        <div className="print-period">
+          {(Object.keys(PRINT_PERIOD_LABELS) as PrintPeriod[]).map(key => (
+            <button key={key} type="button" className={period === key ? 'primary' : ''} onClick={() => setPeriod(key)}>
+              {PRINT_PERIOD_LABELS[key]}
+            </button>
+          ))}
+          <span className="print-range">{range.label}</span>
+        </div>
+        <iframe ref={iframeRef} className="print-preview-frame" srcDoc={html} title={title} />
+        {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+        <footer>
+          <button type="button" className="primary" onClick={() => iframeRef.current?.contentWindow?.print()}>列印</button>
+          <button type="button" onClick={downloadPdf} disabled={downloading}>{downloading ? '生成中…' : '下載 PDF'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function OfferingsPage() {
-  const { members, offerings, lookups, saveOffering, deleteOffering } = useFinance();
+  const { members, offerings, lookups, settings, saveOffering, deleteOffering } = useFinance();
   const { hasPermission } = useAuth();
   const isDesktop = useIsDesktop();
-  const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
+  const canEdit = hasPermission('super_admin', 'finance_admin', 'dev', 'counter');
   const [editing, setEditing] = useState<Offering | null>(null);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<Offering | null>(null);
   const [detail, setDetail] = useState<Offering | null>(null);
   const [deletingOffering, setDeletingOffering] = useState<Offering | null>(null);
+  const [query, setQuery] = useState('');
+  const [printOpen, setPrintOpen] = useState(false);
+  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const years = useMemo(() => {
     const set = new Set<string>();
     for (const item of offerings) {
@@ -1431,10 +2566,25 @@ function OfferingsPage() {
     const sorted = Array.from(present).sort();
     return sorted.length ? Number(sorted[sorted.length - 1]) : current;
   });
-  const filteredOfferings = useMemo(
-    () => offerings.filter(item => (item.date || '').slice(0, 4) === String(year)),
-    [offerings, year]
-  );
+  // 有搜尋字串時跨全部年度比對，年度下拉暫時失效；清空後回到所選年度
+  const searching = query.trim().length > 0;
+  const filteredOfferings = useMemo(() => {
+    if (!searching) return offerings.filter(item => (item.date || '').slice(0, 4) === String(year));
+    const q = query.trim().toLowerCase();
+    return offerings.filter(item => {
+      const member = item.memberId ? memberById.get(item.memberId) : null;
+      const searchable = [
+        item.date,
+        item.memberId ? (memberDisplayName(member) || item.memberName || '') : '匿名',
+        member?.name ?? '',
+        item.categoryName ?? '',
+        item.methodName ?? '',
+        String(item.amount ?? ''),
+        item.notes ?? ''
+      ].join(' ').toLowerCase();
+      return searchable.includes(q);
+    });
+  }, [offerings, year, query, searching, memberById]);
   const total = filteredOfferings.reduce((sum, item) => sum + item.amount, 0);
   const [amtSort, setAmtSort] = useState<'none' | 'asc' | 'desc'>('none');
   const cycleAmt = () => setAmtSort(s => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
@@ -1442,20 +2592,71 @@ function OfferingsPage() {
     if (amtSort === 'none') return filteredOfferings;
     return [...filteredOfferings].sort((a, b) => (amtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
   }, [filteredOfferings, amtSort]);
-  const pager = usePagination(displayOfferings, `${year}|${amtSort}`);
+  const pager = usePagination(displayOfferings, `${year}|${amtSort}|${query}`);
 
-  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const offeringMemberLabel = (item: Offering) =>
     item.memberId ? (memberDisplayName(memberById.get(item.memberId)) || item.memberName || '未知成員') : '匿名';
+  // 憑證瀏覽器要跟著資料刷新，否則刪一張後還停在打開時的快照
+  const lightboxLive = lightbox ? (offerings.find(item => item.id === lightbox.id) ?? lightbox) : null;
+
+  // 列印永遠取整個期間的資料，不受搜尋框與年度下拉影響
+  const buildPrintSheet = (range: PrintRange, periodLabel: string) => buildPrintSheetHtml({
+    title: '奉獻明細表',
+    church: churchInfoForPrint(settings),
+    rangeLabel: range.label,
+    periodLabel,
+    headers: ['日期', '成員', '分類', '方式', '金額', '備註'],
+    amountColumn: 4,
+    groups: groupForPrint(
+      offerings.filter(item => item.date >= range.start && item.date <= range.end),
+      item => item.categoryName || '未分類',
+      item => item.amount,
+      item => item.date,
+      item => [
+        item.date,
+        offeringMemberLabel(item),
+        item.categoryName || '未分類',
+        item.methodName || '—',
+        currency(item.amount),
+        item.notes || ''
+      ]
+    )
+  });
 
   return (
     <section className="page paginated-page">
-      <PageTitle title="奉獻記錄" subtitle="分類、支付方式、匿名奉獻與收據追蹤" />
+      <PageTitle
+        title="奉獻記錄"
+        subtitle="分類、支付方式、匿名奉獻與收據追蹤"
+        action={<button type="button" onClick={() => setPrintOpen(true)}>🖨 列印</button>}
+      />
+      {printOpen && (
+        <PrintPreviewModal
+          title="奉獻明細表"
+          fileBase="奉獻明細表"
+          build={buildPrintSheet}
+          onClose={() => setPrintOpen(false)}
+        />
+      )}
       <Toolbar>
-        <strong>目前列表合計：{currency(total)}</strong>
+        <div className="toolbar-lead">
+          <input
+            placeholder="搜尋成員、分類、方式、金額或備註"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+          <strong>目前列表合計：{currency(total)}</strong>
+        </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end' }}>
           {canEdit && <button className="primary" onClick={() => setEditing(blankOffering())}>記錄奉獻</button>}
-          <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+          <select
+            value={searching ? '' : year}
+            disabled={searching}
+            title={searching ? '搜尋中：已跨全部年度' : undefined}
+            onChange={event => setYear(Number(event.target.value))}
+            style={{ width: 'auto' }}
+          >
+            {searching && <option value="">全部年度</option>}
             {years.length
               ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
               : <option value={year}>{year} 年度</option>}
@@ -1495,7 +2696,17 @@ function OfferingsPage() {
           onConfirm={async reason => { await deleteOffering(deletingOffering.id, reason); setDeletingOffering(null); }}
         />
       )}
-      {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
+      {lightboxLive && (lightboxLive.receiptUrls?.length ?? 0) > 0 && (
+        <GalleryModal
+          title="奉獻憑證"
+          items={(lightboxLive.receiptUrls ?? []).map(url => ({ url, slot: 'submit' as const }))}
+          onClose={() => setLightbox(null)}
+          upload={canEdit ? async file => (await api.upload(file, 'offerings', lightboxLive.id)).url : undefined}
+          onChange={canEdit ? async next => {
+            await saveOffering({ ...lightboxLive, receiptUrls: next.map(item => item.url) }, lightboxLive.id);
+          } : undefined}
+        />
+      )}
       <div className="panel paginated-list-panel">
         <div className="paginated-table-scroll">
         <table className="offerings-table">
@@ -1511,7 +2722,7 @@ function OfferingsPage() {
               <td data-label="方式">{item.methodName || '-'}</td>
               <td data-label="金額">{currency(item.amount)}</td>
               <td data-label="備註" className="offering-notes-col">{isDesktop ? item.notes : <span className="clamp-2" onClick={() => setDetail(item)}>{item.notes}</span>}</td>
-              <td data-label="憑證">{item.receiptUrl ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item.receiptUrl!)}>查看憑證</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
+              <td data-label="憑證">{(item.receiptUrls?.length ?? 0) > 0 ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item)}>查看憑證{(item.receiptUrls?.length ?? 0) > 1 ? ` (${item.receiptUrls!.length})` : ''}</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
               <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
           ))}
@@ -1525,7 +2736,7 @@ function OfferingsPage() {
 }
 
 function ExpensesPage() {
-  const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveSettings, refreshAll } = useFinance();
+  const { members, expenses, lookups, settings, saveExpense, deleteExpense, approveExpense, rejectExpense, invoiceExpense, accountExpense, saveExpenseReceipts, saveSettings, refreshAll } = useFinance();
   const { hasPermission, user } = useAuth();
   const isDesktop = useIsDesktop();
   const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
@@ -1535,9 +2746,13 @@ function ExpensesPage() {
   const [invoicingExpense, setInvoicingExpense] = useState<Expense | null>(null);
   const [accountingExpense, setAccountingExpense] = useState<Expense | null>(null);
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
+  const [preview, setPreview] = useState<Expense | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [emailAction, setEmailAction] = useState<ExpenseEmailAction | null>(() => expenseEmailActionFromLocation());
+  const [query, setQuery] = useState('');
+  const [printOpen, setPrintOpen] = useState(false);
   const pending = expenses.filter(item => item.status === 'pending');
+  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
 
   const years = useMemo(() => {
     const set = new Set<string>();
@@ -1554,19 +2769,34 @@ function ExpensesPage() {
     const sorted = Array.from(present).sort();
     return sorted.length ? Number(sorted[sorted.length - 1]) : current;
   });
-  const filteredExpenses = useMemo(
-    () => expenses.filter(item => (item.date || '').slice(0, 4) === String(year)),
-    [expenses, year]
-  );
+  // 有搜尋字串時跨全部年度比對，年度下拉暫時失效；清空後回到所選年度
+  const searching = query.trim().length > 0;
+  const filteredExpenses = useMemo(() => {
+    if (!searching) return expenses.filter(item => (item.date || '').slice(0, 4) === String(year));
+    const q = query.trim().toLowerCase();
+    return expenses.filter(item => {
+      const searchable = [
+        item.date,
+        item.description ?? '',
+        item.categoryName ?? '',
+        item.paidBy ? (memberDisplayName(memberById.get(item.paidBy)) || item.paidByName || '') : '',
+        item.paymentMethod ?? '',
+        expenseStatusLabels[item.status] ?? '',
+        String(item.amount ?? ''),
+        item.notes ?? ''
+      ].join(' ').toLowerCase();
+      return searchable.includes(q);
+    });
+  }, [expenses, year, query, searching, memberById]);
+  const expenseTotal = filteredExpenses.reduce((sum, item) => sum + item.amount, 0);
   const [expAmtSort, setExpAmtSort] = useState<'none' | 'asc' | 'desc'>('none');
   const cycleExpAmt = () => setExpAmtSort(s => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
   const displayExpenses = useMemo(() => {
     if (expAmtSort === 'none') return filteredExpenses;
     return [...filteredExpenses].sort((a, b) => (expAmtSort === 'desc' ? b.amount - a.amount : a.amount - b.amount));
   }, [filteredExpenses, expAmtSort]);
-  const pager = usePagination(displayExpenses, `${year}|${expAmtSort}`);
+  const pager = usePagination(displayExpenses, `${year}|${expAmtSort}|${query}`);
 
-  const memberById = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const categoryShortById = useMemo(() => {
     const m = new Map<string, string>();
     (lookups?.expenseCategories ?? []).forEach(c => { if (c.shortName) m.set(c.id, c.shortName); });
@@ -1592,23 +2822,79 @@ function ExpensesPage() {
     await refreshAll();
     closeEmailAction();
   };
+  // 詳情／憑證彈窗要跟著資料刷新（例如在裡面增刪憑證），否則會停在打開時的快照
+  const detailLive = detailExpense ? (expenses.find(item => item.id === detailExpense.id) ?? detailExpense) : null;
+  const previewLive = preview ? (expenses.find(item => item.id === preview.id) ?? preview) : null;
   // 付款人顯示：First Name Last Name (中文名)
   const paidByLabel = (item: Expense): string => {
     if (!item.paidBy) return '—';
     return memberDisplayName(memberById.get(item.paidBy)) || item.paidByName || '未知';
   };
 
+  // 列印永遠取整個期間的資料，不受搜尋框與年度下拉影響
+  const buildPrintSheet = (range: PrintRange, periodLabel: string) => buildPrintSheetHtml({
+    title: '支出明細表',
+    church: churchInfoForPrint(settings),
+    rangeLabel: range.label,
+    periodLabel,
+    headers: ['日期', '描述', '分類', '付款人', '方式', '狀態', '金額', '備註'],
+    amountColumn: 6,
+    groups: groupForPrint(
+      expenses.filter(item => item.date >= range.start && item.date <= range.end),
+      item => item.categoryName || '未分類',
+      item => item.amount,
+      item => item.date,
+      item => [
+        item.date,
+        item.description || '—',
+        item.categoryName || '未分類',
+        paidByLabel(item),
+        item.paymentMethod || '—',
+        expenseStatusLabels[item.status],
+        currency(item.amount),
+        item.notes || ''
+      ]
+    )
+  });
+
   return (
     <section className="page paginated-page">
-      <PageTitle title="支出管理" subtitle="支出提交、預算分類與批准流程" />
+      <PageTitle
+        title="支出管理"
+        subtitle="支出提交、預算分類與批准流程"
+        action={<button type="button" onClick={() => setPrintOpen(true)}>🖨 列印</button>}
+      />
+      {printOpen && (
+        <PrintPreviewModal
+          title="支出明細表"
+          fileBase="支出明細表"
+          build={buildPrintSheet}
+          onClose={() => setPrintOpen(false)}
+        />
+      )}
       <Toolbar>
-        <strong>待審核：{pending.length}</strong>
+        <div className="toolbar-lead">
+          <input
+            placeholder="搜尋描述、分類、付款人、金額或備註"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+          <strong>目前列表合計：{currency(expenseTotal)}</strong>
+          <strong>待審核：{pending.length}</strong>
+        </div>
         <div className="toolbar-actions">
           {canManageNotify && (
             <button onClick={() => setNotifyOpen(true)} title="設置">⚙ 設置</button>
           )}
           {canEdit && <button className="primary expense-add-btn" onClick={() => setEditing(blankExpense())}>新增支出</button>}
-          <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ width: 'auto' }}>
+          <select
+            value={searching ? '' : year}
+            disabled={searching}
+            title={searching ? '搜尋中：已跨全部年度' : undefined}
+            onChange={event => setYear(Number(event.target.value))}
+            style={{ width: 'auto' }}
+          >
+            {searching && <option value="">全部年度</option>}
             {years.length
               ? years.map(y => <option key={y} value={y}>{y} 年度</option>)
               : <option value={year}>{year} 年度</option>}
@@ -1655,11 +2941,21 @@ function ExpensesPage() {
           }}
         />
       )}
-      {detailExpense && (
+      {detailLive && (
         <ExpenseDetailModal
-          expense={detailExpense}
+          expense={detailLive}
           memberById={memberById}
+          canEdit={canEdit}
           onClose={() => setDetailExpense(null)}
+        />
+      )}
+      {previewLive && expenseGalleryItems(previewLive).length > 0 && (
+        <GalleryModal
+          title="支出憑證"
+          items={expenseGalleryItems(previewLive)}
+          onClose={() => setPreview(null)}
+          upload={canEdit ? async file => (await api.upload(file, 'expenses', previewLive.id)).url : undefined}
+          onChange={canEdit ? next => commitExpenseGallery(previewLive, next, saveExpenseReceipts) : undefined}
         />
       )}
       {notifyOpen && settings && (
@@ -1695,7 +2991,7 @@ function ExpensesPage() {
         <table className="expenses-table">
         <thead>
           <tr>
-            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th>
+            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th><th className="expense-receipt-col">憑證</th>
             <th>狀態</th><th>開票</th><th>入賬</th><th></th>
           </tr>
         </thead>
@@ -1723,6 +3019,25 @@ function ExpensesPage() {
                 <td data-label="分類" className="expense-category-col">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{(item.categoryId && categoryShortById.get(item.categoryId)) || item.categoryName || '-'}</span>}</td>
                 <td data-label="付款人">{paidByLabel(item)}</td>
                 <td data-label="金額">{currency(item.amount)}</td>
+                <td data-label="憑證" className="expense-receipt-col">
+                  {(() => {
+                    // 縮圖顯示第一張，角標是本單三個階段的總張數
+                    const all = expenseGalleryItems(item);
+                    if (!all.length) return <span style={{ color: '#cbd5e1' }}>—</span>;
+                    const first = all[0].url;
+                    return (
+                      <button
+                        type="button"
+                        className={isImageAttachment(first) ? 'receipt-thumb' : 'link-button'}
+                        onClick={() => setPreview(item)}
+                        title={`查看本單全部 ${all.length} 張憑證`}
+                      >
+                        {isImageAttachment(first) ? <img src={first} alt="憑證" loading="lazy" /> : '附件'}
+                        {all.length > 1 && <span className="receipt-count">{all.length}</span>}
+                      </button>
+                    );
+                  })()}
+                </td>
                 <td data-label="狀態">
                   <div className="expense-status-cell">
                     <Badge>{expenseStatusLabels[item.status]}</Badge>
@@ -2027,124 +3342,125 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
   );
 }
 
-async function uploadWorkflowAttachment(file: File, type: string, entityId: string) {
-  if (file.type.startsWith('image/')) {
-    const blob = await compressImage(file);
-    const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-    return api.upload(compressed, type, entityId);
-  }
-  return api.upload(file, type, entityId);
-}
-
 function ExpenseInvoiceModal({ expense, onClose, onSave }: {
   expense: Expense;
   onClose: () => void;
-  onSave: (payload: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) => Promise<void>;
+  onSave: (payload: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrls?: string[] }) => Promise<void>;
 }) {
   const [note, setNote] = useState(expense.invoiceNote || '');
   const [amount, setAmount] = useState(expense.invoiceAmount ?? expense.amount);
-  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.invoiceReceiptUrl || null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [urls, setUrls] = useState<string[]>(expense.invoiceReceiptUrls ?? []);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function handleFiles(files: File[]) {
     setUploading(true);
     try {
-      const { url } = await uploadWorkflowAttachment(file, 'expense-invoices', expense.id);
-      setReceiptUrl(url);
+      setUrls(await uploadReceiptFiles(files, 'expense-invoices', expense.id, urls));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   }
 
+  const addUrls = (incoming: string[]) => setUrls(current => [...current, ...incoming].slice(0, MAX_RECEIPTS));
+
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-        {uploading ? '上傳中…' : receiptUrl ? '重新上傳附件' : '上傳附件'}
-      </button>
-      <button type="button" onClick={onClose}>取消</button>
-      <button className="primary">保存開票</button>
+      <UploadMenu count={urls.length} uploading={uploading} onFiles={handleFiles} onUrls={addUrls} />
+      <div className="modal-footer-right">
+        <button type="button" onClick={onClose}>取消</button>
+        <button className="primary">保存開票</button>
+      </div>
     </>
   );
 
   return (
-    <FormModal title="開票" onClose={onClose} onSubmit={() => onSave({ invoiceNote: note, invoiceAmount: amount, invoiceReceiptUrl: receiptUrl })} footer={footer}>
+    <>
+    <FormModal title="開票" onClose={onClose} onSubmit={() => onSave({ invoiceNote: note, invoiceAmount: amount, invoiceReceiptUrls: urls })} footer={footer}>
       <textarea value={note} onChange={event => setNote(event.target.value)} placeholder="開票描述" />
       <input type="number" min="0" step="0.01" value={amount || ''} onChange={event => setAmount(Number(event.target.value))} placeholder="開票金額" required />
-      {receiptUrl && (
-        <div className="attachment-preview">
-          <button type="button" className="link-button" onClick={() => setPreviewUrl(receiptUrl)}>查看附件</button>
-          {isImageAttachment(receiptUrl) && <img src={receiptUrl} alt="開票附件" />}
-          <button type="button" onClick={() => setReceiptUrl(null)}>移除附件</button>
-        </div>
-      )}
-      {previewUrl && <AttachmentPreviewModal url={previewUrl} title="開票附件" onClose={() => setPreviewUrl(null)} />}
+      <div className="form-wide form-receipts">
+        <small>開票憑證（{urls.length}／{MAX_RECEIPTS}）</small>
+        <ReceiptStrip urls={urls} onOpen={setGalleryAt} />
+      </div>
     </FormModal>
+    {galleryAt !== null && urls.length > 0 && (
+      <GalleryModal
+        title="開票憑證"
+        items={urls.map(url => ({ url, slot: 'invoice' as const }))}
+        startIndex={galleryAt}
+        onClose={() => setGalleryAt(null)}
+        upload={async file => (await api.upload(file, 'expense-invoices', expense.id)).url}
+        onChange={async next => setUrls(next.map(item => item.url))}
+      />
+    )}
+    </>
   );
 }
 
 function ExpenseAccountModal({ expense, onClose, onSave }: {
   expense: Expense;
   onClose: () => void;
-  onSave: (payload: { accountReceiptUrl?: string | null }) => Promise<void>;
+  onSave: (payload: { accountReceiptUrls?: string[] }) => Promise<void>;
 }) {
-  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.accountReceiptUrl || null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [urls, setUrls] = useState<string[]>(expense.accountReceiptUrls ?? []);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function handleFiles(files: File[]) {
     setUploading(true);
     try {
-      const { url } = await uploadWorkflowAttachment(file, 'expense-accounts', expense.id);
-      setReceiptUrl(url);
+      setUrls(await uploadReceiptFiles(files, 'expense-accounts', expense.id, urls));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   }
 
+  const addUrls = (incoming: string[]) => setUrls(current => [...current, ...incoming].slice(0, MAX_RECEIPTS));
+
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-        {uploading ? '上傳中…' : receiptUrl ? '重新上傳附件' : '上傳附件'}
-      </button>
-      <button type="button" onClick={onClose}>取消</button>
-      <button className="primary">保存入賬</button>
+      <UploadMenu count={urls.length} uploading={uploading} onFiles={handleFiles} onUrls={addUrls} />
+      <div className="modal-footer-right">
+        <button type="button" onClick={onClose}>取消</button>
+        <button className="primary">保存入賬</button>
+      </div>
     </>
   );
 
   return (
-    <FormModal title="入賬" onClose={onClose} onSubmit={() => onSave({ accountReceiptUrl: receiptUrl })} footer={footer}>
+    <>
+    <FormModal title="入賬" onClose={onClose} onSubmit={() => onSave({ accountReceiptUrls: urls })} footer={footer}>
       <div className="detail-field">
         <small>支出</small>
         <span>{expense.description || '—'} · {currency(expense.amount)}</span>
       </div>
-      {receiptUrl && (
-        <div className="attachment-preview">
-          <button type="button" className="link-button" onClick={() => setPreviewUrl(receiptUrl)}>查看附件</button>
-          {isImageAttachment(receiptUrl) && <img src={receiptUrl} alt="入賬附件" />}
-          <button type="button" onClick={() => setReceiptUrl(null)}>移除附件</button>
-        </div>
-      )}
-      {previewUrl && <AttachmentPreviewModal url={previewUrl} title="入賬附件" onClose={() => setPreviewUrl(null)} />}
+      <div className="form-wide form-receipts">
+        <small>入賬憑證（{urls.length}／{MAX_RECEIPTS}）</small>
+        <ReceiptStrip urls={urls} onOpen={setGalleryAt} />
+      </div>
     </FormModal>
+    {galleryAt !== null && urls.length > 0 && (
+      <GalleryModal
+        title="入賬憑證"
+        items={urls.map(url => ({ url, slot: 'account' as const }))}
+        startIndex={galleryAt}
+        onClose={() => setGalleryAt(null)}
+        upload={async file => (await api.upload(file, 'expense-accounts', expense.id)).url}
+        onChange={async next => setUrls(next.map(item => item.url))}
+      />
+    )}
+    </>
   );
 }
 
-function ExpenseDetailModal({ expense, memberById, onClose }: {
+function ExpenseDetailModal({ expense, memberById, canEdit, onClose }: {
   expense: Expense;
   memberById: Map<string, Member>;
+  canEdit: boolean;
   onClose: () => void;
 }) {
+  const { saveExpenseReceipts } = useFinance();
   const paidBy = expense.paidBy
     ? (memberDisplayName(memberById.get(expense.paidBy)) || expense.paidByName || '未知')
     : '—';
@@ -2153,38 +3469,51 @@ function ExpenseDetailModal({ expense, memberById, onClose }: {
     : null;
   const invoiceOp = expense.invoicedAt ? expenseOperatorDisplay(memberById, expense.invoicedBy, expense.invoicedByName, expense.invoicedAt) : null;
   const accountOp = expense.accountedAt ? expenseOperatorDisplay(memberById, expense.accountedBy, expense.accountedByName, expense.accountedAt) : null;
-  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
 
-  const steps = [
+  const galleryItems = expenseGalleryItems(expense);
+  // 時間軸上每一段的「查看附件」要跳到該段在整份清單裡的起點
+  const slotStart = (slot: ExpenseReceiptSlot) => galleryItems.findIndex(item => item.slot === slot);
+
+  const steps: Array<{ title: string; meta: string; detail: string; count: number; slot: ExpenseReceiptSlot; done: boolean }> = [
     {
       title: '提交',
       meta: `${shortDate(expense.date)} · 付款人 ${paidBy}`,
       detail: `${expense.description || '—'} · ${currency(expense.amount)}`,
-      url: expense.receiptUrl || null,
+      count: expenseSlotUrls(expense, 'submit').length,
+      slot: 'submit',
       done: true
     },
     {
       title: expense.status === 'rejected' ? '已拒絕' : '已批准',
       meta: approvalOp ? [approvalOp.name, approvalOp.at].filter(Boolean).join(' · ') : '待審核',
       detail: expense.status === 'pending' ? '尚未審核' : expenseStatusLabels[expense.status],
-      url: null,
+      count: 0,
+      slot: 'submit',
       done: expense.status !== 'pending'
     },
     {
       title: '已開票',
       meta: invoiceOp ? [invoiceOp.name, invoiceOp.at].filter(Boolean).join(' · ') : '待開票',
       detail: expense.invoicedAt ? `${currency(expense.invoiceAmount ?? expense.amount)}${expense.invoiceNote ? ` · ${expense.invoiceNote}` : ''}` : '尚未開票',
-      url: expense.invoiceReceiptUrl || null,
+      count: expenseSlotUrls(expense, 'invoice').length,
+      slot: 'invoice',
       done: Boolean(expense.invoicedAt)
     },
     {
       title: '已入賬',
       meta: accountOp ? [accountOp.name, accountOp.at].filter(Boolean).join(' · ') : '待入賬',
       detail: expense.accountedAt ? '入賬完成' : '尚未入賬',
-      url: expense.accountReceiptUrl || null,
+      count: expenseSlotUrls(expense, 'account').length,
+      slot: 'account',
       done: Boolean(expense.accountedAt)
     }
   ];
+
+  // 最下方集中列出各階段的憑證縮圖；點縮圖開瀏覽器
+  const attachmentGroups = EXPENSE_SLOTS
+    .map(slot => ({ slot, title: `${EXPENSE_SLOT_LABELS[slot]}憑證`, urls: expenseSlotUrls(expense, slot) }))
+    .filter(group => group.urls.length > 0);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -2207,16 +3536,48 @@ function ExpenseDetailModal({ expense, memberById, onClose }: {
                 <strong>{step.title}</strong>
                 <p>{step.meta}</p>
                 <small>{step.detail}</small>
-                {step.url && (
-                  <button type="button" className="link-button workflow-attachment-button" onClick={() => setPreview({ url: step.url!, title: `${step.title}附件` })}>
-                    查看附件
+                {step.count > 0 && (
+                  <button type="button" className="link-button workflow-attachment-button" onClick={() => setGalleryAt(slotStart(step.slot))}>
+                    查看附件{step.count > 1 ? ` (${step.count})` : ''}
                   </button>
                 )}
               </div>
             </div>
           ))}
         </div>
-        {preview && <AttachmentPreviewModal url={preview.url} title={preview.title} onClose={() => setPreview(null)} />}
+        {attachmentGroups.length > 0 && (
+          <div className="detail-attachments">
+            <h3>憑證</h3>
+            {attachmentGroups.map(group => (
+              <figure key={group.slot}>
+                <figcaption>{group.title}（{group.urls.length} 張）</figcaption>
+                <div className="receipt-strip">
+                  {group.urls.map((url, i) => (
+                    <button
+                      key={`${url}-${i}`}
+                      type="button"
+                      className="receipt-strip-thumb"
+                      onClick={() => setGalleryAt(slotStart(group.slot) + i)}
+                      title={`${group.title} 第 ${i + 1} 張`}
+                    >
+                      {isImageAttachment(url) ? <img src={url} alt="" loading="lazy" /> : <span>PDF</span>}
+                    </button>
+                  ))}
+                </div>
+              </figure>
+            ))}
+          </div>
+        )}
+        {galleryAt !== null && galleryItems.length > 0 && (
+          <GalleryModal
+            title="支出憑證"
+            items={galleryItems}
+            startIndex={Math.max(0, galleryAt)}
+            onClose={() => setGalleryAt(null)}
+            upload={canEdit ? async file => (await api.upload(file, 'expenses', expense.id)).url : undefined}
+            onChange={canEdit ? next => commitExpenseGallery(expense, next, saveExpenseReceipts) : undefined}
+          />
+        )}
       </div>
     </div>
   );
@@ -2407,31 +3768,162 @@ function TaxStatementModal({ member, year, offerings, settings, onClose, onSent 
         sig.src = '/api/reports/tax-signature';
       });
     }
-    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    // html2canvas / jspdf 是延遲載入的 chunk，檔名含內容雜湊。部署新版後舊 chunk
+    // 會從資產庫移除，仍開著舊分頁的使用者會請求到已不存在的檔案（SPA fallback
+    // 回傳 HTML，瀏覽器拒絕當成 ES module 執行）。改成可行動的提示，而非原始錯誤。
+    const [canvasModule, pdfModule] = await Promise.all([
       import('html2canvas'),
       import('jspdf')
-    ]);
+    ]).catch(caught => {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      if (/dynamically imported module|Importing a module script failed/i.test(message)) {
+        throw new Error('系統已更新版本，請重新整理頁面後再試一次');
+      }
+      throw caught;
+    });
+    const html2canvas = canvasModule.default;
+    const { jsPDF } = pdfModule;
+    const PAGE_W = 210;
+    const PAGE_H = 297;
+    const FOOTER_H = 14;   // 每頁底部保留給頁碼
+    const HEADER_TOP = 10; // 續頁頁眉距頁頂
+    const GAP = 4;         // 頁眉／重複表頭與內文的間距
+
     const prevZoom = sheet.style.zoom;
     sheet.style.zoom = '';
-    const canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
-      .finally(() => { sheet.style.zoom = prevZoom; });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
-    const pageW = 210;
-    const pageH = 297;
-    let imgH = (canvas.height * pageW) / canvas.width;
-    // 一頁內容時容許 2mm 捨入誤差，避免多出一張空白頁
-    if (imgH <= pageH + 2) imgH = pageH;
-    let position = 0;
-    let heightLeft = imgH;
-    pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-    heightLeft -= pageH;
-    while (heightLeft > 0) {
-      position -= pageH;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-      heightLeft -= pageH;
+
+    let canvas: HTMLCanvasElement;
+    let headerCanvas: HTMLCanvasElement;
+    let theadCanvas: HTMLCanvasElement | null = null;
+    let boundariesCss: number[];
+    let bodyTopCss: number;
+    let bodyBottomCss: number;
+    const cssWidth = sheet.offsetWidth;
+
+    try {
+      // 可以安全分頁的位置＝這些元素的底緣，避免把某一列從中間橫切
+      const sheetTop = sheet.getBoundingClientRect().top;
+      boundariesCss = Array.from(
+        sheet.querySelectorAll('.gifts thead tr, .gifts tbody tr, .gifts tfoot tr, .appreciation, .notice, .disclosure, .sign')
+      ).map(el => el.getBoundingClientRect().bottom - sheetTop);
+
+      const giftsBody = sheet.querySelector('.gifts tbody');
+      const giftsRect = giftsBody?.getBoundingClientRect();
+      bodyTopCss = giftsRect ? giftsRect.top - sheetTop : Number.POSITIVE_INFINITY;
+      bodyBottomCss = giftsRect ? giftsRect.bottom - sheetTop : Number.NEGATIVE_INFINITY;
+
+      canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+
+      // 頁眉與重複表頭在 iframe 內渲染，才能沿用同一份樣式（含中文字型）
+      const renderSnippet = async (build: (holder: HTMLElement) => void) => {
+        const holder = doc.createElement('div');
+        holder.style.cssText = `position:absolute; left:-10000px; top:0; width:${cssWidth}px; padding:0 22mm; background:#ffffff;`;
+        build(holder);
+        doc.body.appendChild(holder);
+        try {
+          return await html2canvas(holder, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+        } finally {
+          holder.remove();
+        }
+      };
+
+      const data = buildTaxStatementData(member, member.id, offerings, year);
+      headerCanvas = await renderSnippet(holder => {
+        const bar = doc.createElement('div');
+        bar.style.cssText = "display:flex; align-items:baseline; justify-content:space-between; gap:12px; border-bottom:1px solid #d8e0ec; padding-bottom:6px; font-family:Georgia,'Times New Roman',serif;";
+        const left = doc.createElement('div');
+        left.style.cssText = 'font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:#1f3358; font-weight:700;';
+        left.textContent = settings.textFields.churchNameEn;
+        const right = doc.createElement('div');
+        right.style.cssText = 'font-size:11px; color:#68758a; text-align:right;';
+        right.textContent = `${year} Annual Contribution Statement · ${data.donorName}`;
+        bar.appendChild(left);
+        bar.appendChild(right);
+        holder.appendChild(bar);
+      });
+
+      const theadHtml = sheet.querySelector('.gifts thead')?.innerHTML ?? '';
+      if (theadHtml) {
+        theadCanvas = await renderSnippet(holder => {
+          const table = doc.createElement('table');
+          table.className = 'gifts';
+          table.setAttribute('cellpadding', '0');
+          table.setAttribute('cellspacing', '0');
+          table.innerHTML = `<thead>${theadHtml}</thead>`;
+          holder.appendChild(table);
+        });
+      }
+    } finally {
+      sheet.style.zoom = prevZoom;
     }
+
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pxPerMm = canvas.width / PAGE_W;
+    const fullHmm = canvas.height / pxPerMm;
+
+    // 單頁就維持原樣：不加頁眉頁碼，也容許 2mm 捨入誤差避免多出空白頁
+    if (fullHmm <= PAGE_H + 2) {
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, PAGE_W, PAGE_H);
+      return pdf;
+    }
+
+    const cssToCanvas = canvas.width / cssWidth;
+    const boundaries = boundariesCss.map(v => v * cssToCanvas).sort((a, b) => a - b);
+    const bodyTop = bodyTopCss * cssToCanvas;
+    const bodyBottom = bodyBottomCss * cssToCanvas;
+    const headerHmm = (headerCanvas.height / headerCanvas.width) * PAGE_W;
+    const theadHmm = theadCanvas ? (theadCanvas.height / theadCanvas.width) * PAGE_W : 0;
+
+    // 先切好所有頁，才知道總頁數可以印 Page X of Y
+    const slices: Array<{ start: number; end: number; repeatHead: boolean }> = [];
+    let cursor = 0;
+    while (cursor < canvas.height - 1) {
+      const isFirst = slices.length === 0;
+      const repeatHead = !isFirst && Boolean(theadCanvas) && cursor >= bodyTop && cursor < bodyBottom;
+      const top = isFirst ? 0 : HEADER_TOP + headerHmm + GAP + (repeatHead ? theadHmm : 0);
+      const availPx = (PAGE_H - top - FOOTER_H) * pxPerMm;
+      let end = cursor + availPx;
+      if (end >= canvas.height) {
+        end = canvas.height;
+      } else {
+        // 退到頁內最後一個列尾；太靠上的不取，免得整頁只印幾行
+        const snapped = boundaries.filter(b => b > cursor + availPx * 0.4 && b <= end).pop();
+        if (snapped) end = snapped;
+      }
+      slices.push({ start: cursor, end, repeatHead });
+      cursor = end;
+    }
+
+    const headerData = headerCanvas.toDataURL('image/jpeg', 0.95);
+    const theadData = theadCanvas ? theadCanvas.toDataURL('image/jpeg', 0.95) : null;
+    const crop = document.createElement('canvas');
+    const cropCtx = crop.getContext('2d');
+    if (!cropCtx) throw new Error('無法建立畫布');
+
+    slices.forEach((slice, index) => {
+      if (index > 0) pdf.addPage();
+      let y = 0;
+      if (index > 0) {
+        pdf.addImage(headerData, 'JPEG', 0, HEADER_TOP, PAGE_W, headerHmm);
+        y = HEADER_TOP + headerHmm + GAP;
+        if (slice.repeatHead && theadData) {
+          pdf.addImage(theadData, 'JPEG', 0, y, PAGE_W, theadHmm);
+          y += theadHmm;
+        }
+      }
+      crop.width = canvas.width;
+      crop.height = Math.max(1, Math.round(slice.end - slice.start));
+      cropCtx.fillStyle = '#ffffff';
+      cropCtx.fillRect(0, 0, crop.width, crop.height);
+      cropCtx.drawImage(canvas, 0, Math.round(slice.start), canvas.width, crop.height, 0, 0, canvas.width, crop.height);
+      pdf.addImage(crop.toDataURL('image/jpeg', 0.95), 'JPEG', 0, y, PAGE_W, crop.height / pxPerMm);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(104, 117, 138);
+      pdf.text(`Page ${index + 1} of ${slices.length}`, PAGE_W / 2, PAGE_H - 8, { align: 'center' });
+    });
+
     return pdf;
   };
 
@@ -3085,29 +4577,31 @@ function OfferingForm({
     };
   });
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
+  const receiptUrls = form.receiptUrls ?? [];
 
-  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // 憑證只存進表單狀態，按「保存」才寫進記錄
+  const setReceiptUrls = (urls: string[]) =>
+    setForm(f => ({ ...f, receiptUrls: urls, receiptUrl: urls[0] ?? null }));
+
+  async function handleFiles(files: File[]) {
     setUploading(true);
     try {
-      const blob = await compressImage(file);
-      const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-      const { url } = await api.upload(compressed, 'offerings', form.id || undefined);
-      setForm(f => ({ ...f, receiptUrl: url }));
+      setReceiptUrls(await uploadReceiptFiles(files, 'offerings', form.id || undefined, receiptUrls));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   }
 
+  // 掃碼上傳是一張張非同步回來的，必須用函式式更新，否則會讀到過期的清單
+  const addUrls = (incoming: string[]) => setForm(f => {
+    const next = [...(f.receiptUrls ?? []), ...incoming].slice(0, MAX_RECEIPTS);
+    return { ...f, receiptUrls: next, receiptUrl: next[0] ?? null };
+  });
+
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-        {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
-      </button>
+      <UploadMenu count={receiptUrls.length} uploading={uploading} onFiles={handleFiles} onUrls={addUrls} />
       <button className="primary">保存</button>
     </>
   );
@@ -3143,13 +4637,21 @@ function OfferingForm({
       </label>
       <label>日期<input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} required /></label>
       <label className="form-wide">備註<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>
-      {form.receiptUrl && (
-        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center' }}>
-          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 400, maxHeight: 400, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
-          <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
-        </div>
-      )}
+      <div className="form-wide form-receipts">
+        <small>憑證（{receiptUrls.length}／{MAX_RECEIPTS}）</small>
+        <ReceiptStrip urls={receiptUrls} onOpen={setGalleryAt} />
+      </div>
     </FormModal>
+    {galleryAt !== null && receiptUrls.length > 0 && (
+      <GalleryModal
+        title="奉獻憑證"
+        items={receiptUrls.map(url => ({ url, slot: 'submit' as const }))}
+        startIndex={galleryAt}
+        onClose={() => setGalleryAt(null)}
+        upload={async file => (await api.upload(file, 'offerings', form.id || undefined)).url}
+        onChange={async next => setReceiptUrls(next.map(item => item.url))}
+      />
+    )}
     {addingMember && (
       <MemberForm
         member={addingMember}
@@ -3182,34 +4684,37 @@ function ExpenseForm({
   const rank = useMemo(() => buildMemberRank(members, offerings), [members, offerings]);
   const [form, setForm] = useState(expense);
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
+  const receiptUrls = form.receiptUrls ?? [];
 
-  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // 憑證只存進表單狀態，按「保存」才寫進記錄
+  const setReceiptUrls = (urls: string[]) =>
+    setForm(f => ({ ...f, receiptUrls: urls, receiptUrl: urls[0] ?? null }));
+
+  async function handleFiles(files: File[]) {
     setUploading(true);
     try {
-      const blob = await compressImage(file);
-      const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-      const { url } = await api.upload(compressed, 'expenses', form.id || undefined);
-      setForm(f => ({ ...f, receiptUrl: url }));
+      setReceiptUrls(await uploadReceiptFiles(files, 'expenses', form.id || undefined, receiptUrls));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   }
 
+  // 掃碼上傳是一張張非同步回來的，必須用函式式更新，否則會讀到過期的清單
+  const addUrls = (incoming: string[]) => setForm(f => {
+    const next = [...(f.receiptUrls ?? []), ...incoming].slice(0, MAX_RECEIPTS);
+    return { ...f, receiptUrls: next, receiptUrl: next[0] ?? null };
+  });
+
   const footer = (
     <>
-      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-        {uploading ? '上傳中…' : form.receiptUrl ? '重新上傳附件' : '上傳附件'}
-      </button>
+      <UploadMenu count={receiptUrls.length} uploading={uploading} onFiles={handleFiles} onUrls={addUrls} />
       <button className="primary">保存</button>
     </>
   );
 
   return (
+    <>
     <FormModal title="支出記錄" onClose={onClose} onSubmit={() => onSave(form)} footer={footer}>
       <input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="支出描述" required />
       <input type="number" min="0" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} placeholder="支出金額" required />
@@ -3231,13 +4736,22 @@ function ExpenseForm({
         <option>現金</option><option>銀行轉帳</option><option>支票</option><option>信用卡</option>
       </select>
       <textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="備註" />
-      {form.receiptUrl && (
-        <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center' }}>
-          <img src={form.receiptUrl} alt="憑證預覽" style={{ maxWidth: 400, maxHeight: 400, objectFit: 'contain', borderRadius: 6, display: 'block', border: '1px solid #e2e8f0' }} />
-          <button type="button" onClick={() => setForm(f => ({ ...f, receiptUrl: null }))}>移除附件</button>
-        </div>
-      )}
+      <div className="form-wide form-receipts">
+        <small>憑證（{receiptUrls.length}／{MAX_RECEIPTS}）</small>
+        <ReceiptStrip urls={receiptUrls} onOpen={setGalleryAt} />
+      </div>
     </FormModal>
+    {galleryAt !== null && receiptUrls.length > 0 && (
+      <GalleryModal
+        title="支出憑證"
+        items={receiptUrls.map(url => ({ url, slot: 'submit' as const }))}
+        startIndex={galleryAt}
+        onClose={() => setGalleryAt(null)}
+        upload={async file => (await api.upload(file, 'expenses', form.id || undefined)).url}
+        onChange={async next => setReceiptUrls(next.map(item => item.url))}
+      />
+    )}
+    </>
   );
 }
 
@@ -3720,6 +5234,8 @@ export default function App() {
   const [accountTab, setAccountTab] = useState<AccountTab>(initialRoute.accountTab);
   const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
   const isClaimRoute = window.location.pathname.replace(/\/+$/, '') === '/claim';
+  // 手機掃碼上傳頁：免登入，比登入狀態檢查更早決定
+  const snapSessionId = window.location.pathname.match(/^\/snap\/([^/]+)\/?$/)?.[1];
 
   useEffect(() => {
     if (user) finance.refreshAll();
@@ -3744,18 +5260,24 @@ export default function App() {
     }
   };
 
+  // Counter 只能待在奉獻記錄頁（個人資料除外）；直接打網址也會被拉回來
+  const effectivePage: Page = user?.role === 'counter' && page !== 'offerings' && page !== 'account'
+    ? 'offerings'
+    : page;
+
   const content = useMemo(() => {
     if (finance.loading) return <Empty title="正在載入資料" />;
     if (finance.error) return <Empty title={finance.error} />;
-    if (page === 'members') return <MembersPage />;
-    if (page === 'offerings') return <OfferingsPage />;
-    if (page === 'expenses') return <ExpensesPage />;
-    if (page === 'reports') return <ReportsPage />;
-    if (page === 'users') return <UsersPage />;
-    if (page === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;
+    if (effectivePage === 'members') return <MembersPage />;
+    if (effectivePage === 'offerings') return <OfferingsPage />;
+    if (effectivePage === 'expenses') return <ExpensesPage />;
+    if (effectivePage === 'reports') return <ReportsPage />;
+    if (effectivePage === 'users') return <UsersPage />;
+    if (effectivePage === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;
     return <DashboardPage onNavigate={navigateToPage} />;
-  }, [page, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
+  }, [effectivePage, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
 
+  if (snapSessionId) return <SnapPage sessionId={snapSessionId} />;
   if (loading) return <Empty title="正在檢查登入狀態" />;
   if (isClaimRoute) return <ClaimPage />;
   if (resetToken && !user) return <ResetPasswordView token={resetToken} />;
@@ -3764,7 +5286,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Shell
-        page={page}
+        page={effectivePage}
         setPage={navigateToPage}
         onOpenAccount={tab => navigateToPage('account', tab)}
       />

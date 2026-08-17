@@ -1,4 +1,4 @@
-import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ImportSummary, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
+import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ExpenseReceiptSlot, ImportSummary, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -68,10 +68,12 @@ export const api = {
     request<{ ok: true }>(`/api/expenses/${id}`, { method: 'DELETE', body: JSON.stringify({ reason }) }),
   approveExpense: (id: string) => request<Expense>(`/api/expenses/${id}/approve`, { method: 'POST' }),
   rejectExpense: (id: string) => request<Expense>(`/api/expenses/${id}/reject`, { method: 'POST' }),
-  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) =>
+  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrls?: string[] }) =>
     request<Expense>(`/api/expenses/${id}/invoice`, { method: 'POST', body: JSON.stringify(payload || {}) }),
-  accountExpense: (id: string, payload?: { accountReceiptUrl?: string | null }) =>
+  accountExpense: (id: string, payload?: { accountReceiptUrls?: string[] }) =>
     request<Expense>(`/api/expenses/${id}/account`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  saveExpenseReceipts: (id: string, slot: ExpenseReceiptSlot, urls: string[]) =>
+    request<Expense>(`/api/expenses/${id}/receipts`, { method: 'PUT', body: JSON.stringify({ slot, urls }) }),
   expenseCategories: () => request<ExpenseCategory[]>('/api/expenses/categories'),
   publicClaimOptions: () => request<{
     expenseCategories: ExpenseCategory[];
@@ -116,6 +118,26 @@ export const api = {
     request<{ ok: true }>(`/api/users/${id}`, { method: 'DELETE' }),
   resetUserPassword: (id: string, password: string) =>
     request<{ ok: true }>(`/api/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  // 手機掃碼上傳：桌面建立／輪詢／作廢 session
+  createUploadSession: () =>
+    request<{ id: string; token: string; expiresAt: string; snapPath: string }>('/api/upload-sessions', { method: 'POST' }),
+  uploadSession: (id: string) =>
+    request<{ id: string; expiresAt: string; closed: boolean; urls: string[] }>(`/api/upload-sessions/${id}`),
+  closeUploadSession: (id: string) =>
+    request<{ ok: true }>(`/api/upload-sessions/${id}`, { method: 'DELETE' }),
+  // 手機端（免登入，靠 session token）
+  snapSession: (sessionId: string, token: string) =>
+    request<{ ok: true; uploaded: number; max: number; expiresAt: string }>('/api/public/snap-session', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, token })
+    }),
+  snapUpload: (sessionId: string, token: string, file: File) => {
+    const form = new FormData();
+    form.append('sessionId', sessionId);
+    form.append('token', token);
+    form.append('file', file);
+    return request<{ url: string }>('/api/public/snap-upload', { method: 'POST', body: form });
+  },
   upload: (file: File, type: string, entityId?: string) => {
     const form = new FormData();
     form.append('file', file);

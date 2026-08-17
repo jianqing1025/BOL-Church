@@ -1024,6 +1024,33 @@ td small {
   background: #fff;
 }
 
+/* 明細列印預覽 */
+.print-modal {
+  width: min(980px, 96vw);
+}
+
+.print-period {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.print-period .print-range {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #68758a;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-preview-frame {
+  width: 100%;
+  height: 62vh;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .finance-overview .panel {
   display: grid;
   align-content: start;
@@ -1416,6 +1443,24 @@ td small {
 
 .toolbar input {
   max-width: 360px;
+}
+
+/* 工具列前段：搜尋框 + 合計／待審核等統計文字 */
+.toolbar-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toolbar-lead input {
+  flex: 0 1 360px;
+  min-width: 0;
+}
+
+.toolbar-lead strong {
+  white-space: nowrap;
 }
 
 .actions {
@@ -1938,27 +1983,6 @@ td small {
   line-height: 1.6;
 }
 
-.attachment-preview {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 0.55rem;
-  justify-items: start;
-  padding: 0.75rem;
-  border: 1px solid rgba(23, 32, 51, 0.14);
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.attachment-preview img {
-  max-width: 400px;
-  max-height: 320px;
-  width: 100%;
-  object-fit: contain;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
-}
-
 .link-button {
   border: 0;
   background: none;
@@ -1981,10 +2005,11 @@ td small {
 }
 
 .attachment-modal {
-  width: min(760px, 92vw);
-  max-height: 86vh;
+  width: min(1280px, 96vw);
+  height: 94vh;
+  max-height: 94vh;
   display: grid;
-  grid-template-rows: auto minmax(220px, 1fr) auto;
+  grid-template-rows: auto minmax(320px, 1fr) auto;
   overflow: hidden;
   border-radius: 8px;
   background: #fff;
@@ -2027,22 +2052,463 @@ td small {
   background: #f8fafc;
 }
 
-.attachment-modal-body img,
 .attachment-modal-body iframe {
   width: 100%;
-  max-height: 68vh;
+  height: 100%;
   border: 0;
   border-radius: 6px;
   background: #fff;
 }
 
-.attachment-modal-body img {
-  height: auto;
-  object-fit: contain;
+/* 縮放檢視器：圖片在可捲動的框內以 transform 縮放，控制列固定在下方 */
+.zoom-viewer {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
-.attachment-modal-body iframe {
-  height: 68vh;
+.zoom-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+  cursor: zoom-in;
+  touch-action: none;
+}
+
+.zoom-frame.cropping {
+  cursor: default;
+}
+
+.zoom-frame.zoomed {
+  cursor: grab;
+}
+
+.zoom-frame.zoomed:active {
+  cursor: grabbing;
+}
+
+.zoom-frame img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 0.08s linear;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.zoom-controls span {
+  min-width: 3.4rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #68758a;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-controls button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.9rem;
+}
+
+/* 縮放控制列與編輯控制列之間的分隔 */
+.zoom-sep {
+  width: 1px;
+  min-width: 1px;
+  height: 1.1rem;
+  background: #e2e8f0;
+}
+
+.zoom-error {
+  margin: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #c0392b;
+}
+
+/* 裁剪框選層：疊在圖片上，四周壓暗只留選取範圍 */
+.crop-layer {
+  position: absolute;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  background: rgba(12, 18, 32, 0.32);
+}
+
+/* 已框選時改由選取框的外擴陰影壓暗，避免疊加成兩層 */
+.crop-layer.has-rect {
+  background: transparent;
+}
+
+.crop-rect {
+  position: absolute;
+  border: 1px solid #fff;
+  outline: 1px dashed rgba(12, 18, 32, 0.7);
+  box-shadow: 0 0 0 9999px rgba(12, 18, 32, 0.32);
+  background: transparent;
+}
+
+.crop-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(12, 18, 32, 0.72);
+  color: #fff;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 憑證瀏覽器：左右翻頁 + 底部縮圖列 */
+.gallery-modal {
+  grid-template-rows: auto minmax(240px, 1fr) auto auto;
+}
+
+.gallery-modal h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gallery-slot {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #e9f2ff;
+  color: #1959b8;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.gallery-count {
+  color: #68758a;
+  font-size: 0.82rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gallery-stage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.gallery-stage iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.gallery-nav {
+  width: 2.4rem;
+  height: 3.4rem;
+  padding: 0;
+  font-size: 1.6rem;
+  line-height: 1;
+  border-radius: 8px;
+}
+
+.gallery-strip {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid rgba(23, 32, 51, 0.1);
+}
+
+.gallery-thumb,
+.receipt-strip-thumb {
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.gallery-thumb.active {
+  border-color: #1959b8;
+  box-shadow: 0 0 0 2px rgba(25, 89, 184, 0.25);
+}
+
+.gallery-thumb img,
+.receipt-strip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-right: auto;
+}
+
+/* 表單裡的憑證縮圖列 */
+.form-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-receipts > small {
+  color: #68758a;
+}
+
+.receipt-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.receipt-strip-status {
+  align-self: center;
+  font-size: 0.85rem;
+  color: #68758a;
+  white-space: nowrap;
+}
+
+/* 「上傳附件」選單：在彈窗底部，所以往上開 */
+.upload-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.upload-menu-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 6;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 190px;
+  padding: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(25, 41, 70, 0.18);
+}
+
+.upload-menu-popover button {
+  justify-content: flex-start;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 0.92rem;
+}
+
+/* 彈窗底部右側的按鈕群；左邊是上傳附件，靠 space-between 撐開 */
+.modal-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+/* 拍照上傳：取景畫面填滿彈窗主體 */
+.camera-modal {
+  width: min(900px, 96vw);
+  height: 88vh;
+  max-height: 88vh;
+}
+
+/* 讓取景畫面與拍完的編輯器都能撐滿，而不是縮到內容大小 */
+.camera-body {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  place-items: stretch;
+}
+
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
+  background: #0c1220;
+}
+
+.camera-modal footer {
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+/* 掃碼上傳：桌面端的 QR 彈窗 */
+.qr-modal {
+  width: min(460px, 94vw);
+}
+
+.qr-body {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  text-align: center;
+}
+
+.qr-image {
+  width: 260px;
+  height: 260px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.qr-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #68758a;
+  line-height: 1.5;
+}
+
+.qr-status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.qr-link {
+  color: #97a3b6;
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+/* 掃碼上傳：手機端的專用頁 */
+.snap-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 1.5rem 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.snap-page h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.snap-count {
+  margin: 0;
+  color: #68758a;
+  font-variant-numeric: tabular-nums;
+}
+
+.snap-ok {
+  margin: 0;
+  color: #1f9d55;
+}
+
+.snap-actions {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 320px;
+}
+
+.snap-actions button {
+  padding: 0.9rem 1rem;
+  font-size: 1.05rem;
+}
+
+/* 支出列表的憑證縮圖 */
+.expense-receipt-col {
+  width: 72px;
+}
+
+.receipt-thumb {
+  position: relative;
+  display: block;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+/* 本單憑證總張數角標 */
+.receipt-count {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 1.1rem;
+  padding: 0 0.2rem;
+  border-radius: 4px 0 0 0;
+  background: rgba(12, 18, 32, 0.72);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 支出詳情最下方集中列出的憑證 */
+.detail-attachments {
+  margin-top: 1.1rem;
+  border-top: 1px solid rgba(23, 32, 51, 0.1);
+  padding-top: 0.9rem;
+}
+
+.detail-attachments h3 {
+  margin: 0 0 0.7rem;
+  font-size: 0.95rem;
+}
+
+.detail-attachments figure {
+  margin: 0 0 1.1rem;
+}
+
+.detail-attachments figcaption {
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+  color: #68758a;
+}
+
+.detail-attachments .zoom-viewer {
+  height: 340px;
+}
+
+.detail-attachments .zoom-frame {
+  background: #f8fafc;
 }
 
 .workflow-timeline {
@@ -2155,6 +2621,17 @@ td small {
   .toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  /* 手機端：搜尋框獨佔一行，統計文字併排在下 */
+  .toolbar-lead {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .toolbar-lead input {
+    flex: 1 1 100%;
+    max-width: none;
   }
 
   /* 手機端：數據看板年度工具列維持同一行（標籤 + 年度下拉不換行） */

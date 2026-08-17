@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
-import type { AppSettings, AuditLog, DashboardStats, Expense, LookupData, Member, Offering } from '../types';
+import type { AppSettings, AuditLog, DashboardStats, Expense, ExpenseReceiptSlot, LookupData, Member, Offering } from '../types';
 import { api } from '../utils/api';
+import { useAuth } from './AuthContext';
 import { DEFAULT_TAX_STATEMENT_SETTINGS } from '../shared/taxStatement';
 
 type FinanceState = {
@@ -26,8 +27,9 @@ type FinanceContextValue = FinanceState & {
   deleteExpense: (id: string, reason: string) => Promise<void>;
   approveExpense: (id: string) => Promise<void>;
   rejectExpense: (id: string) => Promise<void>;
-  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrl?: string | null }) => Promise<void>;
-  accountExpense: (id: string, payload?: { accountReceiptUrl?: string | null }) => Promise<void>;
+  invoiceExpense: (id: string, payload?: { invoiceNote?: string; invoiceAmount?: number; invoiceReceiptUrls?: string[] }) => Promise<void>;
+  accountExpense: (id: string, payload?: { accountReceiptUrls?: string[] }) => Promise<void>;
+  saveExpenseReceipts: (id: string, slot: ExpenseReceiptSlot, urls: string[]) => Promise<void>;
   saveSettings: (payload: AppSettings) => Promise<void>;
 };
 
@@ -59,6 +61,7 @@ function reducer(state: FinanceState, action: Action): FinanceState {
 }
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [state, dispatch] = useReducer(reducer, {
     dashboard: null,
     members: [],
@@ -71,9 +74,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     error: null
   });
 
+  // Counter 只被允許存取 lookups / members / offerings，撈其他端點會拿到 403
+  const isCounter = user?.role === 'counter';
+
   const refreshAll = async () => {
     dispatch({ type: 'loading', loading: true });
     try {
+      if (isCounter) {
+        const [lookups, members, offerings] = await Promise.all([api.lookups(), api.members(), api.offerings()]);
+        dispatch({ type: 'data', data: { lookups, members: members.items, offerings: offerings.items } });
+        return;
+      }
       const [dashboard, settings, lookups, members, offerings, expenses, auditLogs] = await Promise.all([
         api.dashboard(),
         api.settings(),
@@ -101,6 +112,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshAfterWrite = async () => {
+    if (isCounter) {
+      const [members, offerings] = await Promise.all([api.members(), api.offerings()]);
+      dispatch({ type: 'data', data: { members: members.items, offerings: offerings.items } });
+      return;
+    }
     const [dashboard, members, offerings, expenses, auditLogs] = await Promise.all([
       api.dashboard(),
       api.members(),
@@ -162,6 +178,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     },
     accountExpense: async (id, payload) => {
       await api.accountExpense(id, payload);
+      await refreshAfterWrite();
+    },
+    saveExpenseReceipts: async (id, slot, urls) => {
+      await api.saveExpenseReceipts(id, slot, urls);
       await refreshAfterWrite();
     },
     saveSettings: async payload => {

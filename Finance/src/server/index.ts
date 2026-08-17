@@ -23,20 +23,40 @@ type SessionUser = {
 };
 
 const roleRank: Record<Role, number> = {
+  counter: 0,
   dev: 1,
   auditor: 2,
   finance_admin: 3,
   super_admin: 4
 };
 
-const VALID_ROLES: Role[] = ['super_admin', 'finance_admin', 'auditor', 'dev'];
+const VALID_ROLES: Role[] = ['super_admin', 'finance_admin', 'auditor', 'dev', 'counter'];
+
+// Counter（點款人員）唯一能存取的端點。fail-closed：未列出的一律 403。
+// counter 的 roleRank 為 0，所以任何用 requireUser 預設門檻的端點也擋得住它。
+function counterAllows(pathname: string, method: string): boolean {
+  if (pathname === '/api/auth/change-password' && method === 'POST') return true;
+  if (pathname === '/api/lookups' && method === 'GET') return true;
+  if (pathname === '/api/members' && (method === 'GET' || method === 'POST')) return true;
+  if (pathname === '/api/offerings' && (method === 'GET' || method === 'POST')) return true;
+  if (/^\/api\/offerings\/[^/]+$/.test(pathname) && (method === 'PUT' || method === 'DELETE')) return true;
+  if (pathname === '/api/upload' && method === 'POST') return true;
+  if (pathname === '/api/upload-sessions' && method === 'POST') return true;
+  if (/^\/api\/upload-sessions\/[^/]+$/.test(pathname) && (method === 'GET' || method === 'DELETE')) return true;
+  if (pathname.startsWith('/api/files/') && method === 'GET') return true;
+  return false;
+}
 
 // 角色權限（非線性：Reader 可改成員、卻不能改奉獻/支出）
 function canManageMembers(role: Role): boolean {
-  return role === 'super_admin' || role === 'finance_admin' || role === 'auditor' || role === 'dev';
+  return role === 'super_admin' || role === 'finance_admin' || role === 'auditor' || role === 'dev' || role === 'counter';
 }
 function canManageFinance(role: Role): boolean {
   return role === 'super_admin' || role === 'finance_admin' || role === 'dev';
+}
+// 記錄奉獻：財務角色 ＋ Counter。Counter 只能碰自己建立的那幾筆，另由 created_by 把關。
+function canRecordOffering(role: Role): boolean {
+  return canManageFinance(role) || role === 'counter';
 }
 function canManageSettings(role: Role): boolean {
   return role === 'super_admin' || role === 'finance_admin';
@@ -448,6 +468,59 @@ function cleanPublicText(value: unknown, maxLength = 500): string {
   return String(value || '').trim().slice(0, maxLength);
 }
 
+// 憑證多圖：每階段最多 10 張，DB 存 JSON 陣列，單張欄位恆等於陣列第一張。
+const MAX_RECEIPTS_PER_SLOT = 10;
+
+/** 讀取時把 JSON 陣列欄位解回字串陣列；舊資料只有單張欄位時退回用它 */
+function parseReceiptUrls(raw: unknown, single: unknown): string[] {
+  const fallback = String(single || '').trim();
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const list = parsed.map(item => String(item || '').trim()).filter(Boolean);
+        if (list.length) return list.slice(0, MAX_RECEIPTS_PER_SLOT);
+      }
+    } catch {
+      // 欄位內容壞掉就當作沒有，退回單張欄位
+    }
+  }
+  return fallback ? [fallback] : [];
+}
+
+/** 寫入時正規化：去空白、去重、裁到上限。payload 沒帶陣列就退回單張欄位 */
+function normalizeReceiptUrls(list: unknown, single: unknown): string[] {
+  const source = Array.isArray(list) ? list : [single];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of source) {
+    const url = cleanPublicText(item, 1000);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+    if (result.length >= MAX_RECEIPTS_PER_SLOT) break;
+  }
+  return result;
+}
+
+/** 供 SQL 綁定用：[JSON 陣列或 null, 第一張或 null] */
+function receiptUrlBindings(urls: string[]): [string | null, string | null] {
+  return [urls.length ? JSON.stringify(urls) : null, urls[0] ?? null];
+}
+
+// 手機掃碼上傳的 session 有效期。夠掃碼＋拍幾張，又不會讓連結長期可用。
+const UPLOAD_SESSION_TTL_MS = 10 * 60 * 1000;
+
+/** 取回仍然有效的上傳 session；token 比對用 hash，過期或已關閉都算無效 */
+async function activeUploadSession(env: Env, sessionId: string, token: string) {
+  if (!sessionId || !token) return null;
+  const row = await env.DB.prepare('SELECT * FROM upload_sessions WHERE id = ?').bind(sessionId).first<any>();
+  if (!row || row.closed_at) return null;
+  if (row.token_hash !== await sha256(token)) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  return row;
+}
+
 async function publicClaimOptions(env: Env) {
   const [categories, members, usedMethods] = await Promise.all([
     env.DB.prepare('SELECT * FROM expense_categories ORDER BY name').all<any>(),
@@ -513,9 +586,10 @@ async function createPublicClaim(env: Env, request: Request) {
     notes ? `Notes: ${notes}` : ''
   ].filter(Boolean).join('\n');
 
+  const [receiptJson, receiptFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, receiptUrl));
   await env.DB.prepare(
-    'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(itemId, categoryId, amount, date, description, claimantMemberId, null, paymentMethod, 'pending', claimNotes, receiptUrl, 0, now(), now()).run();
+    'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, receipt_urls, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(itemId, categoryId, amount, date, description, claimantMemberId, null, paymentMethod, 'pending', claimNotes, receiptFirst, receiptJson, 0, now(), now()).run();
 
   const created = await getExpense(env, itemId);
   await recordAudit(env, publicClaimUser, {
@@ -742,7 +816,9 @@ function mapOffering(row: any) {
     methodName: row.method_name || undefined,
     notes: row.notes || '',
     receiptUrl: row.receipt_url || null,
+    receiptUrls: parseReceiptUrls(row.receipt_urls, row.receipt_url),
     isTest: Boolean(row.is_test),
+    createdBy: row.created_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -767,14 +843,17 @@ function mapExpense(row: any) {
     invoiceNote: row.invoice_note || null,
     invoiceAmount: row.invoice_amount != null ? Number(row.invoice_amount) : null,
     invoiceReceiptUrl: row.invoice_receipt_url || null,
+    invoiceReceiptUrls: parseReceiptUrls(row.invoice_receipt_urls, row.invoice_receipt_url),
     accountedBy: row.accounted_by || null,
     accountedByName: row.accounted_by_name || undefined,
     accountedAt: row.accounted_at || null,
     accountReceiptUrl: row.account_receipt_url || null,
+    accountReceiptUrls: parseReceiptUrls(row.account_receipt_urls, row.account_receipt_url),
     paymentMethod: row.payment_method || '',
     status: row.status as ExpenseStatus,
     notes: row.notes || '',
     receiptUrl: row.receipt_url || null,
+    receiptUrls: parseReceiptUrls(row.receipt_urls, row.receipt_url),
     isTest: Boolean(row.is_test),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -794,7 +873,7 @@ function mapUser(row: any) {
   };
 }
 
-async function listMembers(env: Env, url: URL, testFlag: number) {
+async function listMembers(env: Env, url: URL, testFlag: number, hideTotals = false) {
   const search = `%${url.searchParams.get('q') || ''}%`;
   const result = await env.DB.prepare(
     `SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering
@@ -805,19 +884,35 @@ async function listMembers(env: Env, url: URL, testFlag: number) {
      GROUP BY m.id
      ORDER BY m.name`
   ).bind(testFlag, search, search, search, testFlag).all();
-  return json({ items: (result.results || []).map(mapMember), total: result.results?.length || 0 });
+  // Counter 可看成員的聯絡資料，但不得看到任何奉獻金額
+  const items = (result.results || []).map(row => {
+    const member = mapMember(row);
+    return hideTotals ? { ...member, totalOffering: 0 } : member;
+  });
+  return json({ items, total: result.results?.length || 0 });
 }
 
-async function listOfferings(env: Env, testFlag: number) {
-  const result = await env.DB.prepare(
-    `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
-     FROM offerings o
-     LEFT JOIN members m ON m.id = o.member_id
-     LEFT JOIN offering_categories c ON c.id = o.category_id
-     LEFT JOIN offering_methods method ON method.id = o.method_id
-     WHERE o.is_test = ?
-     ORDER BY o.date DESC, o.created_at DESC`
-  ).bind(testFlag).all();
+/** ownerId 有值時只回傳該帳號建立的奉獻（Counter 用） */
+async function listOfferings(env: Env, testFlag: number, ownerId?: string) {
+  const result = ownerId
+    ? await env.DB.prepare(
+        `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
+         FROM offerings o
+         LEFT JOIN members m ON m.id = o.member_id
+         LEFT JOIN offering_categories c ON c.id = o.category_id
+         LEFT JOIN offering_methods method ON method.id = o.method_id
+         WHERE o.is_test = ? AND o.created_by = ?
+         ORDER BY o.date DESC, o.created_at DESC`
+      ).bind(testFlag, ownerId).all()
+    : await env.DB.prepare(
+        `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
+         FROM offerings o
+         LEFT JOIN members m ON m.id = o.member_id
+         LEFT JOIN offering_categories c ON c.id = o.category_id
+         LEFT JOIN offering_methods method ON method.id = o.method_id
+         WHERE o.is_test = ?
+         ORDER BY o.date DESC, o.created_at DESC`
+      ).bind(testFlag).all();
   return json({ items: (result.results || []).map(mapOffering), total: result.results?.length || 0 });
 }
 
@@ -955,6 +1050,40 @@ const worker: ExportedHandler<Env> = {
         return json({ key, url: fileUrl });
       }
 
+      // 手機掃碼上傳：免登入，但 token 只對這一個 session 有效，且只能寫不能讀。
+      if (url.pathname === '/api/public/snap-upload' && request.method === 'POST') {
+        const form = await request.formData();
+        const sessionId = String(form.get('sessionId') || '');
+        const token = String(form.get('token') || '');
+        const file = form.get('file');
+        if (!(file instanceof File)) return error('No file uploaded', 400);
+        // 免登入端點，擋掉超大檔；正常憑證壓縮後遠低於此
+        if (file.size > 15 * 1024 * 1024) return error('檔案過大', 400);
+        const session = await activeUploadSession(env, sessionId, token);
+        if (!session) return error('連結已失效，請在電腦上重新產生 QR Code', 403);
+        const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM upload_session_files WHERE session_id = ?')
+          .bind(sessionId).first<any>();
+        if (Number(count?.n || 0) >= MAX_RECEIPTS_PER_SLOT) return error(`最多 ${MAX_RECEIPTS_PER_SLOT} 張`, 400);
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-') || 'photo.jpg';
+        const key = `snap/${sessionId}/${Date.now()}-${safeName}`;
+        await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+        const fileUrl = env.FILES_URL ? `${env.FILES_URL.replace(/\/$/, '')}/${key}` : `/api/files/${encodeURIComponent(key)}`;
+        await env.DB.prepare('INSERT INTO upload_session_files (id, session_id, url, created_at) VALUES (?, ?, ?, ?)')
+          .bind(id(), sessionId, fileUrl, now()).run();
+        return json({ url: fileUrl });
+      }
+
+      // 手機端進頁時確認連結還有效，順便取得已傳張數
+      if (url.pathname === '/api/public/snap-session' && request.method === 'POST') {
+        const payload = await readJson<{ sessionId?: string; token?: string }>(request)
+          .catch(() => ({} as { sessionId?: string; token?: string }));
+        const session = await activeUploadSession(env, String(payload.sessionId || ''), String(payload.token || ''));
+        if (!session) return error('連結已失效，請在電腦上重新產生 QR Code', 403);
+        const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM upload_session_files WHERE session_id = ?')
+          .bind(session.id).first<any>();
+        return json({ ok: true, uploaded: Number(count?.n || 0), max: MAX_RECEIPTS_PER_SLOT, expiresAt: session.expires_at });
+      }
+
       if (url.pathname.startsWith('/api/files/') && request.method === 'GET') {
         const key = decodeURIComponent(url.pathname.replace('/api/files/', ''));
         const object = await env.FILES.get(key);
@@ -1030,10 +1159,19 @@ const worker: ExportedHandler<Env> = {
       }
 
       if (url.pathname.startsWith('/api/')) {
-        const auth = await requireUser(request, env, 'dev');
+        const auth = await requireUser(request, env, 'counter');
         if (auth instanceof Response) return auth;
         const user = auth;
         const testFlag = testFlagFor(user.role);
+
+        // Counter 的總閘門：白名單以外的端點在這裡就攔掉，不進入後面的路由
+        if (user.role === 'counter' && !counterAllows(url.pathname, request.method)) {
+          return error('Forbidden', 403);
+        }
+        // 其餘角色維持原本的最低門檻（dev 以上）
+        if (user.role !== 'counter' && roleRank[user.role] < roleRank['dev']) {
+          return error('Forbidden', 403);
+        }
 
         if (url.pathname === '/api/auth/change-password' && request.method === 'POST') {
           const payload = await readJson<{ currentPassword?: string; newPassword?: string }>(request);
@@ -1154,8 +1292,8 @@ const worker: ExportedHandler<Env> = {
           return json({ ok: true });
         }
 
-        if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url, testFlag);
-        if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env, testFlag);
+        if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url, testFlag, user.role === 'counter');
+        if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env, testFlag, user.role === 'counter' ? user.id : undefined);
         if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env, testFlag);
         if (url.pathname === '/api/audit-logs' && request.method === 'GET') return listAuditLogs(env);
 
@@ -1365,12 +1503,14 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname === '/api/offerings' && request.method === 'POST') {
-          if (!canManageFinance(user.role)) return error('Forbidden', 403);
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
           const itemId = id();
+          const [receiptJson, receiptFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, payload.receiptUrl));
+          // created_by 一律取自 session，不接受 payload 帶入
           await env.DB.prepare(
-            'INSERT INTO offerings (id, member_id, amount, date, category_id, method_id, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(itemId, payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, testFlag, now(), now()).run();
+            'INSERT INTO offerings (id, member_id, amount, date, category_id, method_id, notes, receipt_url, receipt_urls, is_test, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(itemId, payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', receiptFirst, receiptJson, testFlag, user.id, now(), now()).run();
           const created = await getOffering(env, itemId);
           await recordAudit(env, user, {
             action: 'create',
@@ -1386,9 +1526,10 @@ const worker: ExportedHandler<Env> = {
           if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const payload = await readJson<any>(request);
           const itemId = id();
+          const [receiptJson, receiptFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, payload.receiptUrl));
           await env.DB.prepare(
-            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.notes || '', payload.receiptUrl || null, testFlag, now(), now()).run();
+            'INSERT INTO expenses (id, category_id, amount, date, description, paid_by, approved_by, payment_method, status, notes, receipt_url, receipt_urls, is_test, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(itemId, payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, null, payload.paymentMethod || '現金', 'pending', payload.notes || '', receiptFirst, receiptJson, testFlag, now(), now()).run();
           const created = await getExpense(env, itemId);
           await recordAudit(env, user, {
             action: 'create',
@@ -1502,14 +1643,21 @@ const worker: ExportedHandler<Env> = {
         }
 
         if (url.pathname.match(/^\/api\/offerings\/[^/]+$/)) {
-          if (!canManageFinance(user.role)) return error('Forbidden', 403);
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
+          // Counter 只能動自己建立的那幾筆
+          if (user.role === 'counter') {
+            const owner = await env.DB.prepare('SELECT created_by FROM offerings WHERE id = ?').bind(itemId).first<any>();
+            if (!owner) return error('Offering not found', 404);
+            if (owner.created_by !== user.id) return error('Forbidden', 403);
+          }
           if (request.method === 'PUT') {
             const payload = await readJson<any>(request);
             const before = await getOffering(env, itemId);
             if (before && !sameTestScope(user.role, before.isTest)) return error('Forbidden', 403);
-            await env.DB.prepare('UPDATE offerings SET member_id = ?, amount = ?, date = ?, category_id = ?, method_id = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
-              .bind(payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
+            const [receiptJson, receiptFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, payload.receiptUrl));
+            await env.DB.prepare('UPDATE offerings SET member_id = ?, amount = ?, date = ?, category_id = ?, method_id = ?, notes = ?, receipt_url = ?, receipt_urls = ?, updated_at = ? WHERE id = ?')
+              .bind(payload.memberId || null, Number(payload.amount), payload.date, payload.categoryId || null, payload.methodId || null, payload.notes || '', receiptFirst, receiptJson, now(), itemId).run();
             const updated = await getOffering(env, itemId);
             const changes = buildChangeSummary([
               { label: '奉獻人', from: before?.memberName || '匿名', to: updated?.memberName || '匿名' },
@@ -1518,7 +1666,7 @@ const worker: ExportedHandler<Env> = {
               { label: '分類', from: before?.categoryName, to: updated?.categoryName },
               { label: '方式', from: before?.methodName, to: updated?.methodName },
               { label: '備註', from: before?.notes, to: updated?.notes },
-              { label: '憑證', from: before?.receiptUrl ? '有' : '無', to: updated?.receiptUrl ? '有' : '無' }
+              { label: '憑證', from: `${before?.receiptUrls.length ?? 0} 張`, to: `${updated?.receiptUrls.length ?? 0} 張` }
             ]);
             await recordAudit(env, user, {
               action: 'update',
@@ -1580,11 +1728,13 @@ const worker: ExportedHandler<Env> = {
             const invoiceAmount = payload.invoiceAmount === undefined || payload.invoiceAmount === null || payload.invoiceAmount === ''
               ? reviewTarget.amount
               : Number(payload.invoiceAmount);
-            await env.DB.prepare('UPDATE expenses SET invoiced_by = ?, invoiced_by_text = ?, invoiced_at = ?, invoice_note = ?, invoice_amount = ?, invoice_receipt_url = ?, updated_at = ? WHERE id = ?')
-              .bind(user.memberId, opLabel, stamp, String(payload.invoiceNote || '').trim(), invoiceAmount, payload.invoiceReceiptUrl || null, stamp, itemId).run();
+            const [invoiceJson, invoiceFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.invoiceReceiptUrls, payload.invoiceReceiptUrl));
+            await env.DB.prepare('UPDATE expenses SET invoiced_by = ?, invoiced_by_text = ?, invoiced_at = ?, invoice_note = ?, invoice_amount = ?, invoice_receipt_url = ?, invoice_receipt_urls = ?, updated_at = ? WHERE id = ?')
+              .bind(user.memberId, opLabel, stamp, String(payload.invoiceNote || '').trim(), invoiceAmount, invoiceFirst, invoiceJson, stamp, itemId).run();
           } else if (action === 'account') {
-            await env.DB.prepare('UPDATE expenses SET accounted_by = ?, accounted_by_text = ?, accounted_at = ?, account_receipt_url = ?, updated_at = ? WHERE id = ?')
-              .bind(user.memberId, opLabel, stamp, payload.accountReceiptUrl || null, stamp, itemId).run();
+            const [accountJson, accountFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.accountReceiptUrls, payload.accountReceiptUrl));
+            await env.DB.prepare('UPDATE expenses SET accounted_by = ?, accounted_by_text = ?, accounted_at = ?, account_receipt_url = ?, account_receipt_urls = ?, updated_at = ? WHERE id = ?')
+              .bind(user.memberId, opLabel, stamp, accountFirst, accountJson, stamp, itemId).run();
           }
           const reviewed = await getExpense(env, itemId);
           await recordAudit(env, user, {
@@ -1598,6 +1748,39 @@ const worker: ExportedHandler<Env> = {
           return json(reviewed);
         }
 
+        // 憑證清單整批取代，一次涵蓋新增／刪除／排序／編輯後替換。
+        // 開票／入賬憑證沒有別的寫入途徑，因為 invoice / account 端點只接受首次操作。
+        if (url.pathname.match(/^\/api\/expenses\/[^/]+\/receipts$/) && request.method === 'PUT') {
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
+          const itemId = decodeURIComponent(url.pathname.split('/').slice(-2)[0] || '');
+          const payload = await readJson<{ slot?: string; urls?: unknown }>(request);
+          const slots: Record<string, { single: string; list: string; label: string }> = {
+            submit: { single: 'receipt_url', list: 'receipt_urls', label: '提交憑證' },
+            invoice: { single: 'invoice_receipt_url', list: 'invoice_receipt_urls', label: '開票憑證' },
+            account: { single: 'account_receipt_url', list: 'account_receipt_urls', label: '入賬憑證' }
+          };
+          const slot = slots[String(payload.slot || '')];
+          if (!slot) return error('憑證類型不正確');
+          if (!Array.isArray(payload.urls)) return error('憑證清單格式不正確');
+          const before = await getExpense(env, itemId);
+          if (!before) return error('Expense not found', 404);
+          if (!sameTestScope(user.role, before.isTest)) return error('Forbidden', 403);
+          const urls = normalizeReceiptUrls(payload.urls, null);
+          const [listJson, first] = receiptUrlBindings(urls);
+          await env.DB.prepare(`UPDATE expenses SET ${slot.single} = ?, ${slot.list} = ?, updated_at = ? WHERE id = ?`)
+            .bind(first, listJson, now(), itemId).run();
+          const updated = await getExpense(env, itemId);
+          await recordAudit(env, user, {
+            action: 'update',
+            entityType: 'expense',
+            entityId: itemId,
+            entitySummary: `${expenseSummary(updated)} ｜ ${slot.label} ${urls.length} 張`,
+            before,
+            after: updated
+          });
+          return json(updated);
+        }
+
         if (url.pathname.match(/^\/api\/expenses\/[^/]+$/)) {
           if (!canManageFinance(user.role)) return error('Forbidden', 403);
           const itemId = decodeURIComponent(url.pathname.split('/').pop() || '');
@@ -1605,8 +1788,9 @@ const worker: ExportedHandler<Env> = {
             const payload = await readJson<any>(request);
             const before = await getExpense(env, itemId);
             if (before && !sameTestScope(user.role, before.isTest)) return error('Forbidden', 403);
-            await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, notes = ?, receipt_url = ?, updated_at = ? WHERE id = ?')
-              .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.notes || '', payload.receiptUrl || null, now(), itemId).run();
+            const [receiptJson, receiptFirst] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, payload.receiptUrl));
+            await env.DB.prepare('UPDATE expenses SET category_id = ?, amount = ?, date = ?, description = ?, paid_by = ?, payment_method = ?, notes = ?, receipt_url = ?, receipt_urls = ?, updated_at = ? WHERE id = ?')
+              .bind(payload.categoryId || null, Number(payload.amount), payload.date, payload.description || '', payload.paidBy || null, payload.paymentMethod || '現金', payload.notes || '', receiptFirst, receiptJson, now(), itemId).run();
             const updated = await getExpense(env, itemId);
             const changes = buildChangeSummary([
               { label: '描述', from: before?.description, to: updated?.description },
@@ -1616,7 +1800,7 @@ const worker: ExportedHandler<Env> = {
               { label: '付款人', from: before?.paidByName, to: updated?.paidByName },
               { label: '支付方式', from: before?.paymentMethod, to: updated?.paymentMethod },
               { label: '備註', from: before?.notes, to: updated?.notes },
-              { label: '憑證', from: before?.receiptUrl ? '有' : '無', to: updated?.receiptUrl ? '有' : '無' }
+              { label: '憑證', from: `${before?.receiptUrls.length ?? 0} 張`, to: `${updated?.receiptUrls.length ?? 0} 張` }
             ]);
             await recordAudit(env, user, {
               action: 'update',
@@ -1641,8 +1825,45 @@ const worker: ExportedHandler<Env> = {
           }
         }
 
+        // 建立掃碼上傳 session；明碼 token 只在這裡回傳一次，DB 只留 hash
+        if (url.pathname === '/api/upload-sessions' && request.method === 'POST') {
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
+          const sessionId = id();
+          const token = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+          const expiresAt = new Date(Date.now() + UPLOAD_SESSION_TTL_MS).toISOString();
+          await env.DB.prepare(
+            'INSERT INTO upload_sessions (id, token_hash, created_by, purpose, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(sessionId, await sha256(token), user.id, 'receipt', expiresAt, now()).run();
+          return json({ id: sessionId, token, expiresAt, snapPath: `/snap/${sessionId}` }, 201);
+        }
+
+        if (url.pathname.match(/^\/api\/upload-sessions\/[^/]+$/) && request.method === 'GET') {
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
+          const sessionId = decodeURIComponent(url.pathname.split('/').pop() || '');
+          const session = await env.DB.prepare('SELECT * FROM upload_sessions WHERE id = ? AND created_by = ?')
+            .bind(sessionId, user.id).first<any>();
+          if (!session) return error('Session not found', 404);
+          const files = await env.DB.prepare('SELECT url FROM upload_session_files WHERE session_id = ? ORDER BY created_at')
+            .bind(sessionId).all<any>();
+          return json({
+            id: sessionId,
+            expiresAt: session.expires_at,
+            closed: Boolean(session.closed_at) || new Date(session.expires_at).getTime() < Date.now(),
+            urls: (files.results || []).map((row: any) => String(row.url))
+          });
+        }
+
+        // 桌面關掉 QR 彈窗即作廢，避免連結在有效期內還能被再次使用
+        if (url.pathname.match(/^\/api\/upload-sessions\/[^/]+$/) && request.method === 'DELETE') {
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
+          const sessionId = decodeURIComponent(url.pathname.split('/').pop() || '');
+          await env.DB.prepare('UPDATE upload_sessions SET closed_at = ? WHERE id = ? AND created_by = ? AND closed_at IS NULL')
+            .bind(now(), sessionId, user.id).run();
+          return json({ ok: true });
+        }
+
         if (url.pathname === '/api/upload' && request.method === 'POST') {
-          if (!canManageFinance(user.role)) return error('Forbidden', 403);
+          if (!canRecordOffering(user.role)) return error('Forbidden', 403);
           const form = await request.formData();
           const file = form.get('file');
           const type = String(form.get('type') || 'files');

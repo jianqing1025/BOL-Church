@@ -1,6 +1,8 @@
-export type Role = 'super_admin' | 'finance_admin' | 'auditor' | 'dev';
+export type Role = 'super_admin' | 'finance_admin' | 'auditor' | 'dev' | 'counter';
 export type MemberStatus = 'active' | 'inactive' | 'visitor';
 export type ExpenseStatus = 'pending' | 'approved' | 'rejected';
+/** 支出的三種憑證欄位，用於憑證圖片編輯後的替換 */
+export type ExpenseReceiptSlot = 'submit' | 'invoice' | 'account';
 
 export interface User {
   id: string;
@@ -74,8 +76,11 @@ export interface Offering {
   methodId: string | null;
   methodName?: string;
   notes: string;
+  /** 第一張憑證，恆等於 receiptUrls[0]；保留給既有查詢與模板 */
   receiptUrl?: string | null;
+  receiptUrls?: string[];
   isTest?: boolean;
+  createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,15 +111,19 @@ export interface Expense {
   invoicedAt?: string | null;
   invoiceNote?: string | null;
   invoiceAmount?: number | null;
+  /** 第一張開票憑證，恆等於 invoiceReceiptUrls[0]；保留給既有郵件模板 */
   invoiceReceiptUrl?: string | null;
+  invoiceReceiptUrls?: string[];
   accountedBy?: string | null;
   accountedByName?: string;
   accountedAt?: string | null;
   accountReceiptUrl?: string | null;
+  accountReceiptUrls?: string[];
   paymentMethod: string;
   status: ExpenseStatus;
   notes: string;
   receiptUrl?: string | null;
+  receiptUrls?: string[];
   isTest?: boolean;
   createdAt: string;
   updatedAt: string;
