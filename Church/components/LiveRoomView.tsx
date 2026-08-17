@@ -163,15 +163,16 @@ const LiveRoomView: React.FC<LiveRoomViewProps> = ({ state, mode, videoId, ident
             <>
               <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-red-500">
                 <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-600" />
-                {t('sermonsPage.liveBadge')}
+                {t('liveChat.roomLiveBadge')}
               </span>
               {state.startedAt && (
-                <span className="hidden truncate text-sm text-gray-400 sm:inline">
+                <span className="truncate text-sm text-gray-400">
                   {t('sermonsPage.liveStartedAt')} {formatStartedAt(state.startedAt, language as Language)}
                 </span>
               )}
+              {/* 已播時長：手機頂欄空間有限，只留開播時間 */}
               {elapsedSec != null && (
-                <span className="shrink-0 tabular-nums text-sm text-gray-400">{formatElapsed(elapsedSec)}</span>
+                <span className="hidden shrink-0 tabular-nums text-sm text-gray-400 sm:inline">{formatElapsed(elapsedSec)}</span>
               )}
             </>
           ) : (

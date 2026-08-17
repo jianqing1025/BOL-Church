@@ -307,7 +307,9 @@ export const translations = {
     enterRoomOffline: { en: 'Available when the stream is live', zh: '直播開始後可進入' },
     leaveRoom: { en: 'Back', zh: '返回' },
     watchReplay: { en: 'Watch Replay', zh: '查看回放' },
-    roomBrand: { en: 'BOLCCOP Sunday Live', zh: '信望愛靈糧堂主日直播' },
+    roomBrand: { en: 'BOLCCOP', zh: '信望愛靈糧堂' },
+    // 房間頂欄的直播標記：兩種語言都用 Live（旁邊的紅點已經表達「進行中」）
+    roomLiveBadge: { en: 'Live', zh: 'Live' },
     replayUntil: { en: 'Replay available until Friday midnight.', zh: '上次直播回放可觀看至週五午夜。' },
     liveInProgress: { en: 'Live now', zh: '直播進行中' },
     membersLabel: { en: 'Online', zh: '在線列表' },
