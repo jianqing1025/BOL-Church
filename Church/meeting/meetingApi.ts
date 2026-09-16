@@ -2,7 +2,7 @@
 import { MEETING_ROOMS, livekitRoomName } from '../constants/meetingRooms';
 import { validateAuth, validateJoin, validateVideo } from './meetingValidation';
 import { createLiveKitToken } from './livekitToken';
-import { selectLiveKitProject, type LiveKitProjectEnv } from './livekitProject';
+import { checkSelfHostedHealth, selectLiveKitProject, type LiveKitProjectEnv } from './livekitProject';
 
 export interface MeetingEnv extends LiveKitProjectEnv {
   CHAT_ROOM: DurableObjectNamespace;
@@ -66,10 +66,12 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     const body = await request.json().catch(() => ({})) as { roomId?: string; name?: string; password?: string };
     const v = validateVideo({ roomId: body.roomId, name: body.name, password: body.password }, env.CHAT_PASSWORD);
     if (v.ok === false) return jsonCors(env, { error: v.error }, v.status);
-    // Which LiveKit project this meeting runs on alternates by date, so the two
-    // projects share the load. Everyone joining the same meeting resolves to the
-    // same one — see livekitProject.ts for why that has to be true.
-    const project = selectLiveKitProject(env, new Date());
+    // The church's own server is preferred; the cloud projects catch the
+    // meeting when it is unreachable, alternating by date between themselves.
+    // Everyone joining one meeting must resolve to the same server — see
+    // livekitProject.ts for why that has to hold.
+    const selfHealthy = await checkSelfHostedHealth(env);
+    const project = selectLiveKitProject(env, new Date(), { selfHealthy });
     if (!project) {
       return jsonCors(env, { error: 'Video is not configured' }, 503);
     }

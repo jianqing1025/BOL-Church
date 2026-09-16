@@ -6,9 +6,20 @@ LiveKit Cloud 的分鐘額度用盡、或帳號出問題時，用這台接手小
 - 服務：`livekit`（SFU，本機 7880）、`caddy`（443 TLS 反向代理）
 - 設定與金鑰：`/opt/church/livekit/`，金鑰檔 `keys.env` 權限 600，**不在版控內**
 
-## 切換
+## 優先順序
 
-平常走 LiveKit Cloud 的兩組專案依日期輪換。要改用這台：
+**自架這台是主力**，發 token 前 Worker 會先探活（`https://live.bolccop.org/`，
+逾時 1.5 秒、失敗重試一次）。探得到就用它——它沒有分鐘額度可以用完。
+
+探不到才退回 LiveKit Cloud，兩組專案之間**依日期輪換的規則原封不動**。
+
+重試一次是刻意的：單一個封包掉了就把會議推去雲端，會讓後加入的人跟已經
+在自架伺服器上的人分屬兩台機器，而且畫面上看不出任何錯誤。
+
+## 手動釘住（少用）
+
+平常不需要設。`LIVEKIT_ACTIVE` **會繞過健康檢查**，所以釘在 `self` 時
+VPS 掛了也不會自動退回雲端——只有在你明確要覆蓋自動判斷時才用：
 
 ```bash
 cd Church
@@ -16,7 +27,7 @@ printf 'self' | npx wrangler secret put LIVEKIT_ACTIVE --config wrangler.toml   
 printf 'self' | npx wrangler secret put LIVEKIT_ACTIVE --config .tmp/wrangler.church-dev.toml  # dev
 ```
 
-改回雲端（恢復日期輪換）：
+恢復自動模式（自架優先、斷線退回雲端）：
 
 ```bash
 npx wrangler secret delete LIVEKIT_ACTIVE --config wrangler.toml
