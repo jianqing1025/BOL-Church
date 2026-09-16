@@ -24,12 +24,12 @@ const requestDialog = (kind: DialogKind, message: string, defaultValue?: string,
   else resolve(kind === 'confirm' || kind === 'permission' ? false : kind === 'prompt' ? null : true);
 });
 
-export const churchAlert = async (message: string): Promise<void> => {
-  await requestDialog('alert', message);
+export const churchAlert = async (message: string, options: DialogOptions = {}): Promise<void> => {
+  await requestDialog('alert', message, undefined, options);
 };
 
-export const churchConfirm = async (message: string): Promise<boolean> => {
-  return await requestDialog('confirm', message) === true;
+export const churchConfirm = async (message: string, options: DialogOptions = {}): Promise<boolean> => {
+  return await requestDialog('confirm', message, undefined, options) === true;
 };
 
 export const churchPermissionConfirm = async (message: string, options: DialogOptions = {}): Promise<boolean> => {

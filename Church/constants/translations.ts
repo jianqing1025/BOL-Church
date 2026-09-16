@@ -233,10 +233,21 @@ export const translations = {
     mediaFailed: { en: 'Could not turn on the camera or microphone.', zh: '無法開啟鏡頭或麥克風。' },
     host: { en: 'Host', zh: 'Host' },
     hostMute: { en: 'Mute this person', zh: '將此人靜音' },
+    cancel: { en: 'Cancel', zh: '取消' },
+    gotIt: { en: 'OK', zh: '知道了' },
+    endMeetingTitle: { en: 'End meeting', zh: '結束聚會' },
     endMeetingConfirm: {
-      en: 'End the meeting? Everyone in the room will leave with you.',
-      zh: '要結束聚會嗎？房間裡的所有人都會跟著一起離開。'
+      en: 'End the meeting? Everyone in the room leaves with you — nobody can stay behind.',
+      zh: '要結束聚會嗎？房間裡的所有人都會跟著一起離開，沒有人能留下。'
     },
+    endMeetingAction: { en: 'End for everyone', zh: '結束，所有人離開' },
+    leaveTitle: { en: 'Leave meeting', zh: '離開聚會' },
+    leaveConfirm: {
+      en: 'Leave the meeting? The others will carry on without you.',
+      zh: '要離開聚會嗎？其他人會繼續進行。'
+    },
+    leaveAction: { en: 'Leave', zh: '離開' },
+    meetingEndedTitle: { en: 'Meeting ended', zh: '聚會已結束' },
     meetingEndedNotice: { en: 'The host has ended the meeting.', zh: 'Host 已經結束這場聚會。' },
     hostRemove: { en: 'Remove from room', zh: '請出房間' },
     videoFile: { en: 'Play a video', zh: '播放影片' },

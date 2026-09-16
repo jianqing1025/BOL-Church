@@ -76,10 +76,25 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     if (added > 0) setUnread((u) => u + added);
   }, [messages, chatOpen, ownUserId, room.hasVideo]);
 
+  // Hanging up always asks first. For a host that question is much heavier —
+  // it ends the study for everyone — so it is worded and labelled differently
+  // rather than sharing one vague "are you sure".
   const leaveRoom = useCallback(async () => {
-    if (!isHost) { onLeave(); return; }
-    // Confirmed, because a mis-tap would throw the whole group out mid-study.
-    if (!await churchConfirm(t('meeting.endMeetingConfirm'))) return;
+    if (!isHost) {
+      const confirmed = await churchConfirm(t('meeting.leaveConfirm'), {
+        title: t('meeting.leaveTitle'),
+        confirmLabel: t('meeting.leaveAction'),
+        cancelLabel: t('meeting.cancel'),
+      });
+      if (confirmed) onLeave();
+      return;
+    }
+    const confirmed = await churchConfirm(t('meeting.endMeetingConfirm'), {
+      title: t('meeting.endMeetingTitle'),
+      confirmLabel: t('meeting.endMeetingAction'),
+      cancelLabel: t('meeting.cancel'),
+    });
+    if (!confirmed) return;
     onHostCommand({ type: 'host', action: 'endMeeting' });
     onLeave();
   }, [isHost, onHostCommand, onLeave, t]);
@@ -104,7 +119,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     }
     if (command.action === 'endMeeting') {
       onLeave();
-      void churchAlert(t('meeting.meetingEndedNotice'));
+      void churchAlert(t('meeting.meetingEndedNotice'), {
+        title: t('meeting.meetingEndedTitle'),
+        confirmLabel: t('meeting.gotIt'),
+      });
       return;
     }
     if (command.targetUserId !== ownUserId) return;
