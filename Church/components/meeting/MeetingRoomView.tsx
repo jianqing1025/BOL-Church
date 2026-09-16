@@ -149,7 +149,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
 
       {/* Body: stage + optional right drawer */}
       <div className="flex min-h-0 flex-1">
-        <main className="min-h-0 min-w-0 flex-1 p-3">
+        <main className="min-h-0 min-w-0 flex-1 p-2 sm:p-3">
           {room.hasVideo ? (
             <VideoStage
               participants={lk.participants}

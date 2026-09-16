@@ -1,51 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { ParticipantTile } from './ParticipantTile';
 import { FadeIn } from './FadeIn';
-
-/** Fixed arrangement per head-count: 2→side-by-side, 3→row, 4→2x2, 6→3x2, 8→4x2. */
-const gridFor = (n: number): { cols: number; rows: number } => {
-  if (n <= 1) return { cols: 1, rows: 1 };
-  if (n === 2) return { cols: 2, rows: 1 };
-  if (n === 3) return { cols: 3, rows: 1 };
-  if (n === 4) return { cols: 2, rows: 2 };
-  if (n <= 6) return { cols: 3, rows: 2 };
-  if (n <= 8) return { cols: 4, rows: 2 };
-  if (n === 9) return { cols: 3, rows: 3 };
-  return { cols: 4, rows: Math.ceil(n / 4) };
-};
-
-/** Per-page cap keeps tiles large on smaller screens; larger meetings paginate. */
-const perPageForWidth = (w: number): number => (w < 640 ? 4 : w < 1024 ? 9 : 16);
+import { galleryGrid, galleryPageSize } from './galleryLayout';
 
 interface GalleryViewProps {
   participants: Participant[];
   speaking: Set<string>;
 }
 
+/** Until the stage has been measured, assume a landscape screen. */
+const INITIAL_SIZE = { width: 1280, height: 720 };
+
 export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking }) => {
-  const [perPage, setPerPage] = useState(() => perPageForWidth(typeof window !== 'undefined' ? window.innerWidth : 1280));
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState(INITIAL_SIZE);
   const [page, setPage] = useState(0);
 
+  // Measure the stage itself, not the window: opening the chat or Bible drawer
+  // narrows it enough to change which layout fits, and a window listener would
+  // never hear about that.
   useEffect(() => {
-    const onResize = () => setPerPage(perPageForWidth(window.innerWidth));
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ width, height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
+
+  const aspect = size.width / size.height;
+  const perPage = galleryPageSize(size.width, aspect);
 
   const totalPages = Math.max(1, Math.ceil(participants.length / perPage));
   const safePage = Math.min(page, totalPages - 1);
   useEffect(() => { if (page > totalPages - 1) setPage(totalPages - 1); }, [page, totalPages]);
 
   const pageItems = participants.slice(safePage * perPage, safePage * perPage + perPage);
-  const { cols, rows } = gridFor(pageItems.length);
+  const { cols, rows } = galleryGrid(pageItems.length, aspect);
 
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="min-h-0 flex-1">
+      <div ref={stageRef} className="min-h-0 flex-1">
         <div
-          className="grid h-full w-full place-items-stretch gap-3"
+          className="grid h-full w-full place-items-stretch gap-2 sm:gap-3"
           style={{
             gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
             gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
