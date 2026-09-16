@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import type { BibleMessage } from './chatProtocol';
 import {
   sanitizeBibleMessage,
   sanitizeHostMessage,
@@ -19,6 +20,12 @@ interface Session { id: string; name: string; isHost: boolean; }
 export class ChatRoom {
   private sessions = new Map<WebSocket, Session>();
   private messages: ChatMessage[] = [];
+  /**
+   * Where the room currently is in the Bible. Kept so someone joining late —
+   * or a phone whose socket dropped and came back — lands on the passage the
+   * group is already studying instead of waiting for the next page turn.
+   */
+  private biblePosition: BibleMessage | null = null;
 
   constructor(_state: DurableObjectState, _env: unknown) {}
 
@@ -45,6 +52,7 @@ export class ChatRoom {
     this.sessions.set(server, { id, name, isHost });
 
     this.sendTo(server, { type: 'welcome', roomId, userId: id, messages: this.messages });
+    if (this.biblePosition) this.sendTo(server, this.biblePosition);
     this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
     this.broadcastPresence();
 
@@ -57,7 +65,11 @@ export class ChatRoom {
         const bible = sanitizeBibleMessage(parsed);
         // A host leads the room through the text. With no host present anyone
         // may turn the page, so a group without a designated leader still works.
-        if (bible && (isHost || !this.hasHost())) this.broadcast(bible);
+        if (!bible || !(isHost || !this.hasHost())) return;
+        // Scrolling is a position within the passage, not the passage itself —
+        // replaying it to a newcomer would scroll them before they have text.
+        if (bible.action !== 'scroll') this.biblePosition = bible;
+        this.broadcast(bible);
         return;
       }
 
