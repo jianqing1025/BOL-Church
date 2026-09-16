@@ -6,6 +6,23 @@ import { ScreenSharePanZoom } from './ScreenSharePanZoom';
 
 const initials = (label: string): string => label.trim().slice(0, 2).toUpperCase() || '?';
 
+/**
+ * One <audio> element per remote audio track. A participant can publish more
+ * than one — their microphone plus the soundtrack of a video they are playing
+ * for the room — and attaching them all is what keeps a broadcast video from
+ * arriving silently.
+ */
+const TrackAudio: React.FC<{ track: Track }> = ({ track }) => {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    track.attach(el);
+    return () => { try { track.detach(el); } catch { /* ignore */ } };
+  }, [track]);
+  return <audio ref={ref} autoPlay />;
+};
+
 interface ParticipantTileProps {
   participant: Participant;
   /** Highlight ring when this participant is the active speaker. */
@@ -30,10 +47,9 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
   participant, speaking, fit = 'cover', zoomable, large, onClick, className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   const videoTrack = LiveKitService.videoTrack(participant);
-  const audioTrack = LiveKitService.audioTrack(participant);
+  const audioTracks = LiveKitService.audioTracks(participant);
   const label = participant.name || participant.identity;
   const muted = !participant.isMicrophoneEnabled;
 
@@ -43,13 +59,6 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
     videoTrack.attach(el);
     return () => { try { videoTrack.detach(el); } catch { /* ignore */ } };
   }, [videoTrack]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el || !audioTrack) return;
-    audioTrack.attach(el);
-    return () => { try { audioTrack.detach(el); } catch { /* ignore */ } };
-  }, [audioTrack]);
 
   const video = (
     <video ref={videoRef} autoPlay playsInline muted className={`h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`} />
@@ -73,7 +82,7 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
           </span>
         </div>
       )}
-      {audioTrack && <audio ref={audioRef} autoPlay />}
+      {audioTracks.map((track) => <TrackAudio key={track.sid ?? track.mediaStreamID} track={track} />)}
 
       <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 rounded-md bg-black/45 px-1.5 py-0.5">
         {muted && <MicOff size={13} className="text-red-300" />}

@@ -14,11 +14,18 @@ export interface UseLiveKit {
   micOn: boolean;
   camOn: boolean;
   screenOn: boolean;
+  /** True while this participant is broadcasting a video file to the room. */
+  videoFileOn: boolean;
   join: () => Promise<void>;
   leave: () => void;
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
   toggleScreenShare: () => Promise<void>;
+  /** Publish a playing <video> element to the room. Resolves false if blocked. */
+  startVideoFile: (element: HTMLVideoElement) => Promise<boolean>;
+  stopVideoFile: () => Promise<void>;
+  /** True when someone else already holds the shared-picture slot. */
+  shareSlotTaken: boolean;
 }
 
 type BrowserPermissionName = 'camera' | 'microphone';
@@ -57,6 +64,11 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
+  const [videoFileOn, setVideoFileOn] = useState(false);
+
+  // The shared-picture slot holds either a screen share or a broadcast video —
+  // one at a time, room-wide — so both features consult the same check.
+  const shareSlotTaken = participants.some((p) => !p.isLocal && LiveKitService.isScreenSharing(p));
 
   const confirmPermission = useCallback((messageKey: string) => churchPermissionConfirm(t(messageKey), {
     title: t('meeting.permissionTitle'),
@@ -143,7 +155,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     const localSharing = svc.localParticipant?.isScreenShareEnabled ?? false;
     // Only one participant may share at a time. Block starting a new share while
     // any remote participant is already sharing.
-    if (!localSharing && participants.some((p) => !p.isLocal && LiveKitService.isScreenSharing(p))) {
+    if (!localSharing && shareSlotTaken) {
       setError(t('meeting.screenShareBusy'));
       return;
     }
@@ -158,7 +170,37 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
       setError(e instanceof Error ? e.message : String(e));
       setScreenOn(svc.localParticipant?.isScreenShareEnabled ?? false);
     }
-  }, [participants, t, confirmPermission]);
+  }, [shareSlotTaken, t, confirmPermission]);
+
+  const startVideoFile = useCallback(async (element: HTMLVideoElement): Promise<boolean> => {
+    const svc = serviceRef.current;
+    if (!svc) return false;
+    if (shareSlotTaken || (svc.localParticipant?.isScreenShareEnabled ?? false)) {
+      setError(t('meeting.screenShareBusy'));
+      return false;
+    }
+    try {
+      setError('');
+      await svc.publishVideoFile(element);
+      setVideoFileOn(true);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setVideoFileOn(false);
+      return false;
+    }
+  }, [shareSlotTaken, t]);
+
+  const stopVideoFile = useCallback(async () => {
+    const svc = serviceRef.current;
+    setVideoFileOn(false);
+    if (!svc) return;
+    try {
+      await svc.unpublishVideoFile();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
 
   // Keep a live ref to join so the auto-join effect need not depend on its
   // (intentionally unstable) identity — depending on `join` would re-run the
@@ -175,5 +217,9 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     };
   }, [room.hasVideo]);
 
-  return { participants, activeSpeakerIds, connecting, joined, error, micOn, camOn, screenOn, join, leave, toggleMic, toggleCamera, toggleScreenShare };
+  return {
+    participants, activeSpeakerIds, connecting, joined, error,
+    micOn, camOn, screenOn, videoFileOn, shareSlotTaken,
+    join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile,
+  };
 }

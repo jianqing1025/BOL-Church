@@ -216,6 +216,23 @@ export const translations = {
       en: 'To share your screen, your browser will ask you to choose what to share.',
       zh: '若要分享螢幕，瀏覽器會要求您選擇要分享的畫面。'
     },
+    videoFile: { en: 'Play a video', zh: '播放影片' },
+    videoFileHint: { en: 'Everyone in the room is watching this video.', zh: '房間裡的所有人都正在看這部影片。' },
+    videoFileStop: { en: 'Stop playing', zh: '停止播放' },
+  },
+  bible: {
+    open: { en: 'Bible', zh: '聖經' },
+    contents: { en: 'Contents', zh: '目錄' },
+    oldTestament: { en: 'Old Testament', zh: '舊約' },
+    newTestament: { en: 'New Testament', zh: '新約' },
+    previousChapter: { en: 'Previous', zh: '上一章' },
+    nextChapter: { en: 'Next', zh: '下一章' },
+    loading: { en: 'Loading…', zh: '載入中…' },
+    loadError: { en: 'Could not load this chapter. Please try again.', zh: '經文載入失敗，請稍後再試。' },
+    textSmaller: { en: 'Smaller text', zh: '縮小字級' },
+    textLarger: { en: 'Larger text', zh: '放大字級' },
+    expand: { en: 'Full screen', zh: '全螢幕閱讀' },
+    collapse: { en: 'Exit full screen', zh: '結束全螢幕' },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },

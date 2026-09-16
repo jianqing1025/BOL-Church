@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Users, ScreenShareOff } from 'lucide-react';
 import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
@@ -10,6 +10,8 @@ import { MessageList, type DisplayMessage } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatPanel } from './ChatPanel';
 import { MemberList } from './MemberList';
+import { BiblePanel } from './BiblePanel';
+import { VideoBroadcastBar } from './VideoBroadcastBar';
 
 interface MeetingRoomViewProps {
   room: MeetingRoom;
@@ -39,6 +41,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [bibleOpen, setBibleOpen] = useState(false);
+  const [bibleExpanded, setBibleExpanded] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const filePickerRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
   const [elapsed, setElapsed] = useState(0);
   const [unread, setUnread] = useState(0);
@@ -60,6 +66,18 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
       .filter((m) => m.type === 'message' && m.userId !== ownUserId).length;
     if (added > 0) setUnread((u) => u + added);
   }, [messages, chatOpen, ownUserId, room.hasVideo]);
+
+  const stopVideoFile = useCallback(() => {
+    setVideoFile(null);
+    void lk.stopVideoFile();
+  }, [lk]);
+
+  const toggleVideoFile = useCallback(() => {
+    if (videoFile) { stopVideoFile(); return; }
+    // Reset the value so re-picking the same file still fires onChange.
+    if (filePickerRef.current) filePickerRef.current.value = '';
+    filePickerRef.current?.click();
+  }, [videoFile, stopVideoFile]);
 
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
@@ -125,12 +143,39 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           />
         )}
 
+        {bibleOpen && (
+          <BiblePanel
+            expanded={bibleExpanded}
+            onToggleExpanded={() => setBibleExpanded((v) => !v)}
+            onClose={() => { setBibleOpen(false); setBibleExpanded(false); }}
+          />
+        )}
+
         {membersOpen && (
           <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
             <MemberList users={members} />
           </aside>
         )}
       </div>
+
+      {videoFile && (
+        <VideoBroadcastBar
+          file={videoFile}
+          onReady={lk.startVideoFile}
+          onStop={stopVideoFile}
+        />
+      )}
+
+      <input
+        ref={filePickerRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          const picked = e.target.files?.[0];
+          if (picked) setVideoFile(picked);
+        }}
+      />
 
       <MeetingControlBar
         hasVideo={room.hasVideo}
@@ -140,6 +185,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         chatOpen={chatOpen}
         chatBadge={unread}
         membersOpen={membersOpen}
+        bibleOpen={bibleOpen}
+        videoFileOn={!!videoFile}
         showViewToggle={room.hasVideo && !screenActive}
         viewMode={viewMode}
         onToggleView={() => setViewMode((v) => (v === 'gallery' ? 'speaker' : 'gallery'))}
@@ -148,6 +195,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onToggleScreenShare={() => void lk.toggleScreenShare()}
         onToggleChat={() => setChatOpen((v) => !v)}
         onToggleMembers={() => setMembersOpen((v) => !v)}
+        onToggleBible={() => setBibleOpen((v) => !v)}
+        onToggleVideoFile={toggleVideoFile}
         onLeave={onLeave}
       />
     </div>

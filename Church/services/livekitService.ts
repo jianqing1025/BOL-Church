@@ -1,7 +1,11 @@
 import { Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 
-const MEDIA_UNSUPPORTED_MESSAGE = '当前微信浏览器不支持打开麦克风/摄像头，请用 iPhone Safari 打开本页，或升级微信后重试。';
-const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '当前浏览器不支持屏幕分享。';
+const MEDIA_UNSUPPORTED_MESSAGE = '目前的微信瀏覽器不支援開啟麥克風／鏡頭，請改用 iPhone Safari 開啟本頁，或升級微信後再試。';
+const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援分享螢幕。';
+const VIDEO_FILE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援把影片播給大家看，請改用電腦的 Chrome 或 Edge。';
+
+/** Track name for a broadcast video file, to tell it apart from a real screen share. */
+export const VIDEO_FILE_TRACK_NAME = 'meeting-video-file';
 
 export interface LiveKitHandlers {
   onParticipantsChanged: (participants: Participant[]) => void;
@@ -19,6 +23,7 @@ export interface LiveKitConnectParams {
 /** Wraps a single LiveKit Room connection and the local track toggles. */
 export class LiveKitService {
   private room: Room | null = null;
+  private videoFileTracks: MediaStreamTrack[] = [];
   constructor(private handlers: LiveKitHandlers) {}
 
   get localParticipant(): LocalParticipant | undefined {
@@ -126,7 +131,56 @@ export class LiveKitService {
     return enabled;
   }
 
+  /**
+   * Publishes a playing <video> element's picture and sound to the room.
+   *
+   * The tracks go out on the ScreenShare sources on purpose: every viewer's
+   * stage already promotes a screen share to the main area, so a broadcast
+   * video needs no layout of its own, and the existing "only one at a time"
+   * rule covers both without a second concept.
+   */
+  async publishVideoFile(element: HTMLVideoElement): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p) return;
+    if (!LiveKitService.canCaptureVideoFile(element)) throw new Error(VIDEO_FILE_UNSUPPORTED_MESSAGE);
+
+    const capture = element.captureStream ?? element.mozCaptureStream;
+    const stream = capture.call(element);
+    const [video] = stream.getVideoTracks();
+    if (!video) throw new Error(VIDEO_FILE_UNSUPPORTED_MESSAGE);
+
+    this.videoFileTracks = [video];
+    await p.publishTrack(video, { source: Track.Source.ScreenShare, name: VIDEO_FILE_TRACK_NAME });
+
+    // Sound is a separate track and may be absent (a silent clip); a video
+    // without audio should still broadcast rather than fail.
+    const [audio] = stream.getAudioTracks();
+    if (audio) {
+      this.videoFileTracks.push(audio);
+      await p.publishTrack(audio, { source: Track.Source.ScreenShareAudio, name: VIDEO_FILE_TRACK_NAME });
+    }
+    this.emit();
+  }
+
+  async unpublishVideoFile(): Promise<void> {
+    const p = this.room?.localParticipant;
+    const tracks = this.videoFileTracks;
+    this.videoFileTracks = [];
+    if (!p || tracks.length === 0) return;
+    for (const track of tracks) {
+      try { await p.unpublishTrack(track, true); } catch { /* already gone */ }
+    }
+    this.emit();
+  }
+
+  /** Whether this browser can turn a video element into a publishable stream. */
+  static canCaptureVideoFile(element: HTMLVideoElement | null): boolean {
+    if (!element) return false;
+    return typeof element.captureStream === 'function' || typeof element.mozCaptureStream === 'function';
+  }
+
   disconnect(): void {
+    this.videoFileTracks = [];
     try { this.room?.disconnect(); } catch { /* ignore */ }
     this.room = null;
   }
@@ -146,12 +200,22 @@ export class LiveKitService {
       .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare);
   }
 
-  /** The audio track to play for a participant (undefined for local, to avoid echo). */
-  static audioTrack(participant: Participant): Track | undefined {
-    if (participant.isLocal) return undefined;
-    const pubs = [...participant.audioTrackPublications.values()];
-    const pub = pubs.find((p) => p.track && p.source === Track.Source.Microphone)
-      || pubs.find((p) => p.track);
-    return pub?.track ?? undefined;
+  /**
+   * Every audio track to play for a participant (none for the local one, to
+   * avoid echo). A participant broadcasting a video file has two — their
+   * microphone and the film's soundtrack — and both have to be heard, so this
+   * deliberately returns all of them rather than picking one.
+   */
+  static audioTracks(participant: Participant): Track[] {
+    if (participant.isLocal) return [];
+    return [...participant.audioTrackPublications.values()]
+      .map((p) => p.track)
+      .filter((t): t is Track => Boolean(t));
+  }
+
+  /** Whether a participant's screen share is a broadcast video file. */
+  static isPlayingVideoFile(participant: Participant): boolean {
+    return [...participant.videoTrackPublications.values()]
+      .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare && p.trackName === VIDEO_FILE_TRACK_NAME);
   }
 }

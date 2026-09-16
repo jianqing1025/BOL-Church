@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff, LayoutGrid, UserSquare2 } from 'lucide-react';
+import { Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff, LayoutGrid, UserSquare2, BookOpen, PlayCircle } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import type { ViewMode } from './VideoStage';
 
@@ -11,6 +11,8 @@ interface MeetingControlBarProps {
   chatOpen: boolean;
   chatBadge: number;
   membersOpen: boolean;
+  bibleOpen: boolean;
+  videoFileOn: boolean;
   showViewToggle: boolean;
   viewMode: ViewMode;
   onToggleView: () => void;
@@ -19,6 +21,8 @@ interface MeetingControlBarProps {
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
   onToggleMembers: () => void;
+  onToggleBible: () => void;
+  onToggleVideoFile: () => void;
   onLeave: () => void;
 }
 
@@ -35,7 +39,7 @@ const CircleButton: React.FC<{
     onClick={onClick}
     aria-label={label}
     aria-pressed={active}
-    className={`relative flex h-12 w-12 items-center justify-center rounded-full text-white transition-colors ${
+    className={`relative flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors sm:h-12 sm:w-12 ${
       danger
         ? 'bg-red-600 hover:bg-red-700'
         : active
@@ -53,13 +57,14 @@ const CircleButton: React.FC<{
 );
 
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
-  hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen,
+  hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen, videoFileOn,
   showViewToggle, viewMode, onToggleView,
-  onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers, onLeave,
+  onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers,
+  onToggleBible, onToggleVideoFile, onLeave,
 }) => {
   const { t } = useLocalization();
   return (
-    <div className="flex shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-gray-900/80 px-4 py-3">
+    <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-gray-900/80 px-4 py-3 sm:gap-3">
       {hasVideo && (
         <>
           <CircleButton label={t('meeting.microphone')} active={micOn} onClick={onToggleMic}>
@@ -83,6 +88,14 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
             <MessageSquare size={20} />
           </CircleButton>
         </>
+      )}
+      <CircleButton label={t('bible.open')} active={bibleOpen} onClick={onToggleBible}>
+        <BookOpen size={20} />
+      </CircleButton>
+      {hasVideo && (
+        <CircleButton label={t('meeting.videoFile')} active={videoFileOn} onClick={onToggleVideoFile}>
+          <PlayCircle size={20} />
+        </CircleButton>
       )}
       <CircleButton label={t('meeting.members')} active={membersOpen} onClick={onToggleMembers}>
         <Users size={20} />
