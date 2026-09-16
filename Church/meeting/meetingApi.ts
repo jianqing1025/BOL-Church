@@ -98,6 +98,8 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     doUrl.searchParams.set('roomId', v.room.id);
     doUrl.searchParams.set('name', v.name);
     doUrl.searchParams.set('uid', crypto.randomUUID());
+    // Host is self-declared on the room card; normalize it to a strict flag.
+    doUrl.searchParams.set('host', url.searchParams.get('host') === '1' ? '1' : '0');
     doUrl.searchParams.delete('password'); // never forward the password
     return stub.fetch(new Request(doUrl.toString(), request));
   }

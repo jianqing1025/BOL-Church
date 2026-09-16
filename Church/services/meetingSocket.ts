@@ -1,4 +1,4 @@
-import type { ServerMessage } from '../meeting/chatProtocol';
+import type { BibleMessage, HostMessage, ServerMessage } from '../meeting/chatProtocol';
 
 export interface MeetingSocketHandlers {
   onMessage: (message: ServerMessage) => void;
@@ -11,6 +11,7 @@ export interface MeetingSocketParams {
   roomId: string;
   name: string;
   password: string;
+  isHost: boolean;
 }
 
 /**
@@ -30,6 +31,7 @@ export class MeetingSocket {
     url.searchParams.set('roomId', params.roomId);
     url.searchParams.set('name', params.name);
     url.searchParams.set('password', params.password);
+    url.searchParams.set('host', params.isHost ? '1' : '0');
 
     const ws = new WebSocket(url.toString());
     this.ws = ws;
@@ -49,8 +51,21 @@ export class MeetingSocket {
   }
 
   send(text: string): void {
+    this.post({ type: 'message', text });
+  }
+
+  /** Move the whole room to a passage (relayed only if the server allows it). */
+  sendBible(message: BibleMessage): void {
+    this.post(message);
+  }
+
+  sendHostCommand(message: HostMessage): void {
+    this.post(message);
+  }
+
+  private post(payload: object): void {
     if (this.ws && this.opened && !this.closed) {
-      this.ws.send(JSON.stringify({ type: 'message', text }));
+      this.ws.send(JSON.stringify(payload));
     }
   }
 

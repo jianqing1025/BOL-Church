@@ -1,12 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 import {
+  sanitizeBibleMessage,
+  sanitizeHostMessage,
   sanitizeText,
   trimHistory,
   type ChatMessage,
   type ServerMessage,
 } from './chatProtocol';
 
-interface Session { id: string; name: string; }
+interface Session { id: string; name: string; isHost: boolean; }
 
 /**
  * One instance per room (addressed via idFromName(roomId)). Password and roomId
@@ -34,12 +36,13 @@ export class ChatRoom {
     const roomId = url.searchParams.get('roomId') || 'lobby';
     const id = url.searchParams.get('uid') || crypto.randomUUID();
     const name = url.searchParams.get('name') || 'Guest';
+    const isHost = url.searchParams.get('host') === '1';
 
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
     server.accept();
-    this.sessions.set(server, { id, name });
+    this.sessions.set(server, { id, name, isHost });
 
     this.sendTo(server, { type: 'welcome', roomId, userId: id, messages: this.messages });
     this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
@@ -48,7 +51,25 @@ export class ChatRoom {
     server.addEventListener('message', (event: MessageEvent) => {
       let parsed: unknown;
       try { parsed = JSON.parse(typeof event.data === 'string' ? event.data : ''); } catch { return; }
-      if (!parsed || (parsed as { type?: string }).type !== 'message') return;
+      const kind = (parsed as { type?: string } | null)?.type;
+
+      if (kind === 'bible') {
+        const bible = sanitizeBibleMessage(parsed);
+        // A host leads the room through the text. With no host present anyone
+        // may turn the page, so a group without a designated leader still works.
+        if (bible && (isHost || !this.hasHost())) this.broadcast(bible);
+        return;
+      }
+
+      if (kind === 'host') {
+        const command = sanitizeHostMessage(parsed);
+        if (!command || !isHost) return;
+        this.broadcast(command);
+        if (command.action === 'remove') this.removeUser(command.targetUserId);
+        return;
+      }
+
+      if (kind !== 'message') return;
       const text = sanitizeText((parsed as { text?: unknown }).text);
       if (!text) return;
       const msg: ChatMessage = { type: 'message', id: crypto.randomUUID(), userId: id, name, text, createdAt: Date.now() };
@@ -69,6 +90,26 @@ export class ChatRoom {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  private hasHost(): boolean {
+    for (const session of this.sessions.values()) if (session.isHost) return true;
+    return false;
+  }
+
+  /**
+   * Closes a removed participant's socket. The command was already broadcast,
+   * so their client leaves the room on its own; this makes sure they are also
+   * dropped from presence even if that client ignores it.
+   */
+  private removeUser(targetUserId: string): void {
+    for (const [ws, session] of this.sessions) {
+      if (session.id !== targetUserId || session.isHost) continue;
+      this.sessions.delete(ws);
+      try { ws.close(1000, 'removed by host'); } catch { /* already gone */ }
+      this.broadcast({ type: 'system', event: 'left', name: session.name, createdAt: Date.now() });
+      this.broadcastPresence();
+    }
+  }
+
   private sendTo(ws: WebSocket, message: ServerMessage): void {
     try { ws.send(JSON.stringify(message)); } catch { this.sessions.delete(ws); }
   }
@@ -81,7 +122,7 @@ export class ChatRoom {
   }
 
   private broadcastPresence(): void {
-    const users = [...this.sessions.values()].map((s) => ({ id: s.id, name: s.name }));
+    const users = [...this.sessions.values()].map((s) => ({ id: s.id, name: s.name, isHost: s.isHost }));
     this.broadcast({ type: 'presence', users });
   }
 }

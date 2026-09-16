@@ -1,6 +1,8 @@
 // Message protocol shared by the ChatRoom Durable Object and the frontend.
 // Pure + isomorphic (no server APIs) so both sides import the same source.
 
+import { BIBLE_BOOKS } from '../constants/bibleBooks';
+
 export const MAX_TEXT = 1000;
 export const MAX_NAME = 30;
 export const MAX_HISTORY = 100;
@@ -24,9 +26,37 @@ export type SystemMessage = {
   text: string;
   createdAt: number;
 };
+/**
+ * Shared Bible navigation. Opening or turning to a passage moves everyone in
+ * the room together, so a group studies the same page without reading chapter
+ * numbers out loud. Text size and full-screen stay private to each reader.
+ */
+export type BibleMessage =
+  | { type: 'bible'; action: 'contents' }
+  | { type: 'bible'; action: 'book'; bookId: number }
+  | { type: 'bible'; action: 'passage'; bookId: number; chapter: number };
+
+/**
+ * A host's commands over the other participants. Hosts are self-declared on the
+ * room card — there is no separate credential — so this is a courtesy role for
+ * a group that knows each other, not a security boundary. The Durable Object
+ * still checks that the sender really is a host before relaying.
+ */
+export type HostMessage =
+  | { type: 'host'; action: 'mute'; targetUserId: string }
+  | { type: 'host'; action: 'remove'; targetUserId: string }
+  /** Host takes the shared-picture slot: whoever else is sharing stops. */
+  | { type: 'host'; action: 'claimShare' };
+
+export interface PresenceUser {
+  id: string;
+  name: string;
+  isHost?: boolean;
+}
+
 export interface PresenceMessage {
   type: 'presence';
-  users: { id: string; name: string }[];
+  users: PresenceUser[];
 }
 export interface WelcomeMessage {
   type: 'welcome';
@@ -34,11 +64,49 @@ export interface WelcomeMessage {
   userId: string;
   messages: ChatMessage[];
 }
-export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage;
+export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage | BibleMessage | HostMessage;
 
-export interface ClientMessage {
-  type: 'message';
-  text: string;
+export type ClientMessage =
+  | { type: 'message'; text: string }
+  | BibleMessage
+  | HostMessage;
+
+/**
+ * Validates a Bible navigation message from a client. The Durable Object
+ * rebroadcasts to the whole room, so a bad book or chapter would push everyone
+ * to a page that does not exist — it is rejected here rather than trusted.
+ */
+export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
+  if (!input || typeof input !== 'object') return null;
+  const msg = input as { type?: unknown; action?: unknown; bookId?: unknown; chapter?: unknown };
+  if (msg.type !== 'bible') return null;
+  if (msg.action === 'contents') return { type: 'bible', action: 'contents' };
+
+  const book = BIBLE_BOOKS.find((b) => b.id === msg.bookId);
+  if (!book) return null;
+  if (msg.action === 'book') return { type: 'bible', action: 'book', bookId: book.id };
+
+  if (msg.action === 'passage') {
+    const chapter = msg.chapter;
+    if (typeof chapter !== 'number' || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters) return null;
+    return { type: 'bible', action: 'passage', bookId: book.id, chapter };
+  }
+  return null;
+}
+
+/**
+ * Validates a host command from a client. Whether the sender is actually a host
+ * is checked separately by the Durable Object — this only checks the shape.
+ */
+export function sanitizeHostMessage(input: unknown): HostMessage | null {
+  if (!input || typeof input !== 'object') return null;
+  const msg = input as { type?: unknown; action?: unknown; targetUserId?: unknown };
+  if (msg.type !== 'host') return null;
+  if (msg.action === 'claimShare') return { type: 'host', action: 'claimShare' };
+  if (msg.action !== 'mute' && msg.action !== 'remove') return null;
+  const target = msg.targetUserId;
+  if (typeof target !== 'string' || !target || target.length > 100) return null;
+  return { type: 'host', action: msg.action, targetUserId: target };
 }
 
 // Strip C0 control chars but keep tab, LF, CR.

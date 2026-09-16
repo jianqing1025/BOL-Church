@@ -10,6 +10,8 @@ import { MessageList, type DisplayMessage } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatPanel } from './ChatPanel';
 import { MemberList } from './MemberList';
+import type { BibleSync } from '../../hooks/useBibleSync';
+import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
 
@@ -18,8 +20,17 @@ interface MeetingRoomViewProps {
   name: string;
   password: string;
   messages: DisplayMessage[];
-  members: { id: string; name: string }[];
+  members: PresenceUser[];
   ownUserId: string | null;
+  /** Whether this participant ticked Host on the room card. */
+  isHost: boolean;
+  /** Whether anyone in the room is a host. */
+  roomHasHost: boolean;
+  /** The room's shared position in the Bible. */
+  bible: BibleSync;
+  /** Latest command from a host; the seq makes an identical repeat re-fire. */
+  hostCommand: { message: HostMessage; seq: number } | null;
+  onHostCommand: (message: HostMessage) => void;
   onSend: (text: string) => void;
   onLeave: () => void;
 }
@@ -33,15 +44,15 @@ const formatElapsed = (seconds: number): string => {
 };
 
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
-  room, name, password, messages, members, ownUserId, onSend, onLeave,
+  room, name, password, messages, members, ownUserId, isHost, roomHasHost,
+  bible, hostCommand, onHostCommand, onSend, onLeave,
 }) => {
   const { language, t } = useLocalization();
-  const lk = useLiveKit(room, name, password);
+  const lk = useLiveKit(room, name, password, isHost);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [bibleOpen, setBibleOpen] = useState(false);
   const [bibleExpanded, setBibleExpanded] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const filePickerRef = useRef<HTMLInputElement>(null);
@@ -72,12 +83,36 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     void lk.stopVideoFile();
   }, [lk]);
 
+  // Carry out a host's command. Everything a host does lands on the target's
+  // own client, which is what actually turns off its microphone or leaves —
+  // there is no server-side enforcement over the media tracks.
+  const seq = hostCommand?.seq;
+  useEffect(() => {
+    const command = hostCommand?.message;
+    if (!command || isHost) return;
+
+    if (command.action === 'claimShare') {
+      if (videoFile) { setVideoFile(null); void lk.stopVideoFile(); }
+      if (lk.screenOn) void lk.toggleScreenShare();
+      return;
+    }
+    if (command.targetUserId !== ownUserId) return;
+    if (command.action === 'mute') {
+      if (lk.micOn) void lk.toggleMic();
+    } else if (command.action === 'remove') {
+      onLeave();
+    }
+    // `seq` is the trigger: it changes on every command, including a repeat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq]);
+
   const toggleVideoFile = useCallback(() => {
     if (videoFile) { stopVideoFile(); return; }
+    if (isHost) onHostCommand({ type: 'host', action: 'claimShare' });
     // Reset the value so re-picking the same file still fires onChange.
     if (filePickerRef.current) filePickerRef.current.value = '';
     filePickerRef.current?.click();
-  }, [videoFile, stopVideoFile]);
+  }, [videoFile, stopVideoFile, isHost, onHostCommand]);
 
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
@@ -143,17 +178,30 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           />
         )}
 
-        {bibleOpen && (
+        {bible.open && (
           <BiblePanel
+            view={bible.view}
+            bookId={bible.bookId}
+            chapter={bible.chapter}
+            followingHost={roomHasHost && !isHost}
             expanded={bibleExpanded}
+            onShowContents={bible.showContents}
+            onSelectBook={bible.selectBook}
+            onSelectChapter={bible.selectChapter}
             onToggleExpanded={() => setBibleExpanded((v) => !v)}
-            onClose={() => { setBibleOpen(false); setBibleExpanded(false); }}
+            onClose={() => { bible.close(); setBibleExpanded(false); }}
           />
         )}
 
         {membersOpen && (
           <aside className="flex w-1/3 shrink-0 flex-col overflow-hidden border-l border-white/10 bg-gray-900 sm:w-80">
-            <MemberList users={members} />
+            <MemberList
+              users={members}
+              isHost={isHost}
+              ownUserId={ownUserId}
+              onMute={(userId) => onHostCommand({ type: 'host', action: 'mute', targetUserId: userId })}
+              onRemove={(userId) => onHostCommand({ type: 'host', action: 'remove', targetUserId: userId })}
+            />
           </aside>
         )}
       </div>
@@ -185,17 +233,20 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         chatOpen={chatOpen}
         chatBadge={unread}
         membersOpen={membersOpen}
-        bibleOpen={bibleOpen}
+        bibleOpen={bible.open}
         videoFileOn={!!videoFile}
         showViewToggle={room.hasVideo && !screenActive}
         viewMode={viewMode}
         onToggleView={() => setViewMode((v) => (v === 'gallery' ? 'speaker' : 'gallery'))}
         onToggleMic={() => void lk.toggleMic()}
         onToggleCamera={() => void lk.toggleCamera()}
-        onToggleScreenShare={() => void lk.toggleScreenShare()}
+        onToggleScreenShare={() => {
+          if (isHost && !lk.screenOn) onHostCommand({ type: 'host', action: 'claimShare' });
+          void lk.toggleScreenShare();
+        }}
         onToggleChat={() => setChatOpen((v) => !v)}
         onToggleMembers={() => setMembersOpen((v) => !v)}
-        onToggleBible={() => setBibleOpen((v) => !v)}
+        onToggleBible={bible.toggle}
         onToggleVideoFile={toggleVideoFile}
         onLeave={onLeave}
       />

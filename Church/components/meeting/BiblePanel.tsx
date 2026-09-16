@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Minus, Plus, List } from 'lucide-react';
 import { BIBLE_BOOKS, booksOfTestament, findBibleBook, localizeBookName, type BibleBook, type Testament } from '../../constants/bibleBooks';
 import { useLocalization } from '../../hooks/useLocalization';
+import type { BibleView } from '../../hooks/useBibleSync';
 import {
   BibleService,
   BIBLE_FONT_STEPS,
@@ -10,10 +11,17 @@ import {
   stepChapter,
 } from '../../services/bibleService';
 
-type View = 'books' | 'chapters' | 'text';
-
 interface BiblePanelProps {
+  /** Which screen the room is on: contents, chapter grid, or the text. */
+  view: BibleView;
+  bookId: number;
+  chapter: number;
+  /** A host is leading: this reader's own paging is local and may be overridden. */
+  followingHost: boolean;
   expanded: boolean;
+  onShowContents: () => void;
+  onSelectBook: (bookId: number) => void;
+  onSelectChapter: (bookId: number, chapter: number) => void;
   onToggleExpanded: () => void;
   onClose: () => void;
 }
@@ -24,17 +32,18 @@ const gridButton =
 /**
  * 和合本 reader for the meeting rooms: table of contents → chapter → text.
  *
- * Reading is private to each participant — nothing here is published to the
- * room — and the last passage and text size are remembered across sessions so
- * re-opening the Bible mid-meeting lands back on the page being studied.
+ * Which passage is shown arrives as props, because it belongs to the whole
+ * room. Anyone may still page around their own panel; when a host is leading,
+ * their next move pulls this reader back to the group. Text size and
+ * full-screen are always private — they are about eyesight, not the passage.
  */
-export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpanded, onClose }) => {
+export const BiblePanel: React.FC<BiblePanelProps> = ({
+  view, bookId, chapter, followingHost, expanded,
+  onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
+}) => {
   const { language, t } = useLocalization();
   const initial = useMemo(loadReadingState, []);
-  const [bookId, setBookId] = useState(initial.bookId);
-  const [chapter, setChapter] = useState(initial.chapter);
   const [fontStep, setFontStep] = useState(initial.fontStep);
-  const [view, setView] = useState<View>('text');
   const [testament, setTestament] = useState<Testament>(() => findBibleBook(initial.bookId)?.testament ?? 'old');
   const [verses, setVerses] = useState<string[] | null>(null);
   const [error, setError] = useState('');
@@ -43,8 +52,12 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
 
   useEffect(() => { saveReadingState({ bookId, chapter, fontStep }); }, [bookId, chapter, fontStep]);
 
+  // Follow the room into whichever testament the current book belongs to, so
+  // the contents open on the right tab after the group jumps across the Bible.
+  useEffect(() => { setTestament(book.testament); }, [book.testament]);
+
   // Load the passage whenever it changes. `cancelled` keeps a slow load for an
-  // abandoned chapter from overwriting the one the reader has moved on to.
+  // abandoned chapter from overwriting the one the room has moved on to.
   useEffect(() => {
     let cancelled = false;
     setVerses(null);
@@ -55,24 +68,16 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
     return () => { cancelled = true; };
   }, [bookId, chapter, t]);
 
-  const openChapter = useCallback((next: number) => {
-    setChapter(next);
-    setView('text');
-  }, []);
+  const pickBook = (next: BibleBook) => {
+    // A one-chapter book has nothing to choose — take the room straight to it.
+    if (next.chapters === 1) onSelectChapter(next.id, 1);
+    else onSelectBook(next.id);
+  };
 
-  const go = useCallback((delta: 1 | -1) => {
+  const go = (delta: 1 | -1) => {
     const next = stepChapter(bookId, chapter, delta);
-    if (!next) return;
-    setBookId(next.bookId);
-    setChapter(next.chapter);
-  }, [bookId, chapter]);
-
-  const pickBook = useCallback((next: BibleBook) => {
-    setBookId(next.id);
-    // A one-chapter book has nothing to choose — go straight to the text.
-    if (next.chapters === 1) { openChapter(1); return; }
-    setView('chapters');
-  }, [openChapter]);
+    if (next) onSelectChapter(next.bookId, next.chapter);
+  };
 
   const scale = BIBLE_FONT_STEPS[fontStep];
   const heading = view === 'books'
@@ -92,23 +97,14 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
     >
       {/* Header: contents / title / text size / expand / close */}
       <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-2 py-2.5">
-        {view === 'text' ? (
+        {view !== 'books' ? (
           <button
             type="button"
-            onClick={() => setView('books')}
+            onClick={onShowContents}
             aria-label={t('bible.contents')}
             className="flex h-8 shrink-0 items-center rounded-md px-1.5 text-gray-300 hover:bg-white/10 hover:text-white"
           >
-            <List size={17} />
-          </button>
-        ) : view === 'chapters' ? (
-          <button
-            type="button"
-            onClick={() => setView('books')}
-            aria-label={t('bible.contents')}
-            className="flex h-8 shrink-0 items-center rounded-md px-1.5 text-gray-300 hover:bg-white/10 hover:text-white"
-          >
-            <ChevronLeft size={18} />
+            {view === 'text' ? <List size={17} /> : <ChevronLeft size={18} />}
           </button>
         ) : (
           <span className="w-2" />
@@ -157,6 +153,13 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
         </button>
       </div>
 
+      {/* A host is choosing the passage for everyone. */}
+      {followingHost && (
+        <p className="shrink-0 border-b border-white/10 bg-blue-950/40 px-4 py-1.5 text-center text-xs text-blue-200">
+          {t('bible.followingHost')}
+        </p>
+      )}
+
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === 'books' && (
@@ -196,7 +199,7 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
               <button
                 key={n}
                 type="button"
-                onClick={() => openChapter(n)}
+                onClick={() => onSelectChapter(book.id, n)}
                 className={`${gridButton} tabular-nums ${n === chapter ? 'ring-2 ring-blue-500' : ''}`}
               >
                 {n}
@@ -228,7 +231,7 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({ expanded, onToggleExpand
         )}
       </div>
 
-      {/* Chapter paging, only while reading */}
+      {/* Chapter paging, only while reading and only for whoever leads */}
       {view === 'text' && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
           <button

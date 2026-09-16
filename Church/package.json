@@ -18,7 +18,8 @@
     "d1:migrate:remote": "wrangler d1 migrations apply bol-church --remote",
     "d1:seed:current": "node ./scripts/generate-current-site-seed.mjs",
     "firebase:export": "node ./scripts/export-firebase-to-d1.mjs",
-    "firebase:sql": "node ./scripts/firebase-export-to-sql.mjs"
+    "firebase:sql": "node ./scripts/firebase-export-to-sql.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "d3-geo": "^3.1.1",
@@ -37,6 +38,8 @@
     "@cloudflare/workers-types": "^4.20260414.1",
     "@types/d3-geo": "^3.1.0",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "@types/topojson-client": "^3.1.5",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.12.0",

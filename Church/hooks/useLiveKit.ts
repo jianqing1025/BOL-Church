@@ -51,8 +51,11 @@ const needsPermissionIntro = async (names: BrowserPermissionName[]): Promise<boo
  * React state a control bar needs. Auto-joins video-enabled rooms on mount and
  * disconnects on unmount. Callers should key the consuming component by room id
  * so a room switch remounts and tears the connection down cleanly.
+ *
+ * A host is allowed to take the shared-picture slot from whoever holds it; for
+ * everyone else it stays first-come, first-served.
  */
-export function useLiveKit(room: MeetingRoom, name: string, password: string): UseLiveKit {
+export function useLiveKit(room: MeetingRoom, name: string, password: string, isHost = false): UseLiveKit {
   const { t } = useLocalization();
   const serviceRef = useRef<LiveKitService | null>(null);
   const joiningRef = useRef(false);
@@ -155,7 +158,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
     const localSharing = svc.localParticipant?.isScreenShareEnabled ?? false;
     // Only one participant may share at a time. Block starting a new share while
     // any remote participant is already sharing.
-    if (!localSharing && shareSlotTaken) {
+    if (!localSharing && shareSlotTaken && !isHost) {
       setError(t('meeting.screenShareBusy'));
       return;
     }
@@ -170,12 +173,12 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
       setError(e instanceof Error ? e.message : String(e));
       setScreenOn(svc.localParticipant?.isScreenShareEnabled ?? false);
     }
-  }, [shareSlotTaken, t, confirmPermission]);
+  }, [shareSlotTaken, isHost, t, confirmPermission]);
 
   const startVideoFile = useCallback(async (element: HTMLVideoElement): Promise<boolean> => {
     const svc = serviceRef.current;
     if (!svc) return false;
-    if (shareSlotTaken || (svc.localParticipant?.isScreenShareEnabled ?? false)) {
+    if ((shareSlotTaken && !isHost) || (svc.localParticipant?.isScreenShareEnabled ?? false)) {
       setError(t('meeting.screenShareBusy'));
       return false;
     }
@@ -189,7 +192,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string): U
       setVideoFileOn(false);
       return false;
     }
-  }, [shareSlotTaken, t]);
+  }, [shareSlotTaken, isHost, t]);
 
   const stopVideoFile = useCallback(async () => {
     const svc = serviceRef.current;

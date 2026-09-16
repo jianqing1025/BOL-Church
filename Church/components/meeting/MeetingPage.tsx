@@ -3,7 +3,8 @@ import { useLocalization } from '../../hooks/useLocalization';
 import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
-import type { ServerMessage } from '../../meeting/chatProtocol';
+import type { BibleMessage, HostMessage, PresenceUser, ServerMessage } from '../../meeting/chatProtocol';
+import { useBibleSync } from '../../hooks/useBibleSync';
 import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
@@ -32,10 +33,26 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
 
   const [room, setRoom] = useState<MeetingRoom | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  const [members, setMembers] = useState<PresenceUser[]>([]);
   const [ownUserId, setOwnUserId] = useState<string | null>(null);
   const [pickerRooms, setPickerRooms] = useState<readonly RoomWithActivity[]>(MEETING_ROOMS);
+  /** Id of the room whose Host box is ticked; you can only host the room you enter. */
+  const [hostFor, setHostFor] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState(false);
+  /** Latest host command, with a sequence so an identical repeat still fires. */
+  const [hostCommand, setHostCommand] = useState<{ message: HostMessage; seq: number } | null>(null);
   const socketRef = useRef<MeetingSocket | null>(null);
+
+  const sendBible = useCallback((message: BibleMessage) => socketRef.current?.sendBible(message), []);
+  // A host leads the room through the text; with no host present, anyone may.
+  const roomHasHost = members.some((m) => m.isHost);
+  const bible = useBibleSync(sendBible, isHost || !roomHasHost);
+  const sendHostCommand = useCallback((message: HostMessage) => socketRef.current?.sendHostCommand(message), []);
+
+  // The socket handler below is built once per room, so it reads the applier
+  // through a ref rather than capturing a value that changes every render.
+  const applyBibleRef = useRef(bible.apply);
+  applyBibleRef.current = bible.apply;
 
   const closeSocket = useCallback(() => {
     socketRef.current?.close();
@@ -99,6 +116,9 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
     setMessages([]);
     setMembers([]);
     setOwnUserId(null);
+    setHostCommand(null);
+    const asHost = hostFor === target.id;
+    setIsHost(asHost);
     setRoom(target);
     setStage('room');
 
@@ -111,15 +131,19 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
           setMessages((prev) => [...prev, msg]);
         } else if (msg.type === 'presence') {
           setMembers(msg.users);
+        } else if (msg.type === 'bible') {
+          applyBibleRef.current(msg);
+        } else if (msg.type === 'host') {
+          setHostCommand((prev) => ({ message: msg, seq: (prev?.seq ?? 0) + 1 }));
         }
       },
       onClose: ({ authFailed }) => {
         if (authFailed) { setStage('auth'); setAuthError(t('meeting.authError')); }
       },
     });
-    socket.connect({ roomId: target.id, name: normalizeDisplayName(name), password });
+    socket.connect({ roomId: target.id, name: normalizeDisplayName(name), password, isHost: asHost });
     socketRef.current = socket;
-  }, [closeSocket, name, password, t]);
+  }, [closeSocket, hostFor, name, password, t]);
 
   const leaveRoom = () => { closeSocket(); setRoom(null); setStage('pick'); };
   const send = (text: string) => socketRef.current?.send(text);
@@ -164,13 +188,24 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
                     <h3 className="mb-1 text-lg font-bold text-gray-900 sm:mb-2 sm:text-xl">{localizeMeetingRoomText(r.name, language)}</h3>
                     <p className="text-gray-600">{localizeMeetingRoomText(r.schedule, language)}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => enterRoom(r)}
-                    className="shrink-0 rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    {t('meeting.join')}
-                  </button>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={hostFor === r.id}
+                        onChange={(e) => setHostFor(e.target.checked ? r.id : null)}
+                        className="h-4 w-4 cursor-pointer rounded border-gray-400 text-blue-600 focus:ring-blue-500"
+                      />
+                      {t('meeting.host')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => enterRoom(r)}
+                      className="rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                      {t('meeting.join')}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -190,6 +225,11 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         messages={messages}
         members={members}
         ownUserId={ownUserId}
+        isHost={isHost}
+        roomHasHost={roomHasHost}
+        bible={bible}
+        hostCommand={hostCommand}
+        onHostCommand={sendHostCommand}
         onSend={send}
         onLeave={leaveRoom}
       />

@@ -216,6 +216,9 @@ export const translations = {
       en: 'To share your screen, your browser will ask you to choose what to share.',
       zh: '若要分享螢幕，瀏覽器會要求您選擇要分享的畫面。'
     },
+    host: { en: 'Host', zh: 'Host' },
+    hostMute: { en: 'Mute this person', zh: '將此人靜音' },
+    hostRemove: { en: 'Remove from room', zh: '請出房間' },
     videoFile: { en: 'Play a video', zh: '播放影片' },
     videoFileHint: { en: 'Everyone in the room is watching this video.', zh: '房間裡的所有人都正在看這部影片。' },
     videoFileStop: { en: 'Stop playing', zh: '停止播放' },
@@ -233,6 +236,7 @@ export const translations = {
     textLarger: { en: 'Larger text', zh: '放大字級' },
     expand: { en: 'Full screen', zh: '全螢幕閱讀' },
     collapse: { en: 'Exit full screen', zh: '結束全螢幕' },
+    followingHost: { en: 'The host leads this room — their page turns reach everyone.', zh: 'Host 正在帶查經，他翻到哪裡大家就會跟到哪裡。' },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },
