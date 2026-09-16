@@ -237,6 +237,7 @@ export const translations = {
     expand: { en: 'Full screen', zh: '全螢幕閱讀' },
     collapse: { en: 'Exit full screen', zh: '結束全螢幕' },
     followingHost: { en: 'The host leads this room — their page turns reach everyone.', zh: 'Host 正在帶查經，他翻到哪裡大家就會跟到哪裡。' },
+    backToHost: { en: "Back to the host's place", zh: '回到 Host 的位置' },
   },
   events: {
     title: { en: 'Upcoming Events', zh: '教會事工' },

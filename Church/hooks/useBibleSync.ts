@@ -4,11 +4,25 @@ import { loadReadingState } from '../services/bibleService';
 
 export type BibleView = 'books' | 'chapters' | 'text';
 
+/** Where the leader is reading, with a sequence so a repeat still registers. */
+export interface BibleScrollPosition {
+  bookId: number;
+  chapter: number;
+  verse: number;
+  seq: number;
+}
+
 export interface BibleSync {
   open: boolean;
   view: BibleView;
   bookId: number;
   chapter: number;
+  /** The leader's position in the chapter, or null before they have moved. */
+  hostScroll: BibleScrollPosition | null;
+  /** Whether this participant's navigation reaches the rest of the room. */
+  canLead: boolean;
+  /** Report where this leader is reading, so the room can follow. */
+  reportScroll: (verse: number) => void;
   /** Open at the table of contents for the whole room, or close it for yourself. */
   toggle: () => void;
   close: () => void;
@@ -34,8 +48,20 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   const [view, setView] = useState<BibleView>('books');
   const [bookId, setBookId] = useState(initial.bookId);
   const [chapter, setChapter] = useState(initial.chapter);
+  const [hostScroll, setHostScroll] = useState<BibleScrollPosition | null>(null);
 
   const apply = useCallback((message: BibleMessage) => {
+    // A scroll only moves readers who already have the Bible open — it should
+    // not pop the panel up in front of someone who closed it.
+    if (message.action === 'scroll') {
+      setHostScroll((prev) => ({
+        bookId: message.bookId,
+        chapter: message.chapter,
+        verse: message.verse,
+        seq: (prev?.seq ?? 0) + 1,
+      }));
+      return;
+    }
     setOpen(true);
     if (message.action === 'contents') {
       setView('books');
@@ -65,6 +91,13 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
     [lead],
   );
 
+  // Sent, never applied locally: the leader is already looking at this spot,
+  // and echoing it back into their own panel would fight their scrolling.
+  const reportScroll = useCallback((verse: number) => {
+    if (!canLead) return;
+    send({ type: 'bible', action: 'scroll', bookId, chapter, verse });
+  }, [canLead, send, bookId, chapter]);
+
   const close = useCallback(() => setOpen(false), []);
   const toggle = useCallback(() => {
     // Opening starts the room at the table of contents; closing is private.
@@ -73,5 +106,8 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
     else showContents();
   }, [open, showContents]);
 
-  return { open, view, bookId, chapter, toggle, close, showContents, selectBook, selectChapter, apply };
+  return {
+    open, view, bookId, chapter, hostScroll, canLead, reportScroll,
+    toggle, close, showContents, selectBook, selectChapter, apply,
+  };
 }

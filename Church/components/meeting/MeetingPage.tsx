@@ -226,7 +226,6 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         members={members}
         ownUserId={ownUserId}
         isHost={isHost}
-        roomHasHost={roomHasHost}
         bible={bible}
         hostCommand={hostCommand}
         onHostCommand={sendHostCommand}

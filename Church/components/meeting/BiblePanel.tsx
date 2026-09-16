@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Minus, Plus, List } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Minus, Plus, List, ArrowDownToLine } from 'lucide-react';
 import { BIBLE_BOOKS, booksOfTestament, findBibleBook, localizeBookName, type BibleBook, type Testament } from '../../constants/bibleBooks';
 import { useLocalization } from '../../hooks/useLocalization';
-import type { BibleView } from '../../hooks/useBibleSync';
+import type { BibleScrollPosition, BibleView } from '../../hooks/useBibleSync';
 import {
   BibleService,
   BIBLE_FONT_STEPS,
@@ -16,8 +16,11 @@ interface BiblePanelProps {
   view: BibleView;
   bookId: number;
   chapter: number;
-  /** A host is leading: this reader's own paging is local and may be overridden. */
-  followingHost: boolean;
+  /** Whether this participant's navigation and scrolling reach the whole room. */
+  canLead: boolean;
+  /** Where the leader is reading, so this panel can follow along. */
+  hostScroll: BibleScrollPosition | null;
+  onReportScroll: (verse: number) => void;
   expanded: boolean;
   onShowContents: () => void;
   onSelectBook: (bookId: number) => void;
@@ -38,8 +41,8 @@ const gridButton =
  * full-screen are always private — they are about eyesight, not the passage.
  */
 export const BiblePanel: React.FC<BiblePanelProps> = ({
-  view, bookId, chapter, followingHost, expanded,
-  onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
+  view, bookId, chapter, canLead, hostScroll, onReportScroll,
+  expanded, onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
 }) => {
   const { language, t } = useLocalization();
   const initial = useMemo(loadReadingState, []);
@@ -47,6 +50,11 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
   const [testament, setTestament] = useState<Testament>(() => findBibleBook(initial.bookId)?.testament ?? 'old');
   const [verses, setVerses] = useState<string[] | null>(null);
   const [error, setError] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** Scrolls we perform ourselves, which must not count as the reader opting out. */
+  const selfScrollUntil = useRef(0);
+  const lastSentVerse = useRef(0);
+  const [following, setFollowing] = useState(true);
 
   const book = findBibleBook(bookId) ?? BIBLE_BOOKS[0];
 
@@ -67,6 +75,80 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
       .catch(() => { if (!cancelled) setError(t('bible.loadError')); });
     return () => { cancelled = true; };
   }, [bookId, chapter, t]);
+
+  /** The verse sitting at the top of the visible area, or 0 if none is. */
+  const topVisibleVerse = useCallback((): number => {
+    const el = scrollRef.current;
+    if (!el) return 0;
+    const top = el.getBoundingClientRect().top;
+    for (const node of el.querySelectorAll<HTMLElement>('[data-verse]')) {
+      // 4px of slack so a verse scrolled to only a hairline still counts as past.
+      if (node.getBoundingClientRect().bottom > top + 4) return Number(node.dataset.verse) || 0;
+    }
+    return 0;
+  }, []);
+
+  const scrollToVerse = useCallback((verse: number) => {
+    const el = scrollRef.current;
+    const node = el?.querySelector<HTMLElement>(`[data-verse="${verse}"]`);
+    if (!el || !node) return;
+    selfScrollUntil.current = Date.now() + 400;
+    el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top;
+  }, []);
+
+  // A leader reports where they are; everyone else watches for opting out of
+  // following. One shared listener, coalesced to one report per frame.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || view !== 'text') return;
+    let frame = 0;
+
+    const onScroll = () => {
+      if (Date.now() < selfScrollUntil.current) return;
+      if (!canLead) { setFollowing(false); return; }
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const verse = topVisibleVerse();
+        if (verse && verse !== lastSentVerse.current) {
+          lastSentVerse.current = verse;
+          onReportScroll(verse);
+        }
+      });
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [view, canLead, topVisibleVerse, onReportScroll]);
+
+  // A new passage puts everyone back at the top and back in step.
+  useEffect(() => {
+    setFollowing(true);
+    lastSentVerse.current = 0;
+    selfScrollUntil.current = Date.now() + 400;
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [bookId, chapter]);
+
+  // Follow the leader, once the verses for this passage are actually rendered.
+  const hostSeq = hostScroll?.seq;
+  useEffect(() => {
+    if (canLead || !following || !verses || !hostScroll) return;
+    if (hostScroll.bookId !== bookId || hostScroll.chapter !== chapter) return;
+    scrollToVerse(hostScroll.verse);
+    // hostSeq is the trigger so the leader stopping on one verse still re-syncs
+    // a reader who has just chosen to follow again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostSeq, following, verses]);
+
+  const resumeFollowing = () => {
+    setFollowing(true);
+    if (hostScroll && hostScroll.bookId === bookId && hostScroll.chapter === chapter) {
+      scrollToVerse(hostScroll.verse);
+    }
+  };
 
   const pickBook = (next: BibleBook) => {
     // A one-chapter book has nothing to choose — take the room straight to it.
@@ -154,14 +236,14 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
       </div>
 
       {/* A host is choosing the passage for everyone. */}
-      {followingHost && (
+      {!canLead && (
         <p className="shrink-0 border-b border-white/10 bg-blue-950/40 px-4 py-1.5 text-center text-xs text-blue-200">
           {t('bible.followingHost')}
         </p>
       )}
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {view === 'books' && (
           <div className="p-3">
             <div className="mb-3 flex rounded-lg bg-gray-800 p-1">
@@ -215,7 +297,7 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
             {verses && (
               <ol className="space-y-3 text-gray-100" style={{ fontSize: `${scale}rem`, lineHeight: 1.9 }}>
                 {verses.map((verse, i) => (
-                  <li key={i} className="flex gap-2">
+                  <li key={i} data-verse={i + 1} className="flex gap-2">
                     <span
                       className="shrink-0 select-none pt-1 font-semibold tabular-nums text-blue-400"
                       style={{ fontSize: `${scale * 0.62}rem` }}
@@ -230,6 +312,19 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* Drifted away from the leader: one tap to rejoin them. */}
+      {view === 'text' && !canLead && !following && hostScroll
+        && hostScroll.bookId === bookId && hostScroll.chapter === chapter && (
+        <button
+          type="button"
+          onClick={resumeFollowing}
+          className="flex shrink-0 items-center justify-center gap-1.5 border-t border-white/10 bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+        >
+          <ArrowDownToLine size={15} />
+          {t('bible.backToHost')}
+        </button>
+      )}
 
       {/* Chapter paging, only while reading and only for whoever leads */}
       {view === 'text' && (

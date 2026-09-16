@@ -24,8 +24,6 @@ interface MeetingRoomViewProps {
   ownUserId: string | null;
   /** Whether this participant ticked Host on the room card. */
   isHost: boolean;
-  /** Whether anyone in the room is a host. */
-  roomHasHost: boolean;
   /** The room's shared position in the Bible. */
   bible: BibleSync;
   /** Latest command from a host; the seq makes an identical repeat re-fire. */
@@ -44,7 +42,7 @@ const formatElapsed = (seconds: number): string => {
 };
 
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
-  room, name, password, messages, members, ownUserId, isHost, roomHasHost,
+  room, name, password, messages, members, ownUserId, isHost,
   bible, hostCommand, onHostCommand, onSend, onLeave,
 }) => {
   const { language, t } = useLocalization();
@@ -183,7 +181,9 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             view={bible.view}
             bookId={bible.bookId}
             chapter={bible.chapter}
-            followingHost={roomHasHost && !isHost}
+            canLead={bible.canLead}
+            hostScroll={bible.hostScroll}
+            onReportScroll={bible.reportScroll}
             expanded={bibleExpanded}
             onShowContents={bible.showContents}
             onSelectBook={bible.selectBook}

@@ -34,7 +34,14 @@ export type SystemMessage = {
 export type BibleMessage =
   | { type: 'bible'; action: 'contents' }
   | { type: 'bible'; action: 'book'; bookId: number }
-  | { type: 'bible'; action: 'passage'; bookId: number; chapter: number };
+  | { type: 'bible'; action: 'passage'; bookId: number; chapter: number }
+  /**
+   * Where the leader is reading within a chapter, as the verse at the top of
+   * their panel — not a pixel offset, which would land somewhere else on a
+   * reader using a different text size or panel width. Carries the passage so
+   * a message that arrives after the room has moved on is ignored.
+   */
+  | { type: 'bible'; action: 'scroll'; bookId: number; chapter: number; verse: number };
 
 /**
  * A host's commands over the other participants. Hosts are self-declared on the
@@ -86,10 +93,16 @@ export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
   if (!book) return null;
   if (msg.action === 'book') return { type: 'bible', action: 'book', bookId: book.id };
 
-  if (msg.action === 'passage') {
+  if (msg.action === 'passage' || msg.action === 'scroll') {
     const chapter = msg.chapter;
     if (typeof chapter !== 'number' || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters) return null;
-    return { type: 'bible', action: 'passage', bookId: book.id, chapter };
+    if (msg.action === 'passage') return { type: 'bible', action: 'passage', bookId: book.id, chapter };
+
+    // Verse counts are not part of the book table, so this is a sanity bound:
+    // the longest chapter in the Bible (詩篇 119) has 176 verses.
+    const verse = (msg as { verse?: unknown }).verse;
+    if (typeof verse !== 'number' || !Number.isInteger(verse) || verse < 1 || verse > 200) return null;
+    return { type: 'bible', action: 'scroll', bookId: book.id, chapter, verse };
   }
   return null;
 }

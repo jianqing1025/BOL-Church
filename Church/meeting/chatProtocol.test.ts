@@ -55,6 +55,25 @@ describe('sanitizeBibleMessage', () => {
       .toEqual({ type: 'bible', action: 'passage', bookId: 19, chapter: 23 });
   });
 
+  it('accepts a scroll position and keeps the passage it belongs to', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'scroll', bookId: 19, chapter: 119, verse: 176 }))
+      .toEqual({ type: 'bible', action: 'scroll', bookId: 19, chapter: 119, verse: 176 });
+  });
+
+  it('rejects an unusable scroll verse', () => {
+    const scroll = (verse: unknown) => sanitizeBibleMessage({ type: 'bible', action: 'scroll', bookId: 1, chapter: 1, verse });
+    expect(scroll(0)).toBeNull();
+    expect(scroll(-3)).toBeNull();
+    expect(scroll(2.5)).toBeNull();
+    expect(scroll('7')).toBeNull();
+    expect(scroll(undefined)).toBeNull();
+    expect(scroll(9999)).toBeNull();
+  });
+
+  it('rejects a scroll into a chapter the book does not have', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'scroll', bookId: 65, chapter: 2, verse: 1 })).toBeNull();
+  });
+
   it('drops extra fields rather than relaying them to the room', () => {
     expect(sanitizeBibleMessage({ type: 'bible', action: 'contents', evil: '<script>' }))
       .toEqual({ type: 'bible', action: 'contents' });
