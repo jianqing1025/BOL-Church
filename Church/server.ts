@@ -43,6 +43,10 @@ type Env = {
   LIVEKIT_URL?: string;
   LIVEKIT_API_KEY?: string;
   LIVEKIT_API_SECRET?: string;
+  // Second LiveKit project; meetings alternate between the two by date.
+  LIVEKIT_URL_B?: string;
+  LIVEKIT_API_KEY_B?: string;
+  LIVEKIT_API_SECRET_B?: string;
 };
 
 type LocalizedText = { en: string; zh: string };

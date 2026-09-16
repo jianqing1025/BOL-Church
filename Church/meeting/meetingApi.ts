@@ -2,14 +2,12 @@
 import { MEETING_ROOMS, livekitRoomName } from '../constants/meetingRooms';
 import { validateAuth, validateJoin, validateVideo } from './meetingValidation';
 import { createLiveKitToken } from './livekitToken';
+import { selectLiveKitProject, type LiveKitProjectEnv } from './livekitProject';
 
-export interface MeetingEnv {
+export interface MeetingEnv extends LiveKitProjectEnv {
   CHAT_ROOM: DurableObjectNamespace;
   CHAT_PASSWORD?: string;
   ALLOWED_ORIGIN?: string;
-  LIVEKIT_URL?: string;
-  LIVEKIT_API_KEY?: string;
-  LIVEKIT_API_SECRET?: string;
 }
 
 function corsHeaders(env: MeetingEnv): Record<string, string> {
@@ -68,19 +66,23 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     const body = await request.json().catch(() => ({})) as { roomId?: string; name?: string; password?: string };
     const v = validateVideo({ roomId: body.roomId, name: body.name, password: body.password }, env.CHAT_PASSWORD);
     if (v.ok === false) return jsonCors(env, { error: v.error }, v.status);
-    if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+    // Which LiveKit project this meeting runs on alternates by date, so the two
+    // projects share the load. Everyone joining the same meeting resolves to the
+    // same one — see livekitProject.ts for why that has to be true.
+    const project = selectLiveKitProject(env, new Date());
+    if (!project) {
       return jsonCors(env, { error: 'Video is not configured' }, 503);
     }
     const roomName = livekitRoomName(v.room.id);
     const identity = `${v.name}-${crypto.randomUUID().slice(0, 8)}`;
     const token = await createLiveKitToken({
-      apiKey: env.LIVEKIT_API_KEY,
-      apiSecret: env.LIVEKIT_API_SECRET,
+      apiKey: project.apiKey,
+      apiSecret: project.apiSecret,
       identity,
       name: v.name,
       roomName,
     });
-    return jsonCors(env, { url: env.LIVEKIT_URL, token, roomName });
+    return jsonCors(env, { url: project.url, token, roomName });
   }
 
   if (path === '/api/meeting/ws' && request.method === 'GET') {
