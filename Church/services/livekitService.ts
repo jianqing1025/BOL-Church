@@ -18,6 +18,8 @@ export interface LiveKitConnectParams {
   roomId: string;
   name: string;
   password: string;
+  /** Camera/mic captured up front by the caller (see captureLocalMedia). */
+  stream?: MediaStream | null;
 }
 
 /** Wraps a single LiveKit Room connection and the local track toggles. */
@@ -46,21 +48,55 @@ export class LiveKitService {
       && Boolean(navigator.mediaDevices?.getDisplayMedia);
   }
 
-  private async enableInitialLocalMedia(participant: LocalParticipant): Promise<void> {
-    if (!this.hasUserMedia()) {
-      this.handlers.onError?.(new Error(MEDIA_UNSUPPORTED_MESSAGE));
-      return;
+  /**
+   * Asks for the camera and microphone in a SINGLE getUserMedia call.
+   *
+   * Call this straight from the user's tap. Safari on iOS only grants capture
+   * while the tap still counts as user activation, which a token fetch and a
+   * WebRTC connect would use up — and it allows one capture at a time, so
+   * asking for camera and microphone separately makes the second request stop
+   * the first one's tracks. One call, up front, avoids both.
+   *
+   * Falls back to audio only when the camera is unavailable, so a device
+   * without a working camera still joins with sound.
+   */
+  static async captureLocalMedia(): Promise<MediaStream> {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     }
-
-    for (const enable of [
-      () => participant.setCameraEnabled(true),
-      () => participant.setMicrophoneEnabled(true),
-    ]) {
-      try {
-        await enable();
-      } catch (error) {
-        this.handlers.onError?.(error);
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    } catch (error) {
+      if (error instanceof DOMException && (error.name === 'NotFoundError' || error.name === 'OverconstrainedError')) {
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
       }
+      throw error;
+    }
+  }
+
+  /** Publishes an already-captured camera/mic stream. */
+  async publishLocalMedia(stream: MediaStream): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p) return;
+    const [audio] = stream.getAudioTracks();
+    const [video] = stream.getVideoTracks();
+    if (audio) await p.publishTrack(audio, { source: Track.Source.Microphone });
+    if (video) await p.publishTrack(video, { source: Track.Source.Camera });
+    this.emit();
+  }
+
+  /**
+   * Publishes what the caller captured before connecting. A null stream means
+   * capture was already tried and failed — the room is joined without media
+   * and the caller has reported why, so there is deliberately no retry here:
+   * asking again from outside a user gesture is what iOS Safari refuses.
+   */
+  private async enableInitialLocalMedia(stream: MediaStream | null | undefined): Promise<void> {
+    if (!stream) return;
+    try {
+      await this.publishLocalMedia(stream);
+    } catch (error) {
+      this.handlers.onError?.(error);
     }
   }
 
@@ -68,7 +104,7 @@ export class LiveKitService {
     const res = await fetch('/api/meeting/livekit-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({ roomId: params.roomId, name: params.name, password: params.password }),
     });
     if (!res.ok) {
       const info = await res.json().catch(() => ({})) as { error?: string };
@@ -97,7 +133,7 @@ export class LiveKitService {
     // Browsers block autoplay of remote audio until a gesture; the click that
     // brought the user into the room usually satisfies it. Best-effort resume.
     await room.startAudio().catch(() => undefined);
-    await this.enableInitialLocalMedia(room.localParticipant);
+    await this.enableInitialLocalMedia(params.stream);
     this.emit();
   }
 

@@ -4,6 +4,7 @@ import { LiveKitService } from '../services/livekitService';
 import { useLocalization } from './useLocalization';
 import type { MeetingRoom } from '../constants/meetingRooms';
 import { churchPermissionConfirm } from '../components/ChurchDialog';
+import { classifyMediaError } from '../services/mediaErrors';
 
 export interface UseLiveKit {
   participants: Participant[];
@@ -21,6 +22,8 @@ export interface UseLiveKit {
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
   toggleScreenShare: () => Promise<void>;
+  /** Ask for the camera and mic again, straight from a button press. */
+  retryLocalMedia: () => Promise<void>;
   /** Publish a playing <video> element to the room. Resolves false if blocked. */
   startVideoFile: (element: HTMLVideoElement) => Promise<boolean>;
   stopVideoFile: () => Promise<void>;
@@ -92,16 +95,30 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
         const allowed = await confirmPermission('meeting.mediaPermissionMessage');
         if (!allowed) return;
       }
+
+      // Capture before any network call. Safari on iOS grants the camera only
+      // while the tap that got us here still counts, and the token fetch plus
+      // the WebRTC connect below would spend that window. A failure here is
+      // reported but must not stop the join — joining muted beats not joining.
+      let stream: MediaStream | null = null;
+      try {
+        stream = await LiveKitService.captureLocalMedia();
+      } catch (e) {
+        setError(t(classifyMediaError(e)));
+        setMicOn(false);
+        setCamOn(false);
+      }
+
       const service = new LiveKitService({
         onParticipantsChanged: (p) => setParticipants([...p]),
         onActiveSpeakersChanged: (ids) => setActiveSpeakerIds(ids),
         onError: (e) => setError(e instanceof Error ? e.message : String(e)),
       });
       serviceRef.current = service;
-      await service.connect({ roomId: room.id, name, password });
+      await service.connect({ roomId: room.id, name, password, stream });
       setJoined(true);
-      setMicOn(service.localParticipant?.isMicrophoneEnabled ?? true);
-      setCamOn(service.localParticipant?.isCameraEnabled ?? true);
+      setMicOn(service.localParticipant?.isMicrophoneEnabled ?? false);
+      setCamOn(service.localParticipant?.isCameraEnabled ?? false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       serviceRef.current?.disconnect();
@@ -110,7 +127,21 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       joiningRef.current = false;
       setConnecting(false);
     }
-  }, [room.hasVideo, room.id, name, password, confirmPermission]);
+  }, [room.hasVideo, room.id, name, password, confirmPermission, t]);
+
+  const retryLocalMedia = useCallback(async () => {
+    const svc = serviceRef.current;
+    if (!svc) return;
+    try {
+      setError('');
+      const stream = await LiveKitService.captureLocalMedia();
+      await svc.publishLocalMedia(stream);
+      setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
+      setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
+    } catch (e) {
+      setError(t(classifyMediaError(e)));
+    }
+  }, [t]);
 
   const leave = useCallback(() => {
     serviceRef.current?.disconnect();
@@ -131,10 +162,10 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       }
       setMicOn(await svc.toggleMic());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(t(classifyMediaError(e)));
       setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
     }
-  }, [confirmPermission]);
+  }, [confirmPermission, t]);
 
   const toggleCamera = useCallback(async () => {
     const svc = serviceRef.current;
@@ -147,10 +178,10 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       }
       setCamOn(await svc.toggleCamera());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(t(classifyMediaError(e)));
       setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
     }
-  }, [confirmPermission]);
+  }, [confirmPermission, t]);
 
   const toggleScreenShare = useCallback(async () => {
     const svc = serviceRef.current;
@@ -223,6 +254,6 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
   return {
     participants, activeSpeakerIds, connecting, joined, error,
     micOn, camOn, screenOn, videoFileOn, shareSlotTaken,
-    join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile,
+    join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile, retryLocalMedia,
   };
 }

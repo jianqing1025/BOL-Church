@@ -158,6 +158,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               connecting={lk.connecting}
               error={lk.error}
               onRetry={() => void lk.join()}
+              onRetryMedia={() => void lk.retryLocalMedia()}
             />
           ) : (
             <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-gray-900">

@@ -216,6 +216,21 @@ export const translations = {
       en: 'To share your screen, your browser will ask you to choose what to share.',
       zh: '若要分享螢幕，瀏覽器會要求您選擇要分享的畫面。'
     },
+    retryMedia: { en: 'Try again', zh: '再試一次' },
+    mediaDenied: {
+      en: 'Camera and microphone are blocked. Tap “Try again”, or allow them for this site in your browser settings.',
+      zh: '鏡頭與麥克風被拒絕了。請點「再試一次」，或到瀏覽器設定中允許本網站使用。'
+    },
+    mediaNotFound: { en: 'No camera or microphone was found on this device.', zh: '這台裝置上找不到鏡頭或麥克風。' },
+    mediaInUse: {
+      en: 'Another app is using the camera or microphone. Close it and tap “Try again”.',
+      zh: '有其他 App 正在使用鏡頭或麥克風，請關掉它再點「再試一次」。'
+    },
+    mediaUnsupported: {
+      en: 'This browser cannot open the camera or microphone. Please open this page in Safari or Chrome.',
+      zh: '這個瀏覽器無法開啟鏡頭或麥克風，請改用 Safari 或 Chrome 開啟本頁。'
+    },
+    mediaFailed: { en: 'Could not turn on the camera or microphone.', zh: '無法開啟鏡頭或麥克風。' },
     host: { en: 'Host', zh: 'Host' },
     hostMute: { en: 'Mute this person', zh: '將此人靜音' },
     hostRemove: { en: 'Remove from room', zh: '請出房間' },

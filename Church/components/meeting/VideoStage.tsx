@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Video as VideoIcon } from 'lucide-react';
+import { Video as VideoIcon, RotateCcw } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
 import { useLocalization } from '../../hooks/useLocalization';
@@ -17,6 +17,8 @@ interface VideoStageProps {
   connecting: boolean;
   error: string;
   onRetry: () => void;
+  /** Ask for the camera and mic again from this button's own press. */
+  onRetryMedia: () => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface VideoStageProps {
  * is excluded from the main layout and shown as a floating self-view instead.
  */
 export const VideoStage: React.FC<VideoStageProps> = ({
-  participants, activeSpeakerIds, viewMode, connecting, error, onRetry,
+  participants, activeSpeakerIds, viewMode, connecting, error, onRetry, onRetryMedia,
 }) => {
   const { t } = useLocalization();
   const local = participants.find((p) => p.isLocal);
@@ -100,6 +102,21 @@ export const VideoStage: React.FC<VideoStageProps> = ({
   return (
     <div className="relative h-full min-h-0">
       {main}
+      {/* Camera/mic trouble happens after joining, when the stage is already
+          showing participants — without this banner the failure is invisible. */}
+      {error && (
+        <div className="absolute inset-x-2 top-2 z-20 flex flex-wrap items-center justify-center gap-2 rounded-lg bg-red-950/90 px-3 py-2 text-center ring-1 ring-red-500/40">
+          <p className="text-sm text-red-100">{error}</p>
+          <button
+            type="button"
+            onClick={onRetryMedia}
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-bold text-red-900 transition-colors hover:bg-red-100"
+          >
+            <RotateCcw size={13} />
+            {t('meeting.retryMedia')}
+          </button>
+        </div>
+      )}
       {/* Floating self-view only in speaker mode; in gallery/screen you are a tile. */}
       {speakerMode && local && <SelfViewPiP participant={local} />}
     </div>
