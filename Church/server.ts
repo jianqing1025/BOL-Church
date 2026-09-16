@@ -47,6 +47,11 @@ type Env = {
   LIVEKIT_URL_B?: string;
   LIVEKIT_API_KEY_B?: string;
   LIVEKIT_API_SECRET_B?: string;
+  // Self-hosted fallback on the church VPS, plus the manual switch.
+  LIVEKIT_URL_SELF?: string;
+  LIVEKIT_API_KEY_SELF?: string;
+  LIVEKIT_API_SECRET_SELF?: string;
+  LIVEKIT_ACTIVE?: string;
 };
 
 type LocalizedText = { en: string; zh: string };

@@ -27,6 +27,19 @@ export interface LiveKitProjectEnv {
   LIVEKIT_URL_B?: string;
   LIVEKIT_API_KEY_B?: string;
   LIVEKIT_API_SECRET_B?: string;
+  /** Self-hosted LiveKit on the church's own VPS — no minute allowance at all. */
+  LIVEKIT_URL_SELF?: string;
+  LIVEKIT_API_KEY_SELF?: string;
+  LIVEKIT_API_SECRET_SELF?: string;
+  /**
+   * Manual override: 'self', 'a' or 'b' pins every meeting to that server and
+   * stops the date rotation. Anything else (normally unset) rotates as usual.
+   *
+   * Flip it between meetings, not during one: a meeting already under way is
+   * on a server this setting no longer names, and anyone joining afterwards
+   * would land somewhere the others are not.
+   */
+  LIVEKIT_ACTIVE?: string;
 }
 
 /** The church's local time — the date that decides the project is the local one. */
@@ -75,7 +88,19 @@ export function meetingDayNumber(now: Date, timeZone: string = MEETING_TIME_ZONE
 export function selectLiveKitProject(env: LiveKitProjectEnv, now: Date, timeZone: string = MEETING_TIME_ZONE): LiveKitProject | null {
   const a = project(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
   const b = project(env.LIVEKIT_URL_B, env.LIVEKIT_API_KEY_B, env.LIVEKIT_API_SECRET_B);
-  if (!a) return b;
+  const self = project(env.LIVEKIT_URL_SELF, env.LIVEKIT_API_KEY_SELF, env.LIVEKIT_API_SECRET_SELF);
+
+  // An override that names an unconfigured server falls through to whatever is
+  // available: a meeting on the wrong server beats no meeting at all.
+  switch ((env.LIVEKIT_ACTIVE ?? '').trim().toLowerCase()) {
+    case 'self': return self ?? a ?? b;
+    case 'a': return a ?? b ?? self;
+    case 'b': return b ?? a ?? self;
+    default: break;
+  }
+
+  // No override: rotate between the two cloud projects by date.
+  if (!a) return b ?? self;
   if (!b) return a;
   return meetingDayNumber(now, timeZone) % 2 === 0 ? a : b;
 }

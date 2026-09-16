@@ -1,0 +1,5 @@
+# TLS 由 Caddy 終結，憑證自動向 Let's Encrypt 申請並續期。
+# WebRTC 必須走 wss://，所以這一段是必要的，不是可有可無的裝飾。
+live.bolccop.org {
+	reverse_proxy 127.0.0.1:7880
+}

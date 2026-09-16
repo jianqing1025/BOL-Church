@@ -11,7 +11,13 @@ const B = {
   LIVEKIT_API_KEY_B: 'key-b',
   LIVEKIT_API_SECRET_B: 'secret-b',
 };
+const SELF = {
+  LIVEKIT_URL_SELF: 'wss://live.bolccop.org',
+  LIVEKIT_API_KEY_SELF: 'key-self',
+  LIVEKIT_API_SECRET_SELF: 'secret-self',
+};
 const BOTH: LiveKitProjectEnv = { ...A, ...B };
+const ALL: LiveKitProjectEnv = { ...A, ...B, ...SELF };
 
 /** 7pm Pacific on a given date, as the instant a meeting would be running. */
 const meetingEvening = (iso: string) => new Date(`${iso}T19:00:00-07:00`);
@@ -97,5 +103,44 @@ describe('partial configuration', () => {
   it('reports nothing configured instead of guessing', () => {
     expect(selectLiveKitProject({}, meetingEvening('2026-09-15'))).toBeNull();
     expect(selectLiveKitProject({ LIVEKIT_URL: 'wss://a' }, meetingEvening('2026-09-15'))).toBeNull();
+  });
+});
+
+describe('manual override', () => {
+  it('pins every meeting to the self-hosted server when switched over', () => {
+    // The point of the switch: the cloud allowance is gone, so the date must
+    // stop deciding anything.
+    for (const day of ['2026-09-15', '2026-09-16', '2026-09-22']) {
+      const chosen = selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: 'self' }, meetingEvening(day))!;
+      expect(chosen.url).toBe('wss://live.bolccop.org');
+      expect(chosen.apiKey).toBe('key-self');
+    }
+  });
+
+  it('can also pin to either cloud project', () => {
+    expect(selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: 'a' }, meetingEvening('2026-09-16'))!.url).toBe('wss://a.livekit.cloud');
+    expect(selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: 'b' }, meetingEvening('2026-09-15'))!.url).toBe('wss://b.livekit.cloud');
+  });
+
+  it('ignores blank, unknown and oddly-cased values', () => {
+    const rotating = selectLiveKitProject(ALL, meetingEvening('2026-09-15'))!.url;
+    for (const value of ['', '   ', 'yes', 'cloud']) {
+      expect(selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: value }, meetingEvening('2026-09-15'))!.url).toBe(rotating);
+    }
+    // Case and stray spaces should not defeat the switch in an emergency.
+    expect(selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: ' SELF ' }, meetingEvening('2026-09-15'))!.url)
+      .toBe('wss://live.bolccop.org');
+  });
+
+  it('still returns a usable server when the override names one that is not set up', () => {
+    // Better a meeting on the wrong server than no meeting at all.
+    expect(selectLiveKitProject({ ...A, LIVEKIT_ACTIVE: 'self' }, meetingEvening('2026-09-15'))!.url)
+      .toBe('wss://a.livekit.cloud');
+  });
+
+  it('keeps everyone together while switched over', () => {
+    const joins = ['T18:55:00-07:00', 'T20:30:00-07:00', 'T21:59:00-07:00']
+      .map((t) => selectLiveKitProject({ ...ALL, LIVEKIT_ACTIVE: 'self' }, new Date(`2026-09-15${t}`))!.url);
+    expect(new Set(joins).size).toBe(1);
   });
 });

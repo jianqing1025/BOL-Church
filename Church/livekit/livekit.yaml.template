@@ -1,0 +1,23 @@
+# LiveKit SFU —— 自架備援，供 LiveKit Cloud 額度用盡或帳號異常時接手。
+# 這是範本；實際檔案由 install.sh 產生並填入金鑰，不進版控。
+
+# 訊令埠只綁在 127.0.0.1，對外一律經過 Caddy 的 TLS。
+# 直接曝露 7880 等於讓未加密的 WebSocket 上公網。
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+
+rtc:
+  # 單一 UDP 埠（port mux）而不是 50000-60000 的範圍：防火牆規則少一條，
+  # 出問題時也只有一個地方要查。
+  udp_port: 7882
+  # 純 UDP 被擋死的網路（部分公司、旅館）靠這個 TCP 埠回退。
+  tcp_port: 7881
+  use_external_ip: true
+
+keys:
+  __API_KEY__: __API_SECRET__
+
+logging:
+  level: info
+  json: false
