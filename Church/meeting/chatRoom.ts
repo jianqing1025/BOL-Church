@@ -26,6 +26,8 @@ export class ChatRoom {
    * group is already studying instead of waiting for the next page turn.
    */
   private biblePosition: BibleMessage | null = null;
+  /** Whether the room is reading full screen, so a newcomer matches the group. */
+  private bibleExpanded = false;
 
   constructor(_state: DurableObjectState, _env: unknown) {}
 
@@ -53,6 +55,8 @@ export class ChatRoom {
 
     this.sendTo(server, { type: 'welcome', roomId, userId: id, messages: this.messages });
     if (this.biblePosition) this.sendTo(server, this.biblePosition);
+    // After the position, so the panel is open before it is told to enlarge.
+    if (this.bibleExpanded) this.sendTo(server, { type: 'bible', action: 'expand', expanded: true });
     this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
     this.broadcastPresence();
 
@@ -68,7 +72,8 @@ export class ChatRoom {
         if (!bible || !(isHost || !this.hasHost())) return;
         // Scrolling is a position within the passage, not the passage itself —
         // replaying it to a newcomer would scroll them before they have text.
-        if (bible.action !== 'scroll') this.biblePosition = bible;
+        if (bible.action === 'expand') this.bibleExpanded = bible.expanded;
+        else if (bible.action !== 'scroll') this.biblePosition = bible;
         this.broadcast(bible);
         return;
       }
@@ -78,6 +83,9 @@ export class ChatRoom {
         if (!command || !isHost) return;
         this.broadcast(command);
         if (command.action === 'remove') this.removeUser(command.targetUserId);
+        // The study is over: the next meeting should start from the contents,
+        // not wherever this one happened to stop.
+        if (command.action === 'endMeeting') { this.biblePosition = null; this.bibleExpanded = false; }
         return;
       }
 

@@ -19,6 +19,9 @@ export interface BibleSync {
   chapter: number;
   /** The leader's position in the chapter, or null before they have moved. */
   hostScroll: BibleScrollPosition | null;
+  /** Full-screen reading — shared with the room, unlike text size. */
+  expanded: boolean;
+  toggleExpanded: () => void;
   /** Whether this participant's navigation reaches the rest of the room. */
   canLead: boolean;
   /** Report where this leader is reading, so the room can follow. */
@@ -41,6 +44,10 @@ export interface BibleSync {
  * still turn pages in their own panel — it simply does not reach the others,
  * and the next passage the leader calls pulls them back to the group. Closing
  * the panel is likewise private, though the room's next move reopens it.
+ *
+ * Full-screen reading travels with the room — when the leader enlarges the
+ * text everyone gets it enlarged — while text size stays personal, because one
+ * is about what the group is looking at and the other is about eyesight.
  */
 export function useBibleSync(send: (message: BibleMessage) => void, canLead: boolean): BibleSync {
   const initial = useMemo(loadReadingState, []);
@@ -49,6 +56,7 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   const [bookId, setBookId] = useState(initial.bookId);
   const [chapter, setChapter] = useState(initial.chapter);
   const [hostScroll, setHostScroll] = useState<BibleScrollPosition | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const apply = useCallback((message: BibleMessage) => {
     // A scroll only moves readers who already have the Bible open — it should
@@ -60,6 +68,11 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
         verse: message.verse,
         seq: (prev?.seq ?? 0) + 1,
       }));
+      return;
+    }
+    // Enlarging does not by itself open the Bible for someone who closed it.
+    if (message.action === 'expand') {
+      setExpanded(message.expanded);
       return;
     }
     setOpen(true);
@@ -98,7 +111,16 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
     send({ type: 'bible', action: 'scroll', bookId, chapter, verse });
   }, [canLead, send, bookId, chapter]);
 
-  const close = useCallback(() => setOpen(false), []);
+  const toggleExpanded = useCallback(
+    () => lead({ type: 'bible', action: 'expand', expanded: !expanded }),
+    [lead, expanded],
+  );
+
+  const close = useCallback(() => {
+    setOpen(false);
+    // Leaving full screen behind would reopen the Bible covering everything.
+    setExpanded(false);
+  }, []);
   const toggle = useCallback(() => {
     // Opening starts the room at the table of contents; closing is private.
     // showContents opens the panel as a side effect of applying its own message.
@@ -108,6 +130,7 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
 
   return {
     open, view, bookId, chapter, hostScroll, canLead, reportScroll,
+    expanded, toggleExpanded,
     toggle, close, showContents, selectBook, selectChapter, apply,
   };
 }

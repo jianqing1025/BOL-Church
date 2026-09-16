@@ -74,6 +74,26 @@ describe('sanitizeBibleMessage', () => {
     expect(sanitizeBibleMessage({ type: 'bible', action: 'scroll', bookId: 65, chapter: 2, verse: 1 })).toBeNull();
   });
 
+  it('accepts full-screen reading in both directions', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'expand', expanded: true }))
+      .toEqual({ type: 'bible', action: 'expand', expanded: true });
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'expand', expanded: false }))
+      .toEqual({ type: 'bible', action: 'expand', expanded: false });
+  });
+
+  it('treats a missing or odd expanded flag as not expanded', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'expand' }))
+      .toEqual({ type: 'bible', action: 'expand', expanded: false });
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'expand', expanded: 'yes' }))
+      .toEqual({ type: 'bible', action: 'expand', expanded: false });
+  });
+
+  it('does not require a book for actions that have no passage', () => {
+    // expand and contents carry no bookId; demanding one would drop them.
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'expand', expanded: true })).not.toBeNull();
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'contents' })).not.toBeNull();
+  });
+
   it('drops extra fields rather than relaying them to the room', () => {
     expect(sanitizeBibleMessage({ type: 'bible', action: 'contents', evil: '<script>' }))
       .toEqual({ type: 'bible', action: 'contents' });
@@ -106,6 +126,11 @@ describe('sanitizeHostMessage', () => {
       .toEqual({ type: 'host', action: 'mute', targetUserId: 'u1' });
     expect(sanitizeHostMessage({ type: 'host', action: 'remove', targetUserId: 'u1' }))
       .toEqual({ type: 'host', action: 'remove', targetUserId: 'u1' });
+  });
+
+  it('accepts ending the meeting', () => {
+    expect(sanitizeHostMessage({ type: 'host', action: 'endMeeting' }))
+      .toEqual({ type: 'host', action: 'endMeeting' });
   });
 
   it('requires a usable target for the targeted commands', () => {

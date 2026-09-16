@@ -41,7 +41,9 @@ export type BibleMessage =
    * reader using a different text size or panel width. Carries the passage so
    * a message that arrives after the room has moved on is ignored.
    */
-  | { type: 'bible'; action: 'scroll'; bookId: number; chapter: number; verse: number };
+  | { type: 'bible'; action: 'scroll'; bookId: number; chapter: number; verse: number }
+  /** Full-screen reading, shared so the group sees the same thing enlarged. */
+  | { type: 'bible'; action: 'expand'; expanded: boolean };
 
 /**
  * A host's commands over the other participants. Hosts are self-declared on the
@@ -53,7 +55,13 @@ export type HostMessage =
   | { type: 'host'; action: 'mute'; targetUserId: string }
   | { type: 'host'; action: 'remove'; targetUserId: string }
   /** Host takes the shared-picture slot: whoever else is sharing stops. */
-  | { type: 'host'; action: 'claimShare' };
+  | { type: 'host'; action: 'claimShare' }
+  /**
+   * Host closes the meeting and everyone leaves with them. Without this a
+   * member who wanders off leaves a tab connected, holding a video session
+   * open long after the study has finished.
+   */
+  | { type: 'host'; action: 'endMeeting' };
 
 export interface PresenceUser {
   id: string;
@@ -85,9 +93,10 @@ export type ClientMessage =
  */
 export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
   if (!input || typeof input !== 'object') return null;
-  const msg = input as { type?: unknown; action?: unknown; bookId?: unknown; chapter?: unknown };
+  const msg = input as { type?: unknown; action?: unknown; bookId?: unknown; chapter?: unknown; expanded?: unknown };
   if (msg.type !== 'bible') return null;
   if (msg.action === 'contents') return { type: 'bible', action: 'contents' };
+  if (msg.action === 'expand') return { type: 'bible', action: 'expand', expanded: msg.expanded === true };
 
   const book = BIBLE_BOOKS.find((b) => b.id === msg.bookId);
   if (!book) return null;
@@ -116,6 +125,7 @@ export function sanitizeHostMessage(input: unknown): HostMessage | null {
   const msg = input as { type?: unknown; action?: unknown; targetUserId?: unknown };
   if (msg.type !== 'host') return null;
   if (msg.action === 'claimShare') return { type: 'host', action: 'claimShare' };
+  if (msg.action === 'endMeeting') return { type: 'host', action: 'endMeeting' };
   if (msg.action !== 'mute' && msg.action !== 'remove') return null;
   const target = msg.targetUserId;
   if (typeof target !== 'string' || !target || target.length > 100) return null;

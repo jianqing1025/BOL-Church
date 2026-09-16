@@ -13,6 +13,7 @@ import { MemberList } from './MemberList';
 import type { BibleSync } from '../../hooks/useBibleSync';
 import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
+import { churchAlert, churchConfirm } from '../ChurchDialog';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
 
 interface MeetingRoomViewProps {
@@ -51,7 +52,6 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [bibleExpanded, setBibleExpanded] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
@@ -76,6 +76,14 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     if (added > 0) setUnread((u) => u + added);
   }, [messages, chatOpen, ownUserId, room.hasVideo]);
 
+  const leaveRoom = useCallback(async () => {
+    if (!isHost) { onLeave(); return; }
+    // Confirmed, because a mis-tap would throw the whole group out mid-study.
+    if (!await churchConfirm(t('meeting.endMeetingConfirm'))) return;
+    onHostCommand({ type: 'host', action: 'endMeeting' });
+    onLeave();
+  }, [isHost, onHostCommand, onLeave, t]);
+
   const stopVideoFile = useCallback(() => {
     setVideoFile(null);
     void lk.stopVideoFile();
@@ -92,6 +100,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     if (command.action === 'claimShare') {
       if (videoFile) { setVideoFile(null); void lk.stopVideoFile(); }
       if (lk.screenOn) void lk.toggleScreenShare();
+      return;
+    }
+    if (command.action === 'endMeeting') {
+      onLeave();
+      void churchAlert(t('meeting.meetingEndedNotice'));
       return;
     }
     if (command.targetUserId !== ownUserId) return;
@@ -121,7 +134,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-gray-900/80 px-4 py-3">
         <button
           type="button"
-          onClick={onLeave}
+          onClick={() => void leaveRoom()}
           className="flex min-w-0 items-center gap-1 text-sm font-semibold text-gray-300 hover:text-white"
         >
           <ChevronLeft size={18} className="shrink-0" />
@@ -185,12 +198,12 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             canLead={bible.canLead}
             hostScroll={bible.hostScroll}
             onReportScroll={bible.reportScroll}
-            expanded={bibleExpanded}
+            expanded={bible.expanded}
             onShowContents={bible.showContents}
             onSelectBook={bible.selectBook}
             onSelectChapter={bible.selectChapter}
-            onToggleExpanded={() => setBibleExpanded((v) => !v)}
-            onClose={() => { bible.close(); setBibleExpanded(false); }}
+            onToggleExpanded={bible.toggleExpanded}
+            onClose={bible.close}
           />
         )}
 
@@ -249,7 +262,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onToggleMembers={() => setMembersOpen((v) => !v)}
         onToggleBible={bible.toggle}
         onToggleVideoFile={toggleVideoFile}
-        onLeave={onLeave}
+        onLeave={() => void leaveRoom()}
       />
     </div>
   );
