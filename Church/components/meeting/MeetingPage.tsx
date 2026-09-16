@@ -188,7 +188,7 @@ export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
                     <h3 className="mb-1 text-lg font-bold text-gray-900 sm:mb-2 sm:text-xl">{localizeMeetingRoomText(r.name, language)}</h3>
                     <p className="text-gray-600">{localizeMeetingRoomText(r.schedule, language)}</p>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
+                  <div className="flex shrink-0 items-center gap-3">
                     <label className="flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-gray-700">
                       <input
                         type="checkbox"
