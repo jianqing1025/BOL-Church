@@ -28,6 +28,8 @@ import {
   type SnapshotDeps,
 } from './snapshot/snapshot';
 import { shouldRebuildSnapshot } from './snapshot/rebuildTrigger';
+import { decodeCursor } from './snapshot/cursor';
+import { buildKeysetQuery, normalizeLimit, slicePage, type SermonKind } from './snapshot/pagination';
 
 type Env = {
   DB: D1Database;
@@ -1438,6 +1440,44 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
   }
 
   return json(payload);
+}
+
+function parseKind(raw: string | null): SermonKind {
+  return raw === 'daily-manna' ? 'daily-manna' : 'sermon';
+}
+
+async function handleSermonPage(env: Env, url: URL): Promise<Response> {
+  const kind = parseKind(url.searchParams.get('type'));
+  // 游標壞掉就當作沒有游標回第一頁，不要回 500。
+  const cursor = decodeCursor(url.searchParams.get('cursor'));
+  const limit = normalizeLimit(url.searchParams.get('limit'));
+  const { sql, binds } = buildKeysetQuery(kind, cursor, limit);
+
+  const result = await env.DB.prepare(sql).bind(...binds).all<SermonRow & DailyMannaRow>();
+  const page = slicePage(result.results ?? [], limit);
+  const map = kind === 'sermon' ? mapSermon : mapDailyManna;
+
+  return json({ items: page.items.map(row => map(row as never)), nextCursor: page.nextCursor });
+}
+
+async function handleSermonCatalogue(env: Env): Promise<Response> {
+  const entries = await readCatalogue(snapshotDeps(env));
+  return new Response(JSON.stringify(entries), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      // 瀏覽器端快取 5 分鐘：搜尋目錄不常變，也不必每次開搜尋都重新下載。
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+}
+
+async function handleSermonById(env: Env, url: URL, id: string): Promise<Response> {
+  const kind = parseKind(url.searchParams.get('type'));
+  const table = kind === 'sermon' ? 'sermons' : 'daily_manna';
+  const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(id).first();
+  if (!row) return notFound('Sermon not found');
+  const map = kind === 'sermon' ? mapSermon : mapDailyManna;
+  return json(map(row as never));
 }
 
 async function handleAnalyticsSummary(env: Env): Promise<Response> {
@@ -4490,6 +4530,22 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     if (url.pathname.startsWith('/api/images/') && request.method === 'GET') {
       const objectKey = decodeURIComponent(url.pathname.replace('/api/images/', ''));
       return handleImageObject(env, objectKey);
+    }
+
+    // 以下三條必須排在 `/api/sermons/` 的 startsWith 判斷之前 ——
+    // 那一條沒有檢查 method，會把 GET /api/sermons/catalogue 一起吃掉。
+    if (url.pathname === '/api/sermons/catalogue' && request.method === 'GET') {
+      return handleSermonCatalogue(env);
+    }
+
+    if (url.pathname === '/api/sermons' && request.method === 'GET') {
+      return handleSermonPage(env, url);
+    }
+
+    if (url.pathname.startsWith('/api/sermons/') && request.method === 'GET') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      if (!id) return badRequest('Missing sermon id');
+      return handleSermonById(env, url, id);
     }
 
     if (url.pathname === '/api/sermons' && request.method === 'POST') {
