@@ -19,6 +19,15 @@ import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stri
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
 import { friendlyMessage } from './snapshot/friendlyMessage';
+import {
+  readSiteSnapshot,
+  readCatalogue,
+  rebuildSnapshots,
+  type SiteSnapshot,
+  type CatalogueEntry,
+  type SnapshotDeps,
+} from './snapshot/snapshot';
+import { shouldRebuildSnapshot } from './snapshot/rebuildTrigger';
 
 type Env = {
   DB: D1Database;
@@ -1334,6 +1343,57 @@ async function ensureSeedData(env: Env): Promise<void> {
       ).run();
     }
   }
+}
+
+// 把 Env 轉成 snapshot 模組要的介面。昂貴查詢只集中在這裡。
+function snapshotDeps(env: Env): SnapshotDeps {
+  return {
+    kv: {
+      get: key => env.SNAPSHOT.get(key),
+      put: (key, value) => env.SNAPSHOT.put(key, value),
+    },
+    buildSite: async () => {
+      const [content, images, sermonCount, mannaCount] = await Promise.all([
+        getSiteContent(env),
+        getSetting<Record<string, string>>(env, 'images', {}),
+        env.DB.prepare('SELECT COUNT(*) AS count FROM sermons').first<{ count: number }>(),
+        env.DB.prepare('SELECT COUNT(*) AS count FROM daily_manna').first<{ count: number }>(),
+      ]);
+      return {
+        content,
+        images,
+        stats: {
+          sermonCount: Number(sermonCount?.count || 0),
+          mannaCount: Number(mannaCount?.count || 0),
+        },
+        builtAt: new Date().toISOString(),
+      } satisfies SiteSnapshot;
+    },
+    buildCatalogue: async () => {
+      const [sermons, manna] = await Promise.all([
+        env.DB.prepare(
+          "SELECT id, title_en, title_zh, date, youtube_id FROM sermons WHERE type = 'sermon' ORDER BY date DESC, id DESC",
+        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null }>(),
+        env.DB.prepare(
+          'SELECT id, title_en, title_zh, date, youtube_id FROM daily_manna ORDER BY date DESC, id DESC',
+        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null }>(),
+      ]);
+      const toEntry = (type: CatalogueEntry['type']) => (row: {
+        id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null;
+      }): CatalogueEntry => ({
+        id: row.id,
+        type,
+        titleEn: row.title_en,
+        titleZh: row.title_zh,
+        date: row.date,
+        youtubeId: row.youtube_id,
+      });
+      return [
+        ...(sermons.results ?? []).map(toEntry('sermon')),
+        ...(manna.results ?? []).map(toEntry('daily-manna')),
+      ];
+    },
+  };
 }
 
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
@@ -4847,7 +4907,13 @@ const worker: ExportedHandler<Env> = {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     try {
-      return await route(request, env, url);
+      const response = await route(request, env, url);
+      if (shouldRebuildSnapshot(request.method, url.pathname, response.status)) {
+        // 重建失敗不能影響這次寫入的回應 —— 資料已經進 D1 了，
+        // 下一次讀取 miss 時會自行重建。
+        ctx.waitUntil(rebuildSnapshots(snapshotDeps(env)).catch(() => undefined));
+      }
+      return response;
     } catch (caught) {
       return json({ error: friendlyMessage(caught) }, 500);
     }
@@ -4865,6 +4931,7 @@ const worker: ExportedHandler<Env> = {
             // 同步剛拉進來的正式崇拜 VOD 可能才是當天最長的那場 → 回頭對帳直播列表
             await reconcileRecentLiveBroadcastDays(env).catch(() => undefined);
             await sendUploadsSyncNotification(env, result);
+            await rebuildSnapshots(snapshotDeps(env)).catch(() => undefined);
           })
           .catch(() => undefined)
       );
