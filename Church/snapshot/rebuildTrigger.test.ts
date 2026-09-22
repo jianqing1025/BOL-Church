@@ -13,6 +13,8 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/admin/daily-manna/abc/move', 200)).toBe(true);
     expect(shouldRebuildSnapshot('PATCH', '/api/admin/daily-manna/abc/visibility', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels/abc/sync', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/live-stream/probe', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('POST', '/api/live/refresh', 200)).toBe(true);
   });
 
   it('讀取不重建', () => {
@@ -31,6 +33,7 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/prayer-requests', 200)).toBe(false);
     expect(shouldRebuildSnapshot('POST', '/api/live/chat', 200)).toBe(false);
     expect(shouldRebuildSnapshot('POST', '/api/auth/login', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('POST', '/api/live/join', 200)).toBe(false);
   });
 
   it('不會被前綴相近的路徑誤觸', () => {

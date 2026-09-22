@@ -1374,14 +1374,14 @@ function snapshotDeps(env: Env): SnapshotDeps {
     buildCatalogue: async () => {
       const [sermons, manna] = await Promise.all([
         env.DB.prepare(
-          "SELECT id, title_en, title_zh, date, youtube_id FROM sermons WHERE type = 'sermon' ORDER BY date DESC, id DESC",
-        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null }>(),
+          "SELECT id, title_en, title_zh, date, youtube_id, hidden FROM sermons WHERE type = 'sermon' ORDER BY date DESC, id DESC",
+        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number }>(),
         env.DB.prepare(
-          'SELECT id, title_en, title_zh, date, youtube_id FROM daily_manna ORDER BY date DESC, id DESC',
-        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null }>(),
+          'SELECT id, title_en, title_zh, date, youtube_id, hidden FROM daily_manna ORDER BY date DESC, id DESC',
+        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number }>(),
       ]);
       const toEntry = (type: CatalogueEntry['type']) => (row: {
-        id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null;
+        id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number;
       }): CatalogueEntry => ({
         id: row.id,
         type,
@@ -1389,6 +1389,7 @@ function snapshotDeps(env: Env): SnapshotDeps {
         titleZh: row.title_zh,
         date: row.date,
         youtubeId: row.youtube_id,
+        hidden: Boolean(row.hidden),
       });
       return [
         ...(sermons.results ?? []).map(toEntry('sermon')),

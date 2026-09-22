@@ -15,6 +15,7 @@ export type CatalogueEntry = {
   titleZh: string;
   date: string;
   youtubeId: string | null;
+  hidden: boolean;
 };
 
 // 以介面注入，讓這個模組能在純 node 的 vitest 環境下測試，不需要 D1 或 KV。
@@ -41,8 +42,10 @@ async function readOrBuild<T>(
   const built = await build();
   try {
     await deps.kv.put(key, JSON.stringify(built));
-  } catch {
-    // 寫不回去不影響這次回應，下次 miss 會再試。
+  } catch (err) {
+    // 寫不回去不影響這次回應，下次 miss 會再試。但要留痕跡：
+    // KV 長期寫入失敗會讓每個請求都重建，比改造前還貴。
+    console.error('snapshot kv.put failed', key, err);
   }
   return built;
 }

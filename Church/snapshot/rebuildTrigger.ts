@@ -8,6 +8,8 @@ const SNAPSHOT_ROUTES = [
   '/api/admin/sermons',
   '/api/admin/daily-manna',
   '/api/admin/sync-channels',
+  '/api/admin/live-stream',
+  '/api/live/refresh',
 ];
 
 export function shouldRebuildSnapshot(method: string, pathname: string, status: number): boolean {
