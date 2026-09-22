@@ -804,6 +804,7 @@ const SNAPSHOT_ROUTES = [
   '/api/daily-manna',
   '/api/admin/sermons',
   '/api/admin/daily-manna',
+  '/api/admin/sync-channels',
 ];
 
 export function shouldRebuildSnapshot(method: string, pathname: string, status: number): boolean {
@@ -834,6 +835,12 @@ git commit -m "feat(church): 新增快照重建觸發判斷"
 1. **缺口（已修）**：`POST /api/admin/daily-manna/:id/move`（server.ts:4801）與 `PATCH /api/admin/daily-manna/:id/visibility`（4805）都會寫 `sermons` / `daily_manna`，但 `/api/admin/daily-manna` 不在清單裡。`handleMoveDailyManna` 會把一筆資料在兩張表之間搬移，同時改變搜尋目錄與 `stats` 計數 —— 漏掉的話快照會一直舊到四小時後的 cron 才修正，正是「我明明存了卻沒變」。已加入該前綴。
 
 2. **浪費（不修）**：`POST /api/admin/sermons/:id/move` 帶 `live-override` 時只寫 `live_stream_config`，不碰那四張表，卻會觸發一次重建。一次浪費約 4,900 列、頻率極低；要避免就得讓這個純函式去讀請求內容、跟 handler 內部邏輯耦合，代價比浪費本身更高。維持現狀。
+
+3. **第二個同類缺口（Task 8 審查時發現，已修）**：`POST /api/admin/sync-channels/:id/sync`（server.ts:4908 的 regex 分派）會經 `handleSyncChannelSync` → `syncChannelUploads` 寫入 `sermons` 與 `daily_manna` 並回 200，但 `/api/admin/sync-channels` 不在清單裡。已補上該前綴。
+
+   一份清單在短時間內漏掉兩條路由，說明「集中攔截」雖然比散在 20 幾處好，但**前綴清單本身仍是需要人工維護的東西**。日後新增 `/api/admin/*` 的寫入路由時仍須檢查這份清單。
+
+4. **重建失敗改為記錄**：原本兩處都是 `.catch(() => undefined)` 靜默吞掉，與 Task 1 開啟 observability 的用意矛盾——KV 長期故障會永遠無聲無息。改成 `.catch(err => console.error('snapshot rebuild failed', err))`，維持 fire-and-forget 但留下痕跡。
 
 ---
 
