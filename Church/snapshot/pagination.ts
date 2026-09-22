@@ -7,7 +7,7 @@ export const MAX_PAGE_SIZE = 50;
 
 export function normalizeLimit(raw: string | null | undefined): number {
   const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_PAGE_SIZE;
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_PAGE_SIZE;
   return Math.min(Math.floor(value), MAX_PAGE_SIZE);
 }
 

@@ -12,6 +12,8 @@ describe('normalizeLimit', () => {
   it('夾在上限內，避免有人要一次拿 10000 筆', () => {
     expect(normalizeLimit('10')).toBe(10);
     expect(normalizeLimit('9999')).toBe(MAX_PAGE_SIZE);
+    expect(normalizeLimit('0.5')).toBe(DEFAULT_PAGE_SIZE);
+    expect(normalizeLimit('0.9')).toBe(DEFAULT_PAGE_SIZE);
   });
 });
 
