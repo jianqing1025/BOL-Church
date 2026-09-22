@@ -31,6 +31,11 @@ bucket_name = "your-r2-bucket-name"
 binding = "CHURCH_PHOTOS_BUCKET"
 bucket_name = "church-photos"
 
+[[kv_namespaces]]
+binding = "SNAPSHOT"
+id = "your-snapshot-kv-namespace-id"
+preview_id = "your-snapshot-kv-preview-id"
+
 [vars]
 ADMIN_BOOTSTRAP_EMAIL = "lijianqing@outlook.com"
 ADMIN_BOOTSTRAP_NAME = "Owner"

@@ -23,6 +23,8 @@ import { friendlyMessage } from './snapshot/friendlyMessage';
 type Env = {
   DB: D1Database;
   PHOTOS_DB: D1Database;
+  /** 公開內容快照；讀取路徑不查 D1 全靠它 */
+  SNAPSHOT: KVNamespace;
   MEDIA_BUCKET: R2Bucket;
   CHURCH_PHOTOS_BUCKET: R2Bucket;
   ASSETS: Fetcher;
