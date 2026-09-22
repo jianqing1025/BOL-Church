@@ -1150,8 +1150,8 @@ async function handleUpdateMe(request: Request, env: Env): Promise<Response> {
     return unauthorized('Current password is incorrect.');
   }
 
-  if (passwordChanged && (payload.newPassword || '').length < 8) {
-    return badRequest('New password must be at least 8 characters.');
+  if (passwordChanged && (payload.newPassword || '').length < 6) {
+    return badRequest('New password must be at least 6 characters.');
   }
 
   let passwordHash = existing.password_hash;
@@ -1198,8 +1198,8 @@ async function handleUsers(request: Request, env: Env): Promise<Response> {
     const password = payload.password || '';
     const role = payload.role;
 
-    if (!name || !email || password.length < 8 || !role || !['owner', 'contributor'].includes(role)) {
-      return badRequest('Name, email, an 8+ character password, and role are required.');
+    if (!name || !email || password.length < 6 || !role || !['owner', 'contributor'].includes(role)) {
+      return badRequest('Name, email, a 6+ character password, and role are required.');
     }
 
     const now = new Date().toISOString();
@@ -1247,8 +1247,8 @@ async function handleUserById(request: Request, env: Env, id: string): Promise<R
     let passwordSalt = existing.password_salt;
 
     if (payload.password) {
-      if (payload.password.length < 8) {
-        return badRequest('Password must be at least 8 characters.');
+      if (payload.password.length < 6) {
+        return badRequest('Password must be at least 6 characters.');
       }
       const nextPassword = await hashPassword(payload.password);
       passwordHash = nextPassword.hash;
@@ -2924,6 +2924,10 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
       await setReplayVideoForDay(env, exists.date, representative || videoId, { force: true });
       await updateLiveStreamState(env, { is_live: 0, video_id: null, started_at: null, checked_at: Date.now(), last_error: null });
       await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
+      // 歸檔會改動 sermons。這個函式也走 GET /api/live-stream 的心跳路徑，
+      // 而 router 出口的觸發判斷對所有 GET 一律不重建（那是刻意的）。
+      // 所以在改動點就地重建，不依賴那份路由前綴清單 —— 它已經漏掉過四條路由。
+      await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
       return;
     }
 
@@ -2975,6 +2979,10 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
 
     // 歸檔完成 → 清掉這場直播的 seen 記錄
     await env.DB.prepare('DELETE FROM live_session_seen WHERE video_id = ?').bind(videoId).run();
+    // 歸檔會改動 sermons。這個函式也走 GET /api/live-stream 的心跳路徑，
+    // 而 router 出口的觸發判斷對所有 GET 一律不重建（那是刻意的）。
+    // 所以在改動點就地重建，不依賴那份路由前綴清單 —— 它已經漏掉過四條路由。
+    await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
   } catch (err) {
     // 不影響 cron 主流程
     console.error('Archive sermon failed', err);
