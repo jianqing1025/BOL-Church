@@ -18,6 +18,7 @@ import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind }
 import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
 import { ChatRoom } from './meeting/chatRoom';
 import { handleMeeting } from './meeting/meetingApi';
+import { friendlyMessage } from './snapshot/friendlyMessage';
 
 type Env = {
   DB: D1Database;
@@ -4236,9 +4237,7 @@ function validateTimeOrDefault(value: string | undefined, fallback: string): str
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback;
 }
 
-const worker: ExportedHandler<Env> = {
-  async fetch(request, env): Promise<Response> {
-    const url = new URL(request.url);
+async function route(request: Request, env: Env, url: URL): Promise<Response> {
 
     const meetingResponse = await handleMeeting(request, env, url);
     if (meetingResponse) return meetingResponse;
@@ -4840,6 +4839,16 @@ const worker: ExportedHandler<Env> = {
     }
 
     return assetResponse;
+}
+
+const worker: ExportedHandler<Env> = {
+  async fetch(request, env, ctx): Promise<Response> {
+    const url = new URL(request.url);
+    try {
+      return await route(request, env, url);
+    } catch (caught) {
+      return json({ error: friendlyMessage(caught) }, 500);
+    }
   },
 
   async scheduled(event, env, ctx): Promise<void> {
