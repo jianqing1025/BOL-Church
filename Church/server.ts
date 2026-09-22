@@ -1397,19 +1397,23 @@ function snapshotDeps(env: Env): SnapshotDeps {
 }
 
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
-  await ensureSeedData(env);
-  const currentUser = await getCurrentUser(request, env);
+  // ensureSeedData 已移出熱路徑：它是初始化邏輯，卻讓每次頁面載入多付
+  // COUNT(*) FROM site_content(546) + COUNT(*) FROM sermons(1202) = 1,748 列,
+  // 還會對 sermons 發一次注定失敗的 ALTER TABLE。改由 cron 與 migration 負責。
+  const [snapshot, currentUser] = await Promise.all([
+    readSiteSnapshot(snapshotDeps(env)),
+    getCurrentUser(request, env),
+  ]);
 
-  const [content, images, sermonsResult, dailyMannaResult] = await Promise.all([
-    getSiteContent(env),
-    getSetting<Record<string, string>>(env, 'images', {}),
+  const [sermonsResult, dailyMannaResult] = await Promise.all([
     env.DB.prepare("SELECT * FROM sermons WHERE type = 'sermon' ORDER BY date DESC").all<SermonRow>(),
     env.DB.prepare('SELECT * FROM daily_manna ORDER BY date DESC').all<DailyMannaRow>(),
   ]);
 
   const payload: Record<string, unknown> = {
-    content,
-    images,
+    content: snapshot.content,
+    images: snapshot.images,
+    stats: snapshot.stats,
     sermons: (sermonsResult.results ?? []).map(mapSermon),
     dailyManna: (dailyMannaResult.results ?? []).map(mapDailyManna),
     messages: [],
@@ -4925,6 +4929,7 @@ const worker: ExportedHandler<Env> = {
     //  - "0 * * * *"    每小時輪轉刷新一批 sermon/manna 的元數據(時長/播放數)
     //  - 其它（"*/5 17-22 * * SUN"） live 偵測
     if (event.cron === '0 */4 * * *') {
+      ctx.waitUntil(ensureSeedData(env).catch(() => undefined));
       ctx.waitUntil(
         syncAllChannels(env, { target: 'all' })
           .then(async result => {
