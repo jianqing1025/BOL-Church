@@ -98,6 +98,14 @@ function error(message: string, status = 400) {
   return json({ error: message }, status);
 }
 
+// D1 免費方案的每日讀取額度用盡時，原始訊息是一長串英文技術細節加上文件連結，
+// 直接丟到畫面上使用者看不懂。其餘錯誤照原樣傳出，方便排查。
+function friendlyMessage(caught: unknown): string {
+  const raw = caught instanceof Error ? caught.message : '';
+  if (raw.includes('daily row read limit')) return 'Database read limit reached. Resets daily.';
+  return raw || 'Unexpected server error';
+}
+
 function getCookie(request: Request, name: string) {
   const cookie = request.headers.get('Cookie') || '';
   return cookie.split(';').map(item => item.trim()).find(item => item.startsWith(`${name}=`))?.slice(name.length + 1) || '';
@@ -974,14 +982,16 @@ async function dashboard(env: Env, testFlag: number) {
   const prevWeekStart = previousWeek.toISOString().slice(0, 10);
   const t = testFlag ? 1 : 0;
 
-  const weekOffering = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND is_test = ${t}`).bind(weekStart).first<any>();
-  const prevOffering = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND date < ? AND is_test = ${t}`).bind(prevWeekStart, weekStart).first<any>();
-  const monthExpense = await env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE substr(date, 1, 7) = ? AND status = 'approved' AND is_test = ${t}`).bind(month).first<any>();
-  const budget = await env.DB.prepare('SELECT COALESCE(SUM(budget_monthly), 0) AS total FROM expense_categories').first<any>();
-  const pending = await env.DB.prepare(`SELECT COUNT(*) AS count FROM expenses WHERE status = 'pending' AND is_test = ${t}`).first<any>();
-  const newMembers = await env.DB.prepare(`SELECT COUNT(*) AS count FROM members WHERE substr(join_date, 1, 7) = ? AND is_test = ${t}`).bind(month).first<any>();
-  const trend = await env.DB.prepare(`SELECT substr(date, 1, 7) AS label, SUM(amount) AS amount FROM offerings WHERE is_test = ${t} GROUP BY label ORDER BY label DESC LIMIT 12`).all<any>();
-  const incomeExpense = await env.DB.prepare(
+  // 8 條統計查詢彼此無相依：併發送出，省下 7 次來回，也少 7 次撞上 D1 暫時性故障的機會。
+  const [weekOffering, prevOffering, monthExpense, budget, pending, newMembers, trend, incomeExpense] = await Promise.all([
+    env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND is_test = ${t}`).bind(weekStart).first<any>(),
+    env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND date < ? AND is_test = ${t}`).bind(prevWeekStart, weekStart).first<any>(),
+    env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE substr(date, 1, 7) = ? AND status = 'approved' AND is_test = ${t}`).bind(month).first<any>(),
+    env.DB.prepare('SELECT COALESCE(SUM(budget_monthly), 0) AS total FROM expense_categories').first<any>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM expenses WHERE status = 'pending' AND is_test = ${t}`).first<any>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM members WHERE substr(join_date, 1, 7) = ? AND is_test = ${t}`).bind(month).first<any>(),
+    env.DB.prepare(`SELECT substr(date, 1, 7) AS label, SUM(amount) AS amount FROM offerings WHERE is_test = ${t} GROUP BY label ORDER BY label DESC LIMIT 12`).all<any>(),
+    env.DB.prepare(
     `WITH months AS (
        SELECT substr(date, 1, 7) AS label FROM offerings WHERE is_test = ${t}
        UNION
@@ -991,7 +1001,8 @@ async function dashboard(env: Env, testFlag: number) {
        COALESCE((SELECT SUM(amount) FROM offerings WHERE substr(date, 1, 7) = months.label AND is_test = ${t}), 0) AS offerings,
        COALESCE((SELECT SUM(amount) FROM expenses WHERE substr(date, 1, 7) = months.label AND status = 'approved' AND is_test = ${t}), 0) AS expenses
      FROM months ORDER BY months.label DESC LIMIT 6`
-  ).all<any>();
+    ).all<any>()
+  ]);
 
   const current = Number(weekOffering?.total || 0);
   const previous = Number(prevOffering?.total || 0);
@@ -1032,11 +1043,11 @@ const worker: ExportedHandler<Env> = {
       }
 
       if (url.pathname === '/api/public/claim-options' && request.method === 'GET') {
-        return publicClaimOptions(env);
+        return await publicClaimOptions(env);
       }
 
       if (url.pathname === '/api/public/claims' && request.method === 'POST') {
-        return createPublicClaim(env, request);
+        return await createPublicClaim(env, request);
       }
 
       if (url.pathname === '/api/public/claim-upload' && request.method === 'POST') {
@@ -1092,7 +1103,7 @@ const worker: ExportedHandler<Env> = {
       }
 
       if (url.pathname === '/expense-action' && request.method === 'GET') {
-        return handleExpenseActionLink(env, url, request);
+        return await handleExpenseActionLink(env, url, request);
       }
 
       if (url.pathname === '/api/auth/forgot-password' && request.method === 'POST') {
@@ -1187,7 +1198,7 @@ const worker: ExportedHandler<Env> = {
           return json({ ok: true });
         }
 
-        if (url.pathname === '/api/finance/dashboard') return dashboard(env, testFlag);
+        if (url.pathname === '/api/finance/dashboard') return await dashboard(env, testFlag);
 
         if (url.pathname === '/api/backup/export' && request.method === 'GET') {
           if (!canManageSettings(user.role)) return error('Forbidden', 403);
@@ -1292,10 +1303,10 @@ const worker: ExportedHandler<Env> = {
           return json({ ok: true });
         }
 
-        if (url.pathname === '/api/members' && request.method === 'GET') return listMembers(env, url, testFlag, user.role === 'counter');
-        if (url.pathname === '/api/offerings' && request.method === 'GET') return listOfferings(env, testFlag, user.role === 'counter' ? user.id : undefined);
-        if (url.pathname === '/api/expenses' && request.method === 'GET') return listExpenses(env, testFlag);
-        if (url.pathname === '/api/audit-logs' && request.method === 'GET') return listAuditLogs(env);
+        if (url.pathname === '/api/members' && request.method === 'GET') return await listMembers(env, url, testFlag, user.role === 'counter');
+        if (url.pathname === '/api/offerings' && request.method === 'GET') return await listOfferings(env, testFlag, user.role === 'counter' ? user.id : undefined);
+        if (url.pathname === '/api/expenses' && request.method === 'GET') return await listExpenses(env, testFlag);
+        if (url.pathname === '/api/audit-logs' && request.method === 'GET') return await listAuditLogs(env);
 
         if (url.pathname === '/api/reports/tax-signature' && request.method === 'GET') {
           const settings = await readTaxStatementSettings(env);
@@ -1885,9 +1896,9 @@ const worker: ExportedHandler<Env> = {
         return error('Not found', 404);
       }
 
-      return env.ASSETS.fetch(request);
+      return await env.ASSETS.fetch(request);
     } catch (caught) {
-      return error(caught instanceof Error ? caught.message : 'Unexpected server error', 500);
+      return error(friendlyMessage(caught), 500);
     }
   }
 };
