@@ -7,6 +7,7 @@ const SNAPSHOT_ROUTES = [
   '/api/daily-manna',
   '/api/admin/sermons',
   '/api/admin/daily-manna',
+  '/api/admin/sync-channels',
 ];
 
 export function shouldRebuildSnapshot(method: string, pathname: string, status: number): boolean {

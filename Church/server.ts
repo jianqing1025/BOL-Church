@@ -4971,7 +4971,7 @@ const worker: ExportedHandler<Env> = {
       if (shouldRebuildSnapshot(request.method, url.pathname, response.status)) {
         // 重建失敗不能影響這次寫入的回應 —— 資料已經進 D1 了，
         // 下一次讀取 miss 時會自行重建。
-        ctx.waitUntil(rebuildSnapshots(snapshotDeps(env)).catch(() => undefined));
+        ctx.waitUntil(rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err)));
       }
       return response;
     } catch (caught) {
@@ -4992,7 +4992,7 @@ const worker: ExportedHandler<Env> = {
             // 同步剛拉進來的正式崇拜 VOD 可能才是當天最長的那場 → 回頭對帳直播列表
             await reconcileRecentLiveBroadcastDays(env).catch(() => undefined);
             await sendUploadsSyncNotification(env, result);
-            await rebuildSnapshots(snapshotDeps(env)).catch(() => undefined);
+            await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
           })
           .catch(() => undefined)
       );

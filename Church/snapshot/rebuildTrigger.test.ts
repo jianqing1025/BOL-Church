@@ -12,6 +12,7 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/admin/sermons/sync-youtube', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/daily-manna/abc/move', 200)).toBe(true);
     expect(shouldRebuildSnapshot('PATCH', '/api/admin/daily-manna/abc/visibility', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels/abc/sync', 200)).toBe(true);
   });
 
   it('讀取不重建', () => {
