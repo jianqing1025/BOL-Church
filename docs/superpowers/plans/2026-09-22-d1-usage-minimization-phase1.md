@@ -200,7 +200,8 @@ git commit -m "fix(church): 補上 fetch catch-all 與 D1 額度友善訊息，�
 ### Task 2: KV namespace 與 binding
 
 **Files:**
-- Modify: `Church/wrangler.toml`
+- Modify: `Church/wrangler.toml`（本機，gitignore 不進版控）
+- Modify: `Church/wrangler.example.toml`（追蹤中的範本）
 - Modify: `Church/server.ts`（`Env` 型別，第 30 行附近）
 
 - [ ] **Step 1: 建立 KV namespace**
@@ -220,9 +221,11 @@ export CLOUDFLARE_ACCOUNT_ID=953bb353d5d63c4249b8fec0b83d805d
 export CLOUDFLARE_API_TOKEN=<有 KV 與 D1 權限的 token>
 ```
 
-- [ ] **Step 2: 寫進 wrangler.toml**
+- [ ] **Step 2: 寫進 wrangler.toml 與範本**
 
-在 `Church/wrangler.toml` 的 `[[r2_buckets]]` 區塊之後加入（把 `id` / `preview_id` 換成上一步印出的值）：
+**注意：`Church/wrangler.toml` 被 gitignore（見 `Church/.gitignore:19`），它含有真實的 account_id / zone_id，永遠不要 `git add -f` 它。** repo 追蹤的是 `Church/wrangler.example.toml` 這個佔位範本，設定變更要同步過去才會留在版本控制裡。
+
+先改真實檔案 `Church/wrangler.toml`，在 `[[r2_buckets]]` 區塊之後加入（把 `id` / `preview_id` 換成上一步印出的值）：
 
 ```toml
 [[kv_namespaces]]
@@ -230,6 +233,17 @@ binding = "SNAPSHOT"
 id = "<上一步印出的 id>"
 preview_id = "<上一步印出的 preview_id>"
 ```
+
+再改範本 `Church/wrangler.example.toml`，同一個位置加入佔位版本：
+
+```toml
+[[kv_namespaces]]
+binding = "SNAPSHOT"
+id = "your-snapshot-kv-namespace-id"
+preview_id = "your-snapshot-kv-preview-id"
+```
+
+範本裡其他既有的落差（缺第三條 cron `"0 * * * *"`、缺部分 vars）是先前就存在的，**不要順手修**，不屬於這個 Task。
 
 - [ ] **Step 3: 加進 Env 型別**
 
@@ -248,9 +262,11 @@ Expected: 沒有輸出
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Church/wrangler.toml Church/server.ts
+git add Church/wrangler.example.toml Church/server.ts
 git commit -m "feat(church): 新增 SNAPSHOT KV binding"
 ```
+
+`Church/wrangler.toml` 不在 `git add` 清單內，因為它被 gitignore。改動只存在於本機，這是刻意的。
 
 ---
 
