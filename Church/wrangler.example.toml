@@ -2,6 +2,10 @@ name = "your-worker-name"
 main = "server.ts"
 compatibility_date = "2026-04-13"
 
+# 開啟 Workers Logs，例外發生時才有堆疊可查。
+[observability]
+enabled = true
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
