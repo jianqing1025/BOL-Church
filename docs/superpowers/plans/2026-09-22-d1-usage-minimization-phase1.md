@@ -204,7 +204,7 @@ git commit -m "fix(church): 補上 fetch catch-all 與 D1 額度友善訊息，�
 - Modify: `Church/wrangler.example.toml`（追蹤中的範本）
 - Modify: `Church/server.ts`（`Env` 型別，第 30 行附近）
 
-- [ ] **Step 1: 建立 KV namespace**
+- [ ] **Step 1: 建立 KV namespace（已知卡住，見下）**
 
 ```bash
 cd Church
@@ -214,24 +214,33 @@ npx wrangler kv namespace create SNAPSHOT --preview
 
 Expected: 各印出一段可貼進 `wrangler.toml` 的設定，含 `id` 與 `preview_id`。
 
-若出現 `code: 7403 not authorized`，表示用到了錯誤的 Cloudflare 帳號。先設定環境變數再重試：
+**⚠️ 目前這一步缺憑證，已查證過：**
 
-```bash
-export CLOUDFLARE_ACCOUNT_ID=953bb353d5d63c4249b8fec0b83d805d
-export CLOUDFLARE_API_TOKEN=<有 KV 與 D1 權限的 token>
-```
+| 憑證 | 狀況 |
+| --- | --- |
+| `Finance/.dev.vars` 的 token | 有 D1 與 analytics 權限，**沒有 KV 權限**（回 `10000 Authentication error`） |
+| `Church/.dev.vars` | 根本沒有 `CLOUDFLARE_API_TOKEN` |
+| wrangler OAuth session | 有 `workers_kv (write)`，但綁在**個人帳號** `be3d95c2f0211bfc68b26e41ef1a3366`，不是 worker 部署的教會帳號 `953bb353d5d63c4249b8fec0b83d805d` |
+
+用 OAuth 建會建到錯的帳號，那個 namespace worker 綁不到。
+
+解法擇一（需要人操作）：
+1. 在 Cloudflare 後台的教會帳號底下手動建立名為 `SNAPSHOT` 的 KV namespace，把 id 抄回來
+2. 產一個對教會帳號有 `Workers KV Storage:Edit` 權限的 API token，設成 `CLOUDFLARE_API_TOKEN` 後重跑上面的指令
+
+**在拿到真實 id 之前，本 Task 其餘步驟照常進行，`wrangler.toml` 先填佔位字串。** `wrangler dev --local` 的 KV 是模擬的，不會去驗證 id 是否真實存在，所以 Task 3–10 的本機驗證完全不受影響。真實 id 在 Task 11 部署前補上即可。
 
 - [ ] **Step 2: 寫進 wrangler.toml 與範本**
 
 **注意：`Church/wrangler.toml` 被 gitignore（見 `Church/.gitignore:19`），它含有真實的 account_id / zone_id，永遠不要 `git add -f` 它。** repo 追蹤的是 `Church/wrangler.example.toml` 這個佔位範本，設定變更要同步過去才會留在版本控制裡。
 
-先改真實檔案 `Church/wrangler.toml`，在 `[[r2_buckets]]` 區塊之後加入（把 `id` / `preview_id` 換成上一步印出的值）：
+先改真實檔案 `Church/wrangler.toml`，在 `[[r2_buckets]]` 區塊之後加入。若 Step 1 尚未拿到真實 id，就照下面原樣填佔位字串，並在 Task 11 部署前換掉：
 
 ```toml
 [[kv_namespaces]]
 binding = "SNAPSHOT"
-id = "<上一步印出的 id>"
-preview_id = "<上一步印出的 preview_id>"
+id = "PLACEHOLDER_REPLACE_BEFORE_DEPLOY"
+preview_id = "PLACEHOLDER_REPLACE_BEFORE_DEPLOY"
 ```
 
 再改範本 `Church/wrangler.example.toml`，同一個位置加入佔位版本：
@@ -1161,6 +1170,16 @@ git commit -m "feat(church): 新增講道分頁、搜尋目錄與單筆詳情端
 ### Task 11: 部署到 dev 並驗證
 
 **Files:** 無（只有部署與驗證）
+
+- [ ] **Step 0: 補上真實的 KV namespace id**
+
+Task 2 若是用佔位字串帶過的，現在必須換成真實 id，否則部署會失敗。
+
+```bash
+cd Church && grep -n "PLACEHOLDER_REPLACE_BEFORE_DEPLOY" wrangler.toml
+```
+
+若有命中，先依 Task 2 Step 1 的兩個解法之一取得真實 id 再繼續。**不要用 wrangler 的 OAuth session 建**，它在個人帳號底下。
 
 - [ ] **Step 1: 全套測試與建置**
 
