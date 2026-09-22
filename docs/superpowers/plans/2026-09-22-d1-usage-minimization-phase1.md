@@ -417,6 +417,8 @@ describe('normalizeLimit', () => {
   it('夾在上限內，避免有人要一次拿 10000 筆', () => {
     expect(normalizeLimit('10')).toBe(10);
     expect(normalizeLimit('9999')).toBe(MAX_PAGE_SIZE);
+    expect(normalizeLimit('0.5')).toBe(DEFAULT_PAGE_SIZE);
+    expect(normalizeLimit('0.9')).toBe(DEFAULT_PAGE_SIZE);
   });
 });
 
@@ -513,7 +515,9 @@ export const MAX_PAGE_SIZE = 50;
 
 export function normalizeLimit(raw: string | null | undefined): number {
   const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_PAGE_SIZE;
+  // 守衛要用 < 1 而不是 <= 0：0.5 能通過 <= 0，卻會被 Math.floor 壓成 0，
+  // 讓 slicePage 去取 items[-1] 而崩潰。?limit=0.5 就能打出 500。
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_PAGE_SIZE;
   return Math.min(Math.floor(value), MAX_PAGE_SIZE);
 }
 
