@@ -753,6 +753,8 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('PUT', '/api/sermons/abc', 200)).toBe(true);
     expect(shouldRebuildSnapshot('DELETE', '/api/daily-manna/abc', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/sermons/sync-youtube', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/daily-manna/abc/move', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('PATCH', '/api/admin/daily-manna/abc/visibility', 200)).toBe(true);
   });
 
   it('讀取不重建', () => {
@@ -797,6 +799,7 @@ const SNAPSHOT_ROUTES = [
   '/api/sermons',
   '/api/daily-manna',
   '/api/admin/sermons',
+  '/api/admin/daily-manna',
 ];
 
 export function shouldRebuildSnapshot(method: string, pathname: string, status: number): boolean {
@@ -817,6 +820,16 @@ Expected: PASS，5 tests
 git add Church/snapshot/rebuildTrigger.ts Church/snapshot/rebuildTrigger.test.ts
 git commit -m "feat(church): 新增快照重建觸發判斷"
 ```
+
+---
+
+### Task 7 執行時發現的兩件事（已處理）
+
+實作 Task 7 時做了完整的路由盤點，發現原本的 `SNAPSHOT_ROUTES` 有一個真實缺口：
+
+1. **缺口（已修）**：`POST /api/admin/daily-manna/:id/move`（server.ts:4801）與 `PATCH /api/admin/daily-manna/:id/visibility`（4805）都會寫 `sermons` / `daily_manna`，但 `/api/admin/daily-manna` 不在清單裡。`handleMoveDailyManna` 會把一筆資料在兩張表之間搬移，同時改變搜尋目錄與 `stats` 計數 —— 漏掉的話快照會一直舊到四小時後的 cron 才修正，正是「我明明存了卻沒變」。已加入該前綴。
+
+2. **浪費（不修）**：`POST /api/admin/sermons/:id/move` 帶 `live-override` 時只寫 `live_stream_config`，不碰那四張表，卻會觸發一次重建。一次浪費約 4,900 列、頻率極低；要避免就得讓這個純函式去讀請求內容、跟 handler 內部邏輯耦合，代價比浪費本身更高。維持現狀。
 
 ---
 
