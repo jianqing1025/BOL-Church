@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Users, ScreenShareOff } from 'lucide-react';
+import { ChevronLeft, MessageSquare, Users, ScreenShareOff } from 'lucide-react';
 import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
@@ -223,6 +223,25 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             </button>
           )}
         </div>
+        {room.hasVideo && (
+          <button
+            type="button"
+            onClick={() => setChatOpen((v) => !v)}
+            aria-label={t('meeting.chat')}
+            aria-pressed={chatOpen}
+            className={`relative flex shrink-0 items-center rounded-full px-2 py-1 transition-colors ${
+              chatOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <MessageSquare size={16} strokeWidth={1.5} />
+            {unread > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-gray-900">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setMembersOpen((v) => !v)}
