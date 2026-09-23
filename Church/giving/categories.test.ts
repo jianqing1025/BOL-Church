@@ -55,6 +55,26 @@ describe('parseCategories', () => {
     expect(second).not.toContain('污染標記');
     expect(second).toEqual(DEFAULT_CATEGORIES);
   });
+
+  it('非陣列的 JSON 物件回退到預設', () => {
+    expect(parseCategories('{"a":1}')).toEqual(['什一', '感恩', '建堂', '宣教', '愛心']);
+  });
+
+  it('非陣列的 JSON 純量回退到預設', () => {
+    expect(parseCategories('42')).toEqual(['什一', '感恩', '建堂', '宣教', '愛心']);
+  });
+
+  it('非陣列時回傳複本，非共用常數', () => {
+    expect(parseCategories('{"a":1}')).not.toBe(DEFAULT_CATEGORIES);
+  });
+
+  it('非陣列時回傳複本——變更結果不影響下次呼叫', () => {
+    const first = parseCategories('{"a":1}');
+    first.push('污染標記');
+    const second = parseCategories('{"a":1}');
+    expect(second).not.toContain('污染標記');
+    expect(second).toEqual(['什一', '感恩', '建堂', '宣教', '愛心']);
+  });
 });
 
 describe('isValidCategory', () => {
