@@ -80,14 +80,14 @@ const MENU_ICON = { size: 16, strokeWidth: 1.5 } as const;
  * Three marks with a ring in the middle.
  *
  * The icon set's own "more" is three solid dots, which at this stroke weight
- * looks heavier than everything beside it. Opening the middle one out into a
- * ring keeps the meaning and matches the line work.
+ * looks heavier than everything beside it. Three rings keep the meaning and
+ * match the line work of every other icon on the bar.
  */
 const MoreIcon: React.FC = () => (
   <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-    <circle cx="5" cy="12" r="1.15" fill="currentColor" />
-    <circle cx="12" cy="12" r="2.5" strokeWidth={ICON.strokeWidth} />
-    <circle cx="19" cy="12" r="1.15" fill="currentColor" />
+    <circle cx="4.6" cy="12" r="2.2" strokeWidth={1.3} />
+    <circle cx="12" cy="12" r="2.2" strokeWidth={1.3} />
+    <circle cx="19.4" cy="12" r="2.2" strokeWidth={1.3} />
   </svg>
 );
 
@@ -102,7 +102,7 @@ const MoreIcon: React.FC = () => (
  */
 const StopIcon: React.FC = () => (
   <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" aria-hidden="true">
-    <rect x="7" y="7" width="10" height="10" rx="2.5" fill="currentColor" />
+    <rect x="5.5" y="5.5" width="13" height="13" rx="3" fill="currentColor" />
   </svg>
 );
 
