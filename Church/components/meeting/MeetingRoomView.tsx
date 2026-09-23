@@ -64,7 +64,30 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   // The member list is presence; microphones belong to LiveKit participants.
   const micOn = microphoneStates(lk.participants);
   const connectionTrouble = troubleByUserId(lk.participants);
-  const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
+  /**
+   * Sharing an actual screen — not playing a video.
+   *
+   * A broadcast video goes out on the screen-share source on purpose, so that
+   * every viewer's stage promotes it without a second concept. The cost is
+   * that isScreenSharing() cannot tell the two apart, and treating a playing
+   * video as a screen share sent the stop button down the wrong path: it
+   * unpublished the track while the player stayed mounted, which then tried to
+   * publish again and was told somebody else was sharing.
+   */
+  const localSharing = lk.participants.some(
+    (p) => p.isLocal && LiveKitService.isScreenSharing(p) && !LiveKitService.isPlayingVideoFile(p),
+  );
+
+  /**
+   * Somebody else is holding the room's one shared picture.
+   *
+   * Three things can hold it and only two of them are LiveKit tracks: a screen
+   * share, a broadcast video file, and a YouTube video — which travels over the
+   * chat socket and so is invisible to shareSlotTaken. A host may take the slot
+   * from whoever has it; everybody else waits.
+   */
+  const slotHeldByOther = lk.shareSlotTaken || (roomVideo.videoId !== null && !roomVideo.canLead);
+  const videoDisabled = slotHeldByOther && !isHost;
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -180,9 +203,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   }, [isHost, onHostCommand]);
 
   const pickYouTubeVideo = useCallback(async () => {
-    if (lk.shareSlotTaken && !isHost) { await churchAlert(t('meeting.screenShareBusy')); return; }
+    // Same condition the button is greyed out by: a disabled control and the
+    // check behind it must not disagree about who may share.
+    if (videoDisabled) { await churchAlert(t('meeting.screenShareBusy')); return; }
     setYoutubeOpen(true);
-  }, [lk.shareSlotTaken, isHost, t]);
+  }, [videoDisabled, t]);
 
   const playYouTubeVideo = useCallback((videoId: string, startSeconds?: number) => {
     setYoutubeOpen(false);
@@ -205,10 +230,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
    * for a different control depending on which kind it is, while the room
    * waits, is the wrong thing to ask of someone mid-sentence.
    */
-  const sharing = localSharing
-    ? { label: t('meeting.stopShare'), stop: () => void lk.toggleScreenShare() }
-    : (videoFile || (roomVideo.videoId !== null && (roomVideo.canLead || isHost)))
-      ? { label: t('meeting.videoFileStop'), stop: stopSharedVideo }
+  const sharing = (videoFile || (roomVideo.videoId !== null && (roomVideo.canLead || isHost)))
+    ? { label: t('meeting.videoFileStop'), stop: stopSharedVideo }
+    : localSharing
+      ? { label: t('meeting.stopShare'), stop: () => void lk.toggleScreenShare() }
       : null;
 
   // Clear the badge when the chat is opened.
@@ -397,6 +422,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onStopSharedVideo={stopSharedVideo}
         onPickLocalVideo={pickLocalVideo}
         onPickYouTubeVideo={() => void pickYouTubeVideo()}
+        videoDisabled={videoDisabled}
         handRaised={lk.handRaised}
         isHost={isHost}
         raisedHands={raisedHands}

@@ -23,6 +23,8 @@ interface MeetingControlBarProps {
   onStopSharedVideo: () => void;
   onPickLocalVideo: () => void;
   onPickYouTubeVideo: () => void;
+  /** Somebody else holds the room's shared picture, so there is nothing to start. */
+  videoDisabled: boolean;
   /** Whether this participant has a hand up. */
   handRaised: boolean;
   /** Host sees "lower all hands"; members do not. */
@@ -154,27 +156,32 @@ const CircleButton: React.FC<{
   caption: string;
   active?: boolean;
   danger?: boolean;
+  disabled?: boolean;
   badge?: number;
   expanded?: boolean;
   onClick: () => void;
   children: React.ReactNode;
-}> = ({ label, caption, active, danger, badge, expanded, onClick, children }) => (
+}> = ({ label, caption, active, danger, disabled, badge, expanded, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
+    disabled={disabled}
+    title={label}
     aria-label={label}
     aria-pressed={expanded === undefined ? active : undefined}
     aria-haspopup={expanded === undefined ? undefined : 'menu'}
     aria-expanded={expanded}
-    className="flex shrink-0 flex-col items-center gap-1"
+    className="flex shrink-0 flex-col items-center gap-1 disabled:cursor-not-allowed"
   >
     <span
       className={`relative flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors sm:h-12 sm:w-12 ${
-        danger
-          ? 'bg-red-600 hover:bg-red-700'
-          : active
-            ? 'bg-blue-600 hover:bg-blue-500'
-            : 'bg-gray-700 hover:bg-gray-600'
+        disabled
+          ? 'bg-gray-800 text-gray-500'
+          : danger
+            ? 'bg-red-600 hover:bg-red-700'
+            : active
+              ? 'bg-blue-600 hover:bg-blue-500'
+              : 'bg-gray-700 hover:bg-gray-600'
       }`}
     >
       {children}
@@ -184,7 +191,9 @@ const CircleButton: React.FC<{
         </span>
       ) : null}
     </span>
-    <span className={`text-[10px] font-semibold leading-none sm:text-[11px] ${danger ? 'text-red-300' : 'text-gray-300'}`}>
+    <span className={`text-[10px] font-semibold leading-none sm:text-[11px] ${
+      disabled ? 'text-gray-600' : danger ? 'text-red-300' : 'text-gray-300'
+    }`}>
       {caption}
     </span>
   </button>
@@ -200,7 +209,7 @@ const CircleButton: React.FC<{
  */
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen,
-  videoFileOn, canStopSharedVideo, onStopSharedVideo, onPickLocalVideo, onPickYouTubeVideo,
+  videoFileOn, canStopSharedVideo, onStopSharedVideo, onPickLocalVideo, onPickYouTubeVideo, videoDisabled,
   handRaised, isHost, raisedHands, showViewToggle, viewMode,
   onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onMuteAll, onToggleScreenShare,
   onToggleChat, onToggleMembers, onToggleBible, onLeave,
@@ -276,9 +285,14 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
             </MenuPanel>
           )}
           <CircleButton
-            label={t(canStopSharedVideo ? 'meeting.videoFileStop' : 'meeting.videoFile')}
+            label={
+              canStopSharedVideo ? t('meeting.videoFileStop')
+                : videoDisabled ? t('meeting.screenShareBusy')
+                  : t('meeting.videoFile')
+            }
             caption={t(canStopSharedVideo ? 'meeting.tagStop' : 'meeting.tagVideo')}
             active={videoFileOn}
+            disabled={!canStopSharedVideo && videoDisabled}
             expanded={canStopSharedVideo ? undefined : videoMenuOpen}
             onClick={canStopSharedVideo ? onStopSharedVideo : () => setVideoMenuOpen((v) => !v)}
           >
