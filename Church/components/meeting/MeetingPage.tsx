@@ -71,8 +71,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const roomHasHost = members.some((m) => m.isHost);
   const bible = useBibleSync(sendBible, isHost || !roomHasHost);
   const sendRoomVideo = useCallback((message: RoomVideoMessage) => socketRef.current?.sendRoomVideo(message), []);
-  // Same rule as the Bible: a host leads, and with no host anyone may.
-  const roomVideo = useRoomVideo(sendRoomVideo, isHost || !roomHasHost);
+  // Whoever opened the video leads it; the room object says who that is.
+  const roomVideo = useRoomVideo(sendRoomVideo, ownUserId);
   const sendHostCommand = useCallback((message: HostMessage) => socketRef.current?.sendHostCommand(message), []);
 
   // The socket handler below is built once per room, so it reads the applier

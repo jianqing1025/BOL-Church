@@ -306,7 +306,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         membersOpen={membersOpen}
         bibleOpen={bible.open}
         videoFileOn={!!videoFile || roomVideo.videoId !== null}
-        canStopSharedVideo={!!videoFile || (roomVideo.videoId !== null && roomVideo.canLead)}
+        canStopSharedVideo={!!videoFile || (roomVideo.videoId !== null && (roomVideo.canLead || isHost))}
         onStopSharedVideo={stopSharedVideo}
         onPickLocalVideo={pickLocalVideo}
         onPickYouTubeVideo={() => void pickYouTubeVideo()}

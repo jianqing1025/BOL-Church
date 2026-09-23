@@ -78,7 +78,13 @@ export type HostMessage =
  * messages are the only thing holding the room together on one frame.
  */
 export type RoomVideoMessage =
-  | { type: 'video'; action: 'open'; videoId: string; startSeconds?: number }
+  /**
+   * `leaderId` is stamped on by the room object, never sent by the client:
+   * whoever opened the video is the one whose position the rest follow, and
+   * taking a client's word for that would let anyone drag the room to
+   * wherever they happen to be.
+   */
+  | { type: 'video'; action: 'open'; videoId: string; startSeconds?: number; leaderId?: string }
   | { type: 'video'; action: 'close' }
   | { type: 'video'; action: 'state'; playing: boolean; seconds: number };
 

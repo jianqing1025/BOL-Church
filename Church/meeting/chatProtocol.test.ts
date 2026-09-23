@@ -205,3 +205,17 @@ describe('sanitizeBibleMessage close', () => {
       .toEqual({ type: 'bible', action: 'close' });
   });
 });
+
+describe('sanitizeRoomVideoMessage leader', () => {
+  const ID = 'dQw4w9WgXcQ';
+
+  it('strips a leader id supplied by the client', () => {
+    // Who leads is decided by the room object from the socket the message
+    // arrived on. Taking the client's word for it would let anyone claim the
+    // room's playback and drag everybody to wherever they are.
+    const cleaned = sanitizeRoomVideoMessage({
+      type: 'video', action: 'open', videoId: ID, leaderId: 'somebody-else',
+    });
+    expect(cleaned).toEqual({ type: 'video', action: 'open', videoId: ID });
+  });
+});

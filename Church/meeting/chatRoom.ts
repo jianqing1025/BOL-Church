@@ -41,7 +41,7 @@ export class ChatRoom {
    * phone whose socket dropped, should land on the video the group is already
    * watching, at the point they are watching it.
    */
-  private roomVideo: { videoId: string; playing: boolean; seconds: number } | null = null;
+  private roomVideo: { videoId: string; playing: boolean; seconds: number; leaderId: string } | null = null;
 
   constructor(private state: DurableObjectState, _env: unknown) {}
 
@@ -107,9 +107,11 @@ export class ChatRoom {
     // After the position, so the panel is open before it is told to enlarge.
     if (this.bibleExpanded) this.sendTo(server, { type: 'bible', action: 'expand', expanded: true });
     if (this.roomVideo) {
-      const { videoId, playing, seconds } = this.roomVideo;
-      // Open first so a player exists, then place it where the room is.
-      this.sendTo(server, { type: 'video', action: 'open', videoId, startSeconds: seconds });
+      const { videoId, playing, seconds, leaderId } = this.roomVideo;
+      // Open first so a player exists, then place it where the room is. The
+      // leader's id comes along so this newcomer knows to follow rather than
+      // to start reporting a position of their own.
+      this.sendTo(server, { type: 'video', action: 'open', videoId, startSeconds: seconds, leaderId });
       this.sendTo(server, { type: 'video', action: 'state', playing, seconds });
     }
     this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
@@ -138,10 +140,31 @@ export class ChatRoom {
 
       if (kind === 'video') {
         const video = sanitizeRoomVideoMessage(parsed);
-        // Same rule as the Bible: a host leads, and with no host present
-        // anyone may, so a group without a designated leader still works.
-        if (!video || !(isHost || !this.hasHost())) return;
-        this.applyRoomVideo(video);
+        if (!video) return;
+
+        if (video.action === 'open') {
+          // Starting one follows the Bible's rule: a host may, and with no
+          // host present anyone may. Whoever does becomes its leader.
+          if (!(isHost || !this.hasHost())) return;
+          const stamped = { ...video, leaderId: id };
+          this.applyRoomVideo(stamped, id);
+          this.broadcast(stamped);
+          return;
+        }
+
+        if (video.action === 'close') {
+          // The one who put it on can take it off, and so can a host.
+          if (!(isHost || this.roomVideo?.leaderId === id)) return;
+          this.applyRoomVideo(video, id);
+          this.broadcast(video);
+          return;
+        }
+
+        // A position is only meaningful from the leader. Anyone else reporting
+        // one — a newcomer whose player has just started at zero, say — would
+        // drag the whole room back to where they are.
+        if (this.roomVideo?.leaderId !== id) return;
+        this.applyRoomVideo(video, id);
         this.broadcast(video);
         return;
       }
@@ -176,6 +199,12 @@ export class ChatRoom {
     const cleanup = () => {
       if (!this.sessions.has(server)) return;
       this.sessions.delete(server);
+      // Nobody is driving it any more, and a video frozen at the moment its
+      // leader closed their laptop is worse than no video.
+      if (this.roomVideo?.leaderId === id) {
+        this.roomVideo = null;
+        this.broadcast({ type: 'video', action: 'close' });
+      }
       this.broadcast({ type: 'system', event: 'left', name, createdAt: Date.now() });
       this.broadcastPresence();
     };
@@ -186,10 +215,10 @@ export class ChatRoom {
   }
 
   /** Keeps the remembered video in step with what the room was just told. */
-  private applyRoomVideo(message: RoomVideoMessage): void {
+  private applyRoomVideo(message: RoomVideoMessage, leaderId: string): void {
     if (message.action === 'close') { this.roomVideo = null; return; }
     if (message.action === 'open') {
-      this.roomVideo = { videoId: message.videoId, playing: true, seconds: message.startSeconds ?? 0 };
+      this.roomVideo = { videoId: message.videoId, playing: true, seconds: message.startSeconds ?? 0, leaderId };
       return;
     }
     // A position with no video open is stale chatter from a client that has

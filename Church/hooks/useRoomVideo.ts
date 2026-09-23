@@ -14,7 +14,10 @@ export interface RoomVideo {
   startSeconds: number;
   /** The leader's latest position, or null until they report one. */
   leader: LeaderPlayback | null;
-  /** Whether this participant's playback reaches the rest of the room. */
+  /**
+   * Whether this participant's playback reaches the rest of the room — true
+   * only for whoever opened the video.
+   */
   canLead: boolean;
   open: (videoId: string, startSeconds?: number) => void;
   close: () => void;
@@ -37,9 +40,16 @@ export interface RoomVideo {
  * pulls you off the group, and the leader's next heartbeat (three seconds at
  * most) pulls you back — which is easier to understand than a control that
  * refuses to move, and harmless if someone wants to glance back a few seconds.
+ *
+ * Exactly one participant leads: the one who opened the video, as the room
+ * object decided. It cannot be worked out from who is a host, because someone
+ * joining midway has not been told who the hosts are yet — and a newcomer who
+ * believed themselves the leader would broadcast a position of zero and pull
+ * the whole room back to the start.
  */
-export function useRoomVideo(send: (message: RoomVideoMessage) => void, canLead: boolean): RoomVideo {
+export function useRoomVideo(send: (message: RoomVideoMessage) => void, ownUserId: string | null): RoomVideo {
   const [videoId, setVideoId] = useState<string | null>(null);
+  const [leaderId, setLeaderId] = useState<string | null>(null);
   const [startSeconds, setStartSeconds] = useState(0);
   const [leader, setLeader] = useState<LeaderPlayback | null>(null);
 
@@ -47,6 +57,7 @@ export function useRoomVideo(send: (message: RoomVideoMessage) => void, canLead:
     if (message.action === 'close') {
       setVideoId(null);
       setLeader(null);
+      setLeaderId(null);
       return;
     }
     if (message.action === 'open') {
@@ -56,6 +67,7 @@ export function useRoomVideo(send: (message: RoomVideoMessage) => void, canLead:
       // records it too. Leaving this null until the first heartbeat gave
       // followers nothing to follow for up to three seconds — long enough for
       // someone to press YouTube's own play button and end up watching alone.
+      setLeaderId(message.leaderId ?? null);
       setLeader((prev) => ({ playing: true, seconds: message.startSeconds ?? 0, seq: (prev?.seq ?? 0) + 1 }));
       return;
     }
@@ -75,6 +87,8 @@ export function useRoomVideo(send: (message: RoomVideoMessage) => void, canLead:
   const report = useCallback((state: PlaybackState) => {
     send({ type: 'video', action: 'state', playing: state.playing, seconds: Math.max(0, Math.round(state.seconds)) });
   }, [send]);
+
+  const canLead = leaderId !== null && leaderId === ownUserId;
 
   return { videoId, startSeconds, leader, canLead, open, close, report, apply };
 }
