@@ -195,6 +195,20 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     roomVideo.close();
   }, [videoFile, stopVideoFile, roomVideo]);
 
+  /**
+   * What this person is putting on the room's screen, if anything.
+   *
+   * One red button covers all three, because from the sharer's side they are
+   * one situation — "everyone is looking at something of mine" — and hunting
+   * for a different control depending on which kind it is, while the room
+   * waits, is the wrong thing to ask of someone mid-sentence.
+   */
+  const sharing = localSharing
+    ? { label: t('meeting.stopShare'), stop: () => void lk.toggleScreenShare() }
+    : (videoFile || (roomVideo.videoId !== null && (roomVideo.canLead || isHost)))
+      ? { label: t('meeting.videoFileStop'), stop: stopSharedVideo }
+      : null;
+
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
 
@@ -209,7 +223,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         left is what someone in a meeting actually needs: which room, how long,
         and the way to the chat and the member list.
       */}
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
+      <header className="relative flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -221,22 +235,27 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             <span className="hidden truncate md:inline">{t('meeting.brandTitle')}</span>
           </button>
 
-          <span className="truncate font-bold">{localizeMeetingRoomText(room.name, language)}</span>
+          {/* In the flow on a phone, where the church's name is hidden and this
+              is the first thing you read; centred on anything wider. */}
+          <span className="truncate font-bold md:absolute md:left-1/2 md:max-w-[38%] md:-translate-x-1/2 md:-translate-y-1/2 md:top-1/2">
+            {localizeMeetingRoomText(room.name, language)}
+          </span>
           <span className="shrink-0 tabular-nums text-sm text-gray-400">{formatElapsed(elapsed)}</span>
-
-          {localSharing && (
-            <button
-              type="button"
-              onClick={() => void lk.toggleScreenShare()}
-              className="hidden shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700 md:flex"
-            >
-              <ScreenShareOff size={14} />
-              {t('meeting.stopShare')}
-            </button>
-          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {sharing && (
+            <button
+              type="button"
+              onClick={sharing.stop}
+              aria-label={sharing.label}
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700"
+            >
+              <ScreenShareOff size={14} strokeWidth={1.5} />
+              <span className="hidden sm:inline">{sharing.label}</span>
+            </button>
+          )}
+
           {room.hasVideo && (
             <button
               type="button"
