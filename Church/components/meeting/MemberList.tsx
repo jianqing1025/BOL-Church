@@ -15,7 +15,7 @@ interface MemberListProps {
   micOn?: Map<string, boolean>;
   onMute?: (userId: string) => void;
   onUnmute?: (userId: string) => void;
-  onRemove?: (userId: string) => void;
+  onRemove?: (userId: string, name: string) => void;
 }
 
 export const MemberList: React.FC<MemberListProps> = ({ users, isHost, ownUserId, micOn, onMute, onUnmute, onRemove }) => {
@@ -53,7 +53,7 @@ export const MemberList: React.FC<MemberListProps> = ({ users, isHost, ownUserId
                   </button>
                   <button
                     type="button"
-                    onClick={() => onRemove?.(u.id)}
+                    onClick={() => onRemove?.(u.id, u.name)}
                     aria-label={t('meeting.hostRemove')}
                     title={t('meeting.hostRemove')}
                     className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-red-600/80 hover:text-white"

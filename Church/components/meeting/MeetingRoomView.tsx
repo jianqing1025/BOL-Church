@@ -109,6 +109,21 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     onLeave();
   }, [isHost, onHostCommand, onLeave, t]);
 
+  /**
+   * Removing somebody is one tap next to a mute button, on a row that shifts
+   * as people come and go — exactly the shape of thing that gets pressed by
+   * mistake, and the one host command the person cannot undo themselves.
+   */
+  const removeMember = useCallback(async (userId: string, memberName: string) => {
+    const confirmed = await churchConfirm(t('meeting.hostRemoveConfirm').replace('{name}', memberName), {
+      title: t('meeting.hostRemoveTitle'),
+      confirmLabel: t('meeting.hostRemoveAction'),
+      cancelLabel: t('meeting.cancel'),
+    });
+    if (!confirmed) return;
+    onHostCommand({ type: 'host', action: 'remove', targetUserId: userId });
+  }, [onHostCommand, t]);
+
   const stopVideoFile = useCallback(() => {
     setVideoFile(null);
     void lk.stopVideoFile();
@@ -279,7 +294,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               micOn={micOn}
               onMute={(userId) => onHostCommand({ type: 'host', action: 'mute', targetUserId: userId })}
               onUnmute={(userId) => onHostCommand({ type: 'host', action: 'unmute', targetUserId: userId })}
-              onRemove={(userId) => onHostCommand({ type: 'host', action: 'remove', targetUserId: userId })}
+              onRemove={(userId, memberName) => void removeMember(userId, memberName)}
             />
           </aside>
         )}

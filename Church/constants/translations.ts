@@ -275,6 +275,12 @@ export const translations = {
     meetingEndedTitle: { en: 'Meeting ended', zh: '聚會已結束' },
     meetingEndedNotice: { en: 'The host has ended the meeting.', zh: 'Host 已經結束這場聚會。' },
     hostRemove: { en: 'Remove from room', zh: '請出房間' },
+    hostRemoveTitle: { en: 'Remove from room', zh: '請出房間' },
+    hostRemoveConfirm: {
+      en: 'Remove {name} from the room? They are taken out straight away, and would have to join again themselves.',
+      zh: '要請 {name} 離開房間嗎？他會立刻被移出，之後要自己重新加入才能回來。',
+    },
+    hostRemoveAction: { en: 'Remove', zh: '請他離開' },
     videoFile: { en: 'Play a video', zh: '播放影片' },
     videoLocal: { en: 'Local video', zh: '本機影片' },
     videoYouTube: { en: 'YouTube video', zh: 'YouTube 影片' },
