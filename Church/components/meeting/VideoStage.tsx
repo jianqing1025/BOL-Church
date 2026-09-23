@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Video as VideoIcon, RotateCcw } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
@@ -10,6 +10,7 @@ import { SpeakerView } from './SpeakerView';
 import { ScreenShareView } from './ScreenShareView';
 import { SelfViewPiP } from './SelfViewPiP';
 import { RoomVideoView } from './RoomVideoView';
+import { emptySpeakerFocus, nextSpeakerFocus, SPEAKER_TICK_MS, type SpeakerFocus } from './speakerFocus';
 import type { RoomVideo } from '../../hooks/useRoomVideo';
 import { RoomAudio } from './RoomAudio';
 
@@ -52,15 +53,33 @@ export const VideoStage: React.FC<VideoStageProps> = ({
   const sharer = ordered.find((p) => LiveKitService.isScreenSharing(p));
   const speaking = new Set(activeSpeakerIds);
 
-  // Track the featured speaker (speaker view) with a preference for the current
-  // dominant remote speaker, falling back to the previous / first participant.
+  // Who is on the big tile in speaker view. Re-evaluated on a short timer as
+  // well as on every speaker change, because the rule is about how long
+  // somebody has been talking — see speakerFocus for why both are needed.
   const remoteIds = remotes.map((r) => r.identity).join(',');
-  const [featuredId, setFeaturedId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<SpeakerFocus>(emptySpeakerFocus);
+  const activeRef = useRef(activeSpeakerIds);
+  activeRef.current = activeSpeakerIds;
+  const remoteIdsRef = useRef(remoteIds);
+  remoteIdsRef.current = remoteIds;
+
   useEffect(() => {
-    const ids = remoteIds ? remoteIds.split(',') : [];
-    const active = activeSpeakerIds.find((id) => ids.includes(id));
-    setFeaturedId((prev) => (active || (prev && ids.includes(prev) ? prev : ids[0]) || null));
+    const evaluate = () => setFocus((prev) => nextSpeakerFocus(prev, {
+      activeIds: activeRef.current,
+      presentIds: remoteIdsRef.current ? remoteIdsRef.current.split(',') : [],
+      now: Date.now(),
+    }));
+    evaluate();
+    const id = window.setInterval(evaluate, SPEAKER_TICK_MS);
+    return () => window.clearInterval(id);
   }, [activeSpeakerIds, remoteIds]);
+
+  const featuredId = focus.featuredId;
+  const setFeaturedId = useCallback((identity: string) => {
+    // Picking somebody from the strip is a deliberate choice; it takes effect
+    // at once and then the rule carries on from there.
+    setFocus((prev) => ({ ...prev, featuredId: identity, candidateId: null }));
+  }, []);
 
   // Pin a participant into the main area while someone is screen sharing.
   const [pinnedId, setPinnedId] = useState<string | null>(null);
