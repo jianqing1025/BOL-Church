@@ -96,3 +96,16 @@ export function followRoomVideo(local: PlaybackState, leader: PlaybackState): Fo
     setPlaying: local.playing === leader.playing ? null : leader.playing,
   };
 }
+
+/**
+ * Whether this browser lets a page set the volume of media it plays.
+ *
+ * iOS does not: "the audio level is always under the user's physical control.
+ * The volume property is not settable in JavaScript" — reading it always gives
+ * 1 and writing is ignored. Offering a slider there would be a control that
+ * visibly moves and does nothing, which is worse than not offering one, so the
+ * iPhone gets a mute toggle and an honest note instead.
+ */
+export function canSetMediaVolume(userAgent: string): boolean {
+  return !/iPad|iPhone|iPod/i.test(userAgent);
+}

@@ -268,6 +268,13 @@ export const translations = {
     youtubeBadLink: { en: 'That is not a YouTube video link.', zh: '這不是有效的 YouTube 影片網址。' },
     youtubeUnavailable: { en: 'The YouTube player could not be loaded.', zh: '無法載入 YouTube 播放器。' },
     videoTapToPlay: { en: 'Tap to play', zh: '點一下開始播放' },
+    videoSoundOn: { en: 'Tap for sound', zh: '點一下開啟聲音' },
+    videoSoundOff: { en: 'Mute', zh: '關閉聲音' },
+    videoVolume: { en: 'Video volume', zh: '影片音量' },
+    videoVolumeHardware: {
+      en: 'iPhone and iPad reserve volume for the side buttons — a web page cannot change it.',
+      zh: 'iPhone 與 iPad 的音量只能用手機側邊按鍵調整，網頁無法代為調整。',
+    },
     videoFileHint: { en: 'Everyone in the room is watching this video.', zh: '房間裡的所有人都正在看這部影片。' },
     videoFileStop: { en: 'Stop playing', zh: '停止播放' },
   },

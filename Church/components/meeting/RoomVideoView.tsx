@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play } from 'lucide-react';
+import { Play, Volume2, VolumeX } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { useLocalization } from '../../hooks/useLocalization';
-import { followRoomVideo, type PlaybackState } from '../../meeting/youtube';
+import { canSetMediaVolume, followRoomVideo, type PlaybackState } from '../../meeting/youtube';
 import type { LeaderPlayback } from '../../hooks/useRoomVideo';
 import { ParticipantTile } from './ParticipantTile';
 
@@ -13,6 +13,9 @@ interface YouTubePlayer {
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
   getPlayerState(): number;
+  mute(): void;
+  unMute(): void;
+  setVolume(volume: number): void;
   destroy(): void;
 }
 interface YouTubeApi {
@@ -87,6 +90,16 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  /**
+   * Starts silent on purpose. iOS refuses to start audible playback that no
+   * tap asked for, and a follower's playback is started by a message from the
+   * room — so an audible player would simply not start, leaving that person
+   * out of step with everyone else. Silent, it starts and stays in step, and
+   * the one tap they make is only to turn the sound on.
+   */
+  const [muted, setMuted] = useState(true);
+  const [volume, setVolume] = useState(100);
+  const volumeAdjustable = typeof navigator !== 'undefined' && canSetMediaVolume(navigator.userAgent);
 
   // Read through refs so the player is built once per video rather than torn
   // down and rebuilt — which would restart the film — whenever a prop changes.
@@ -112,9 +125,9 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         videoId,
         // autoplay asks; whether it is granted is the browser's call, and the
         // tap-to-play cover below is what answers when it refuses.
-        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
+        playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
         events: {
-          onReady: () => { if (!cancelled) setReady(true); },
+          onReady: () => { if (!cancelled) { setReady(true); setMuted(true); } },
           onStateChange: (event: { data: number }) => {
             // Only the leader speaks; everyone else's player is an echo, and
             // reporting from all of them would fight over the room's position.
@@ -179,6 +192,16 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
     return () => window.clearTimeout(id);
   }, [ready, leaderSeq, leaderPlaying]);
 
+  const turnSoundOn = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    // Inside the tap, so iOS allows the sound it refused a moment ago.
+    player.unMute();
+    if (volumeAdjustable) player.setVolume(volume);
+    player.playVideo();
+    setMuted(false);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 md:flex-row">
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl bg-black">
@@ -204,7 +227,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
               // the same film several minutes behind everyone else.
               const at = leaderRef.current?.seconds;
               if (player && at !== undefined) player.seekTo(at, true);
-              player?.playVideo();
+              turnSoundOn();
               setBlocked(false);
             }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/65 text-white"
@@ -214,6 +237,51 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
             </span>
             <span className="text-sm font-semibold">{t('meeting.videoTapToPlay')}</span>
           </button>
+        )}
+
+        {/* The sound control. Prominent while silent, because a muted video is
+            the normal way this starts and nobody should have to guess why. */}
+        {!failed && !blocked && (
+          <div className="absolute bottom-3 left-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (muted) { turnSoundOn(); return; }
+                playerRef.current?.mute();
+                setMuted(true);
+              }}
+              className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold shadow-lg transition-colors ${
+                muted ? 'bg-amber-400 text-gray-900 hover:bg-amber-300' : 'bg-black/60 text-white hover:bg-black/75'
+              }`}
+            >
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              <span>{t(muted ? 'meeting.videoSoundOn' : 'meeting.videoSoundOff')}</span>
+            </button>
+
+            {volumeAdjustable && !muted && (
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={volume}
+                aria-label={t('meeting.videoVolume')}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setVolume(next);
+                  playerRef.current?.setVolume(next);
+                }}
+                className="h-1.5 w-24 cursor-pointer accent-white"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Where a slider would be pointless, say why rather than leave the
+            person pressing buttons that cannot help them. */}
+        {!failed && !blocked && !muted && !volumeAdjustable && (
+          <p className="pointer-events-none absolute bottom-16 left-3 max-w-[15rem] rounded-lg bg-black/60 px-2.5 py-1.5 text-[11px] leading-snug text-gray-200">
+            {t('meeting.videoVolumeHardware')}
+          </p>
         )}
       </div>
 

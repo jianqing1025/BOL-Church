@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DRIFT_TOLERANCE_SECONDS, followRoomVideo, parseYouTubeStart, parseYouTubeVideoId } from './youtube';
+import { canSetMediaVolume, DRIFT_TOLERANCE_SECONDS, followRoomVideo, parseYouTubeStart, parseYouTubeVideoId } from './youtube';
 
 const ID = 'dQw4w9WgXcQ';
 
@@ -86,5 +86,31 @@ describe('followRoomVideo', () => {
   it('can seek and change playback in one decision', () => {
     const decision = followRoomVideo({ playing: false, seconds: 0 }, { playing: true, seconds: 300 });
     expect(decision).toEqual({ seekTo: 300, setPlaying: true });
+  });
+});
+
+describe('canSetMediaVolume', () => {
+  it('is false on iPhone and iPad, where the volume is the hardware buttons only', () => {
+    // Apple: "the audio level is always under the user's physical control.
+    // The volume property is not settable in JavaScript."
+    const ios = [
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (iPod touch; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
+    ];
+    for (const ua of ios) expect(canSetMediaVolume(ua)).toBe(false);
+  });
+
+  it('is true on desktop and Android, where a slider does something', () => {
+    const others = [
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36',
+    ];
+    for (const ua of others) expect(canSetMediaVolume(ua)).toBe(true);
+  });
+
+  it('assumes it works when the user agent says nothing useful', () => {
+    expect(canSetMediaVolume('')).toBe(true);
   });
 });
