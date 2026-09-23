@@ -27,8 +27,8 @@ export const MeetingBrowserGuide: React.FC<{
     <>
       <div inert aria-hidden="true">
         <MeetingSignIn
-          name="" password="" error="" verifying={false}
-          onNameChange={() => {}} onPasswordChange={() => {}} onSubmit={() => {}}
+          name="" password="" error="" verifying={false} remember
+          onNameChange={() => {}} onPasswordChange={() => {}} onRememberChange={() => {}} onSubmit={() => {}}
         />
       </div>
       <dialog

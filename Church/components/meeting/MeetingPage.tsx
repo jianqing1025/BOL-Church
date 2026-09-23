@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
-import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
+import {
+  forgetEveryone,
+  forgetPassword,
+  isValidDisplayName,
+  normalizeDisplayName,
+  readRemembered,
+  remember,
+} from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
 import type { BibleMessage, HostMessage, PresenceUser, RoomVideoMessage, ServerMessage } from '../../meeting/chatProtocol';
 import { useBibleSync } from '../../hooks/useBibleSync';
@@ -22,9 +29,7 @@ interface MeetingPageProps {
   onStageChange?: (stage: Stage | null) => void;
 }
 
-const readName = (): string => {
-  try { return localStorage.getItem(MEETING_NAME_KEY) || ''; } catch { return ''; }
-};
+const readName = (): string => readRemembered().name;
 
 export const MeetingPage: React.FC<MeetingPageProps> = (props) => {
   const [guideBrowser] = useState(() => {
@@ -45,6 +50,9 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+  /** Signing back in with what was remembered, before anything is shown. */
+  const [restoring, setRestoring] = useState(() => readRemembered().password !== '');
 
   const [room, setRoom] = useState<MeetingRoom | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -111,6 +119,52 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
     };
   }, [stage]);
 
+  /**
+   * Signs back in with the remembered password so a member who ticked the box
+   * lands on the room list, not on a password box for a password they were
+   * given once in a group chat months ago.
+   *
+   * A rejection means the church changed the password, so the stored one is
+   * dropped. A network failure means nothing of the sort — it is kept and
+   * filled in, so one tap retries rather than sending someone hunting for it.
+   */
+  useEffect(() => {
+    const saved = readRemembered();
+    if (!saved.password || !isValidDisplayName(saved.name)) { setRestoring(false); return; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/meeting/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: normalizeDisplayName(saved.name), password: saved.password }),
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          setPassword(saved.password);
+          setStage('pick');
+          return;
+        }
+        forgetPassword();
+      } catch {
+        if (!cancelled) setPassword(saved.password);
+      } finally {
+        if (!cancelled) setRestoring(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Hands the device to somebody else: forget the name and the password. */
+  const signOut = useCallback(() => {
+    forgetEveryone();
+    setName('');
+    setPassword('');
+    setAuthError('');
+    setRememberMe(true);
+    setStage('auth');
+  }, []);
+
   const submitAuth = async () => {
     if (!isValidDisplayName(name)) { setAuthError(t('meeting.nameRequired')); return; }
     setVerifying(true);
@@ -122,7 +176,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         body: JSON.stringify({ name: normalizeDisplayName(name), password }),
       });
       if (!res.ok) { setAuthError(t('meeting.authError')); return; }
-      try { localStorage.setItem(MEETING_NAME_KEY, normalizeDisplayName(name)); } catch { /* ignore */ }
+      remember({ name: normalizeDisplayName(name), password }, rememberMe);
       setStage('pick');
     } catch {
       setAuthError(t('meeting.authError'));
@@ -170,6 +224,12 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const leaveRoom = () => { closeSocket(); setRoom(null); setStage('pick'); };
   const send = (text: string) => socketRef.current?.send(text);
 
+  // Nothing but a quiet page while the remembered password is checked: showing
+  // the form first would make it flash up and vanish a moment later.
+  if (stage === 'auth' && restoring) {
+    return <div className="min-h-screen bg-white" aria-busy="true" />;
+  }
+
   if (stage === 'auth') {
     return (
       <MeetingSignIn
@@ -179,6 +239,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         verifying={verifying}
         onNameChange={(v) => { setName(v); setAuthError(''); }}
         onPasswordChange={(v) => { setPassword(v); setAuthError(''); }}
+        remember={rememberMe}
+        onRememberChange={setRememberMe}
         onSubmit={() => void submitAuth()}
       />
     );
@@ -190,7 +252,17 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         <PageHeader title={t('eventsPage.navOnlineBibleStudy')} subtitle={t('meeting.pickRoom')} />
         <MinistrySecondaryNav active="online-bible-study" />
         <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-16">
-          <h2 className="mb-6 text-center text-2xl font-bold text-gray-800 sm:mb-10 sm:text-3xl">{t('meeting.pickPrompt')}</h2>
+          <h2 className="mb-2 text-center text-2xl font-bold text-gray-800 sm:text-3xl">{t('meeting.pickPrompt')}</h2>
+          <p className="mb-6 text-center text-sm text-gray-500 sm:mb-10">
+            {name}
+            <button
+              type="button"
+              onClick={signOut}
+              className="ml-2 font-semibold text-blue-600 underline-offset-2 hover:underline"
+            >
+              {t('meeting.switchUser')}
+            </button>
+          </p>
           <div className="grid gap-5 md:grid-cols-2 md:gap-8">
             {pickerRooms.map((r) => (
               <div

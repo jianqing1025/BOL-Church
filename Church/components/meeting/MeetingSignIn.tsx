@@ -9,8 +9,11 @@ interface MeetingSignInProps {
   password: string;
   error: string;
   verifying: boolean;
+  /** Whether to keep the password for next time. */
+  remember: boolean;
   onNameChange: (v: string) => void;
   onPasswordChange: (v: string) => void;
+  onRememberChange: (v: boolean) => void;
   onSubmit: () => void;
 }
 
@@ -19,7 +22,7 @@ interface MeetingSignInProps {
  * a full-bleed background (behind the transparent header) with a floating card.
  */
 export const MeetingSignIn: React.FC<MeetingSignInProps> = ({
-  name, password, error, verifying, onNameChange, onPasswordChange, onSubmit,
+  name, password, error, verifying, remember, onNameChange, onPasswordChange, onRememberChange, onSubmit,
 }) => {
   const { t } = useLocalization();
   const { images } = useAdmin();
@@ -64,6 +67,15 @@ export const MeetingSignIn: React.FC<MeetingSignInProps> = ({
             placeholder={t('meeting.authPassword')}
             className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base sm:text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
+          <label className="flex cursor-pointer items-center gap-2 pt-1 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => onRememberChange(e.target.checked)}
+              className="h-4 w-4 cursor-pointer rounded border-gray-400 text-blue-600 focus:ring-blue-500"
+            />
+            {t('meeting.rememberMe')}
+          </label>
           {error && <div className="text-sm font-medium text-red-600">{error}</div>}
           <button
             type="button" onClick={onSubmit} disabled={verifying}

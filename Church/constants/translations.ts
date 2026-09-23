@@ -179,6 +179,8 @@ export const translations = {
     memberLeft: { en: '{name} left the room', zh: '{name} 離開了房間' },
     changeRoom: { en: 'Rooms', zh: '房間' },
     members: { en: 'Online', zh: '在線成員' },
+    rememberMe: { en: 'Remember me on this device', zh: '在這台裝置上記住我' },
+    switchUser: { en: 'Not you? Sign in again', zh: '不是你？重新登入' },
     inputPlaceholder: { en: 'Type a message…', zh: '輸入訊息…' },
     send: { en: 'Send', zh: '發送' },
     joinVideo: { en: 'Join video', zh: '加入視訊' },
