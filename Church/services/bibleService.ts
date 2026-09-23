@@ -74,8 +74,22 @@ export function stepChapter(bookId: number, chapter: number, delta: 1 | -1): { b
 }
 
 /** Reader text sizes, smallest first. Index 1 is the default. */
-export const BIBLE_FONT_STEPS = [0.95, 1.1, 1.3, 1.55, 1.85] as const;
-export const DEFAULT_FONT_STEP = 1;
+export const BIBLE_FONT_STEPS = [0.95, 1.1, 1.3, 1.55, 1.85, 2.2] as const;
+
+/**
+ * Where the text starts: large enough to read across a room without anyone
+ * reaching for the plus button, with one step further for eyes that need it.
+ */
+export const DEFAULT_FONT_STEP = 4;
+
+/**
+ * Bumped when a stored value stops meaning what it used to.
+ *
+ * The size is written on every render, so by now everyone has the old default
+ * on disk — changing that default would otherwise reach nobody. On an older
+ * entry the passage is kept and only the size is reconsidered.
+ */
+export const READING_STATE_VERSION = 2;
 
 export interface BibleReadingState {
   bookId: number;
@@ -104,13 +118,14 @@ export function loadReadingState(): BibleReadingState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_READING_STATE;
-    const parsed = JSON.parse(raw) as Partial<BibleReadingState>;
+    const parsed = JSON.parse(raw) as Partial<BibleReadingState> & { v?: number };
+    const fontStep = parsed.v === READING_STATE_VERSION ? clampStep(parsed.fontStep) : DEFAULT_FONT_STEP;
     const book = findBibleBook(Number(parsed.bookId));
     const chapter = Number(parsed.chapter);
     if (!book || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters) {
-      return { ...DEFAULT_READING_STATE, fontStep: clampStep(parsed.fontStep) };
+      return { ...DEFAULT_READING_STATE, fontStep };
     }
-    return { bookId: book.id, chapter, fontStep: clampStep(parsed.fontStep) };
+    return { bookId: book.id, chapter, fontStep };
   } catch {
     return DEFAULT_READING_STATE;
   }
@@ -118,7 +133,7 @@ export function loadReadingState(): BibleReadingState {
 
 export function saveReadingState(state: BibleReadingState): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, v: READING_STATE_VERSION }));
   } catch {
     /* private browsing / storage disabled — reading still works, it just won't resume */
   }

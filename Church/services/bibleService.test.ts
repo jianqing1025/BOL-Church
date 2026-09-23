@@ -6,6 +6,8 @@ import {
   saveReadingState,
   DEFAULT_READING_STATE,
   BIBLE_FONT_STEPS,
+  DEFAULT_FONT_STEP,
+  READING_STATE_VERSION,
 } from './bibleService';
 
 const book = (chapters: Record<string, string[]>) => ({
@@ -113,8 +115,15 @@ describe('reading position', () => {
 
   it('falls back when the stored chapter does not exist', () => {
     // 猶大書 has one chapter; a stored chapter 9 must not render an empty page.
-    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 65, chapter: 9, fontStep: 2 }));
+    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 65, chapter: 9, fontStep: 2, v: READING_STATE_VERSION }));
     expect(loadReadingState()).toEqual({ ...DEFAULT_READING_STATE, fontStep: 2 });
+  });
+
+  it('keeps the passage but re-reads the size when the stored shape is older', () => {
+    // The size is written on every render, so everyone already has the old
+    // default on disk. Without this, changing that default would reach nobody.
+    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 19, chapter: 23, fontStep: 1 }));
+    expect(loadReadingState()).toEqual({ bookId: 19, chapter: 23, fontStep: DEFAULT_FONT_STEP });
   });
 
   it('falls back on an unknown book and on corrupt JSON', () => {
@@ -125,11 +134,13 @@ describe('reading position', () => {
   });
 
   it('clamps the text size into the available steps', () => {
-    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 1, chapter: 1, fontStep: 99 }));
+    const stored = (fontStep: unknown) =>
+      JSON.stringify({ bookId: 1, chapter: 1, fontStep, v: READING_STATE_VERSION });
+    store.set('bolccop.bible.reading', stored(99));
     expect(loadReadingState().fontStep).toBe(BIBLE_FONT_STEPS.length - 1);
-    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 1, chapter: 1, fontStep: -5 }));
+    store.set('bolccop.bible.reading', stored(-5));
     expect(loadReadingState().fontStep).toBe(0);
-    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 1, chapter: 1, fontStep: 'big' }));
+    store.set('bolccop.bible.reading', stored('big'));
     expect(loadReadingState().fontStep).toBe(DEFAULT_READING_STATE.fontStep);
   });
 
