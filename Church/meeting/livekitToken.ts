@@ -35,6 +35,9 @@ export async function createLiveKitToken(p: LiveKitTokenParams): Promise<string>
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
+      // Raised hands are stored as participant attributes; without this the
+      // server rejects setAttributes and nobody can put a hand up.
+      canUpdateOwnMetadata: true,
     },
   };
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;

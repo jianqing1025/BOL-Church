@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Video as VideoIcon, RotateCcw } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
+import { handOrders, orderByRaisedHand } from '../../meeting/raisedHands';
 import { useLocalization } from '../../hooks/useLocalization';
 import { GalleryView } from './GalleryView';
 import { SpeakerView } from './SpeakerView';
@@ -15,6 +16,9 @@ interface VideoStageProps {
   participants: Participant[];
   activeSpeakerIds: string[];
   viewMode: ViewMode;
+  /** Host only: hand badges become buttons that put a hand down. */
+  isHost: boolean;
+  onLowerHand: (identity: string) => void;
   connecting: boolean;
   error: string;
   onRetry: () => void;
@@ -28,12 +32,17 @@ interface VideoStageProps {
  * is excluded from the main layout and shown as a floating self-view instead.
  */
 export const VideoStage: React.FC<VideoStageProps> = ({
-  participants, activeSpeakerIds, viewMode, connecting, error, onRetry, onRetryMedia,
+  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, connecting, error, onRetry, onRetryMedia,
 }) => {
   const { t } = useLocalization();
-  const local = participants.find((p) => p.isLocal);
-  const remotes = participants.filter((p) => !p.isLocal);
-  const sharer = participants.find((p) => LiveKitService.isScreenSharing(p));
+  // Raised hands first, so the six tiles a phone can fit are the six that
+  // matter. Every layout below draws a subset; this decides which subset.
+  const ordered = orderByRaisedHand(participants);
+  const hands = handOrders(participants);
+  const lowerHand = isHost ? onLowerHand : undefined;
+  const local = ordered.find((p) => p.isLocal);
+  const remotes = ordered.filter((p) => !p.isLocal);
+  const sharer = ordered.find((p) => LiveKitService.isScreenSharing(p));
   const speaking = new Set(activeSpeakerIds);
 
   // Track the featured speaker (speaker view) with a preference for the current
@@ -80,8 +89,10 @@ export const VideoStage: React.FC<VideoStageProps> = ({
     main = (
       <ScreenShareView
         sharer={sharer}
-        others={participants.filter((p) => p !== sharer)}
+        others={ordered.filter((p) => p !== sharer)}
         speaking={speaking}
+        handOrders={hands}
+        onLowerHand={lowerHand}
         pinnedId={pinnedId}
         onPin={setPinnedId}
       />
@@ -92,12 +103,14 @@ export const VideoStage: React.FC<VideoStageProps> = ({
         featured={featured}
         others={remotes.filter((p) => p !== featured)}
         speaking={speaking}
+        handOrders={hands}
+        onLowerHand={lowerHand}
         onSelect={(p) => setFeaturedId(p.identity)}
       />
     );
   } else {
     // Gallery shows everyone, including yourself, with fixed per-count grids.
-    main = <GalleryView participants={participants} speaking={speaking} />;
+    main = <GalleryView participants={ordered} speaking={speaking} handOrders={hands} onLowerHand={lowerHand} />;
   }
 
   return (
@@ -122,7 +135,7 @@ export const VideoStage: React.FC<VideoStageProps> = ({
         </div>
       )}
       {/* Floating self-view only in speaker mode; in gallery/screen you are a tile. */}
-      {speakerMode && local && <SelfViewPiP participant={local} />}
+      {speakerMode && local && <SelfViewPiP participant={local} handOrder={hands.get(local.identity)} />}
     </div>
   );
 };

@@ -79,9 +79,14 @@ export function handRaisedAt(participant: Participant): number | null;
 /** 舉手的人依舉手先後排到最前，其餘維持原順序。 */
 export function orderByRaisedHand(participants: Participant[]): Participant[];
 
+/** 每隻舉起的手的隊列編號（1、2、3…），以 participant identity 為鍵。 */
+export function handOrders(participants: Participant[]): Map<string, number>;
+
 /** 目前舉著手的人數。 */
 export function raisedHandCount(participants: Participant[]): number;
 ```
+
+`orderByRaisedHand` 在沒有人舉手時回傳**原本那個陣列**（同一個參照），避免 React 為此重繪整個舞台。
 
 `handRaisedAt` 要能擋住髒資料：非數字、負數、空字串都視為沒舉手。
 
@@ -93,19 +98,21 @@ export function raisedHandCount(participants: Participant[]): number;
 /** 舉手或放下，回傳切換後的狀態。 */
 async toggleHand(): Promise<boolean>;
 
-/** Host 放下某人的手：廣播給全房間，目標端自己清掉。 */
+/** Host 放下某人的手：只送給那個人，由他自己清掉。 */
 async lowerHandOf(identity: string): Promise<void>;
 
 /** Host 放下所有人的手。 */
 async lowerAllHands(): Promise<void>;
 ```
 
-`lowerHandOf` 走 LiveKit 的 reliable data message，payload `{ type: 'lowerHand', target: identity }`（`target: '*'` 代表全部）。收到的客戶端比對 `target` 是不是自己的 identity，是的話就把自己的 `hand` 設成空字串。
+只有參與者本人能改自己的 attributes，所以放下別人的手不是直接清掉，而是送一張通知、由對方的客戶端自己動手。走 LiveKit 的 reliable data message，topic 為 `meeting-hand`，並用 `destinationIdentities` 指定收件人——收到的人就把自己的 `hand` 設成空字串，不需要在 payload 裡比對身分。`lowerAllHands` 不指定收件人即送全房間。
+
+data message 不會回送給寄件者，所以 host 放下全場時必須另外處理自己那隻手，否則會變成唯一還舉著的人。
 
 `connect()` 的事件註冊加上：
 
 - `RoomEvent.ParticipantAttributesChanged` → `this.emit()`
-- `RoomEvent.DataReceived` → 解析 `lowerHand`，若指向自己就放下
+- `RoomEvent.DataReceived` → topic 是 `meeting-hand` 就放下自己的手
 
 ### 4. `Church/hooks/useLiveKit.ts`
 
@@ -128,7 +135,7 @@ async lowerAllHands(): Promise<void>;
 新增兩個 prop：
 
 - `handOrder?: number` — 有值時在右上角畫黃色圓形徽章顯示編號，外框改黃色
-- `onLowerHand?: () => void` — 有值時徽章可點，`aria-label` 是「放下 ⟨名字⟩ 的手」
+- `onLowerHand?: () => void` — 有值時徽章是按鈕，`aria-label` 為「放下手: ⟨名字⟩」（`t()` 不支援參數插值，所以用冒號接名字而不是嵌進句子裡）
 
 黃色外框與現有藍色的「正在說話」外框互斥，同時發生時**正在說話優先**——那是當下更要緊的資訊。
 
@@ -147,12 +154,12 @@ async lowerAllHands(): Promise<void>;
 | 分享螢幕 | `hasVideo` |
 | 聊天（帶未讀數）| `hasVideo` |
 | 在線成員 | 總是 |
-| 切換為演講者檢視／切換為相簿檢視 | `showViewToggle`（有人分享畫面時隱藏）|
+| 切換為發言人檢視／切換為網格檢視 | `showViewToggle`（有人分享畫面時隱藏）|
 | 放下所有人的手 | `isHost` 且目前有人舉手 |
 
 「⋯」按鈕本身承接選單內所有徽章的總和（目前僅聊天未讀數），否則藏起來的未讀訊息沒有人會發現。
 
-上表的規則抽成純函式 `overflowItems(...)`，與控制列元件放在同一個檔案並具名匯出，讓「⋯ 裡該有哪幾項」可以直接單元測試。
+上表的規則抽成純函式 `overflowKeys(...)`，放在 `Church/components/meeting/controlBarItems.ts`——與 `galleryLayout.ts`、`meetingAuth.ts` 同樣的作法：元件旁邊一個不含 JSX 的檔案，好讓「⋯ 裡該有哪幾項」不必拉進 React 就能測。
 
 選單關閉：點選單外、按 Esc、選完任一項後自動關閉。`aria-haspopup="menu"`、`aria-expanded`。
 
@@ -166,11 +173,12 @@ async lowerAllHands(): Promise<void>;
 | --- | --- | --- |
 | `raiseHand` | 舉手 | Raise hand |
 | `lowerHand` | 放下手 | Lower hand |
-| `lowerHandOf` | 放下 {name} 的手 | Lower {name}'s hand |
 | `lowerAllHands` | 放下所有人的手 | Lower all hands |
 | `more` | 更多 | More |
-| `viewSpeakerLong` | 切換為演講者檢視 | Switch to speaker view |
-| `viewGalleryLong` | 切換為相簿檢視 | Switch to gallery view |
+| `viewSpeakerLong` | 切換為發言人檢視 | Switch to speaker view |
+| `viewGalleryLong` | 切換為網格檢視 | Switch to gallery view |
+
+沿用既有詞彙「發言人檢視」「網格檢視」，不另立「演講者」「相簿」兩套說法。
 
 ## 信任模型
 
@@ -193,10 +201,12 @@ Host 是在房間卡片上自我宣告的角色，不是安全邊界——[chatP
 - `handRaisedAt` 讀得出時間戳；空字串、非數字、負數都回 `null`
 - `orderByRaisedHand` 把舉手的排到最前，且依舉手先後
 - `orderByRaisedHand` 不更動沒舉手者之間的相對順序
-- `orderByRaisedHand` 對沒有人舉手的清單回傳原順序
+- `orderByRaisedHand` 對沒有人舉手的清單回傳同一個陣列參照
+- `orderByRaisedHand` 對同一毫秒舉起的兩隻手保持穩定順序
+- `handOrders` 從 1 開始編號，且不含放下的手
 - `raisedHandCount` 正確計數
 
-控制列的選單項目也抽成純函式測（`overflowItems(...)`）：
+控制列的選單項目也抽成純函式測（`overflowKeys(...)`）：
 
 - 有人分享畫面時不含「切換檢視」
 - 非 Host 不含「放下所有人的手」

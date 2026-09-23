@@ -4,6 +4,7 @@ import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meeti
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
 import { LiveKitService } from '../../services/livekitService';
+import { raisedHandCount } from '../../meeting/raisedHands';
 import { VideoStage, type ViewMode } from './VideoStage';
 import { MeetingControlBar } from './MeetingControlBar';
 import { MessageList, type DisplayMessage } from './MessageList';
@@ -49,6 +50,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const { language, t } = useLocalization();
   const lk = useLiveKit(room, name, password, isHost);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
+  const raisedHands = raisedHandCount(lk.participants);
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -186,6 +188,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               participants={lk.participants}
               activeSpeakerIds={lk.activeSpeakerIds}
               viewMode={viewMode}
+              isHost={isHost}
+              onLowerHand={(identity) => void lk.lowerHandOf(identity)}
               connecting={lk.connecting}
               error={lk.error}
               onRetry={() => void lk.join()}
@@ -267,11 +271,16 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         membersOpen={membersOpen}
         bibleOpen={bible.open}
         videoFileOn={!!videoFile}
+        handRaised={lk.handRaised}
+        isHost={isHost}
+        raisedHands={raisedHands}
         showViewToggle={room.hasVideo && !screenActive}
         viewMode={viewMode}
         onToggleView={() => setViewMode((v) => (v === 'gallery' ? 'speaker' : 'gallery'))}
         onToggleMic={() => void lk.toggleMic()}
         onToggleCamera={() => void lk.toggleCamera()}
+        onToggleHand={() => void lk.toggleHand()}
+        onLowerAllHands={() => void lk.lowerAllHands()}
         onToggleScreenShare={() => {
           if (isHost && !lk.screenOn) onHostCommand({ type: 'host', action: 'claimShare' });
           void lk.toggleScreenShare();

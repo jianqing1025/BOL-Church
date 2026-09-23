@@ -11,6 +11,10 @@ interface ScreenShareViewProps {
   /** Identity of a participant pinned into the main area, or null for the screen. */
   pinnedId: string | null;
   onPin: (id: string | null) => void;
+  /** Queue positions of raised hands, by participant identity. */
+  handOrders: Map<string, number>;
+  /** Host only: ask a participant to put their hand down. */
+  onLowerHand?: (identity: string) => void;
 }
 
 /**
@@ -18,7 +22,7 @@ interface ScreenShareViewProps {
  * (right on desktop, bottom on mobile). Clicking a thumbnail pins that person
  * into the main area; the screen thumbnail switches back.
  */
-export const ScreenShareView: React.FC<ScreenShareViewProps> = ({ sharer, others, speaking, pinnedId, onPin }) => {
+export const ScreenShareView: React.FC<ScreenShareViewProps> = ({ sharer, others, speaking, handOrders, onLowerHand, pinnedId, onPin }) => {
   const { t } = useLocalization();
   const pinned = pinnedId ? others.find((p) => p.identity === pinnedId) : undefined;
 
@@ -26,7 +30,13 @@ export const ScreenShareView: React.FC<ScreenShareViewProps> = ({ sharer, others
     <div className="flex h-full min-h-0 flex-col gap-3 md:flex-row">
       <div className="min-h-0 flex-1">
         {pinned
-          ? <ParticipantTile participant={pinned} speaking={speaking.has(pinned.identity)} large />
+          ? <ParticipantTile
+              participant={pinned}
+              speaking={speaking.has(pinned.identity)}
+              handOrder={handOrders.get(pinned.identity)}
+              onLowerHand={onLowerHand && (() => onLowerHand(pinned.identity))}
+              large
+            />
           : <ParticipantTile participant={sharer} fit="contain" zoomable large />}
       </div>
 
@@ -47,6 +57,8 @@ export const ScreenShareView: React.FC<ScreenShareViewProps> = ({ sharer, others
             <ParticipantTile
               participant={p}
               speaking={speaking.has(p.identity)}
+              handOrder={handOrders.get(p.identity)}
+              onLowerHand={onLowerHand && (() => onLowerHand(p.identity))}
               onClick={() => onPin(p.identity)}
               className={pinnedId === p.identity ? 'ring-blue-400' : ''}
             />

@@ -1,6 +1,10 @@
-import React from 'react';
-import { Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff, LayoutGrid, UserSquare2, BookOpen, PlayCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff,
+  LayoutGrid, UserSquare2, BookOpen, PlayCircle, Hand, MoreHorizontal,
+} from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
+import { overflowKeys, type OverflowKey } from './controlBarItems';
 import type { ViewMode } from './VideoStage';
 
 interface MeetingControlBarProps {
@@ -13,11 +17,19 @@ interface MeetingControlBarProps {
   membersOpen: boolean;
   bibleOpen: boolean;
   videoFileOn: boolean;
+  /** Whether this participant has a hand up. */
+  handRaised: boolean;
+  /** Host sees "lower all hands"; members do not. */
+  isHost: boolean;
+  /** Hands currently up in the room; zero hides the host's lower-all item. */
+  raisedHands: number;
   showViewToggle: boolean;
   viewMode: ViewMode;
   onToggleView: () => void;
   onToggleMic: () => void;
   onToggleCamera: () => void;
+  onToggleHand: () => void;
+  onLowerAllHands: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
   onToggleMembers: () => void;
@@ -26,19 +38,28 @@ interface MeetingControlBarProps {
   onLeave: () => void;
 }
 
+const Badge: React.FC<{ count: number }> = ({ count }) => (
+  <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
+    {count > 99 ? '99+' : count}
+  </span>
+);
+
 const CircleButton: React.FC<{
   label: string;
   active?: boolean;
   danger?: boolean;
   badge?: number;
+  expanded?: boolean;
   onClick: () => void;
   children: React.ReactNode;
-}> = ({ label, active, danger, badge, onClick, children }) => (
+}> = ({ label, active, danger, badge, expanded, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
     aria-label={label}
-    aria-pressed={active}
+    aria-pressed={expanded === undefined ? active : undefined}
+    aria-haspopup={expanded === undefined ? undefined : 'menu'}
+    aria-expanded={expanded}
     className={`relative flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors sm:h-12 sm:w-12 ${
       danger
         ? 'bg-red-600 hover:bg-red-700'
@@ -48,23 +69,62 @@ const CircleButton: React.FC<{
     }`}
   >
     {children}
-    {badge && badge > 0 ? (
-      <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
-        {badge > 99 ? '99+' : badge}
-      </span>
-    ) : null}
+    {badge && badge > 0 ? <Badge count={badge} /> : null}
   </button>
 );
 
+/**
+ * One row, always: microphone, camera, hand │ Bible, video, more, hang up.
+ *
+ * Everything else lives behind "more" with a written label rather than an icon
+ * alone. A fixed row is what keeps the bar from wrapping onto a second line on
+ * a phone, where the stage has no vertical space to spare, and hang up sits at
+ * the far edge because it is the one button nobody may press by accident.
+ */
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen, videoFileOn,
-  showViewToggle, viewMode, onToggleView,
-  onToggleMic, onToggleCamera, onToggleScreenShare, onToggleChat, onToggleMembers,
-  onToggleBible, onToggleVideoFile, onLeave,
+  handRaised, isHost, raisedHands, showViewToggle, viewMode,
+  onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onToggleScreenShare,
+  onToggleChat, onToggleMembers, onToggleBible, onToggleVideoFile, onLeave,
 }) => {
   const { t } = useLocalization();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const keys = overflowKeys({ hasVideo, showViewToggle, isHost, raisedHands });
+
+  // A badge hidden inside the menu would never be seen, so the menu button
+  // carries whatever its contents are trying to say.
+  const hiddenBadges = keys.includes('chat') ? chatBadge : 0;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
+
+  const items: Record<OverflowKey, { label: string; icon: React.ReactNode; active?: boolean; badge?: number; onSelect: () => void }> = {
+    screenShare: { label: t('meeting.screenShare'), icon: <ScreenShare size={16} />, active: screenOn, onSelect: onToggleScreenShare },
+    chat: { label: t('meeting.chat'), icon: <MessageSquare size={16} />, active: chatOpen, badge: chatBadge, onSelect: onToggleChat },
+    members: { label: t('meeting.members'), icon: <Users size={16} />, active: membersOpen, onSelect: onToggleMembers },
+    view: {
+      label: t(viewMode === 'gallery' ? 'meeting.viewSpeakerLong' : 'meeting.viewGalleryLong'),
+      icon: viewMode === 'gallery' ? <UserSquare2 size={16} /> : <LayoutGrid size={16} />,
+      onSelect: onToggleView,
+    },
+    lowerAllHands: { label: t('meeting.lowerAllHands'), icon: <Hand size={16} />, onSelect: onLowerAllHands },
+  };
+
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-gray-900/80 px-4 py-3 sm:gap-3">
+    <div className="relative flex shrink-0 items-center justify-center gap-2 border-t border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
       {hasVideo && (
         <>
           <CircleButton label={t('meeting.microphone')} active={micOn} onClick={onToggleMic}>
@@ -73,33 +133,64 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           <CircleButton label={t('meeting.camera')} active={camOn} onClick={onToggleCamera}>
             {camOn ? <VideoIcon size={20} /> : <VideoOff size={20} className="text-red-300" />}
           </CircleButton>
-          <CircleButton label={t('meeting.screenShare')} active={screenOn} onClick={onToggleScreenShare}>
-            <ScreenShare size={20} />
+          <CircleButton label={t(handRaised ? 'meeting.lowerHand' : 'meeting.raiseHand')} active={handRaised} onClick={onToggleHand}>
+            <Hand size={20} className={handRaised ? 'text-amber-200' : undefined} />
           </CircleButton>
-          {showViewToggle && (
-            <CircleButton
-              label={viewMode === 'gallery' ? t('meeting.viewSpeaker') : t('meeting.viewGallery')}
-              onClick={onToggleView}
-            >
-              {viewMode === 'gallery' ? <UserSquare2 size={20} /> : <LayoutGrid size={20} />}
-            </CircleButton>
-          )}
-          <CircleButton label={t('meeting.chat')} active={chatOpen} badge={chatBadge} onClick={onToggleChat}>
-            <MessageSquare size={20} />
-          </CircleButton>
+          <div role="separator" aria-orientation="vertical" className="h-8 w-px shrink-0 bg-white/30" />
         </>
       )}
+
       <CircleButton label={t('bible.open')} active={bibleOpen} onClick={onToggleBible}>
         <BookOpen size={20} />
       </CircleButton>
+
       {hasVideo && (
         <CircleButton label={t('meeting.videoFile')} active={videoFileOn} onClick={onToggleVideoFile}>
           <PlayCircle size={20} />
         </CircleButton>
       )}
-      <CircleButton label={t('meeting.members')} active={membersOpen} onClick={onToggleMembers}>
-        <Users size={20} />
-      </CircleButton>
+
+      <div ref={menuRef} className="relative">
+        {menuOpen && (
+          <div
+            role="menu"
+            className="absolute bottom-full left-1/2 z-40 mb-3 w-52 -translate-x-1/2 rounded-xl border border-white/12 bg-gray-800 p-1.5 shadow-2xl"
+          >
+            {keys.map((key) => {
+              const item = items[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); item.onSelect(); }}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-white/10 ${
+                    item.active ? 'text-blue-300' : 'text-gray-100'
+                  }`}
+                >
+                  <span className="shrink-0 opacity-85">{item.icon}</span>
+                  <span className="truncate">{item.label}</span>
+                  {item.badge && item.badge > 0 ? (
+                    <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <CircleButton
+          label={t('meeting.more')}
+          active={menuOpen}
+          badge={menuOpen ? 0 : hiddenBadges}
+          expanded={menuOpen}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <MoreHorizontal size={20} />
+        </CircleButton>
+      </div>
+
       <CircleButton label={t('meeting.leave')} danger onClick={onLeave}>
         <PhoneOff size={20} />
       </CircleButton>

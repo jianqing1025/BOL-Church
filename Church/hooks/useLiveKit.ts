@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../services/livekitService';
+import { handRaisedAt } from '../meeting/raisedHands';
 import { useLocalization } from './useLocalization';
 import type { MeetingRoom } from '../constants/meetingRooms';
 import { churchPermissionConfirm } from '../components/ChurchDialog';
@@ -17,6 +18,8 @@ export interface UseLiveKit {
   screenOn: boolean;
   /** True while this participant is broadcasting a video file to the room. */
   videoFileOn: boolean;
+  /** True while this participant has a hand up. */
+  handRaised: boolean;
   join: () => Promise<void>;
   leave: () => void;
   toggleMic: () => Promise<void>;
@@ -24,6 +27,11 @@ export interface UseLiveKit {
   toggleScreenShare: () => Promise<void>;
   /** Ask for the camera and mic again, straight from a button press. */
   retryLocalMedia: () => Promise<void>;
+  toggleHand: () => Promise<void>;
+  /** Host: ask one participant to put their hand down. */
+  lowerHandOf: (identity: string) => Promise<void>;
+  /** Host: ask the whole room to put their hands down. */
+  lowerAllHands: () => Promise<void>;
   /** Publish a playing <video> element to the room. Resolves false if blocked. */
   startVideoFile: (element: HTMLVideoElement) => Promise<boolean>;
   stopVideoFile: () => Promise<void>;
@@ -75,6 +83,10 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
   // The shared-picture slot holds either a screen share or a broadcast video —
   // one at a time, room-wide — so both features consult the same check.
   const shareSlotTaken = participants.some((p) => !p.isLocal && LiveKitService.isScreenSharing(p));
+
+  // Derived rather than stored: a host can lower this hand from the other side
+  // of the room, and a separate piece of state would quietly fall out of step.
+  const handRaised = participants.some((p) => p.isLocal && handRaisedAt(p) !== null);
 
   const confirmPermission = useCallback((messageKey: string) => churchPermissionConfirm(t(messageKey), {
     title: t('meeting.permissionTitle'),
@@ -183,6 +195,24 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
     }
   }, [confirmPermission, t]);
 
+  const runOnService = useCallback(async (action: (svc: LiveKitService) => Promise<unknown>) => {
+    const svc = serviceRef.current;
+    if (!svc) return;
+    try {
+      setError('');
+      await action(svc);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const toggleHand = useCallback(() => runOnService((svc) => svc.toggleHand()), [runOnService]);
+  const lowerHandOf = useCallback(
+    (identity: string) => runOnService((svc) => svc.lowerHandOf(identity)),
+    [runOnService],
+  );
+  const lowerAllHands = useCallback(() => runOnService((svc) => svc.lowerAllHands()), [runOnService]);
+
   const toggleScreenShare = useCallback(async () => {
     const svc = serviceRef.current;
     if (!svc) return;
@@ -253,7 +283,8 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
 
   return {
     participants, activeSpeakerIds, connecting, joined, error,
-    micOn, camOn, screenOn, videoFileOn, shareSlotTaken,
+    micOn, camOn, screenOn, videoFileOn, handRaised, shareSlotTaken,
     join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile, retryLocalMedia,
+    toggleHand, lowerHandOf, lowerAllHands,
   };
 }

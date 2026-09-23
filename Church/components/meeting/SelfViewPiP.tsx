@@ -10,7 +10,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * The local participant as a floating, draggable, hideable picture-in-picture
  * window pinned to the bottom-right — it never affects the main grid layout.
  */
-export const SelfViewPiP: React.FC<{ participant: Participant }> = ({ participant }) => {
+export const SelfViewPiP: React.FC<{ participant: Participant; handOrder?: number }> = ({ participant, handOrder }) => {
   const { t } = useLocalization();
   const [hidden, setHidden] = useState(false);
   // Offsets from the bottom-right corner (px). Sits above the control bar.
@@ -58,7 +58,7 @@ export const SelfViewPiP: React.FC<{ participant: Participant }> = ({ participan
       onPointerCancel={onPointerUp}
     >
       <div className="aspect-video cursor-grab active:cursor-grabbing shadow-2xl">
-        <ParticipantTile participant={participant} />
+        <ParticipantTile participant={participant} handOrder={handOrder} />
       </div>
       <button
         type="button"

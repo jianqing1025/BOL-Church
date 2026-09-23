@@ -8,12 +8,16 @@ import { galleryGrid, galleryPageSize } from './galleryLayout';
 interface GalleryViewProps {
   participants: Participant[];
   speaking: Set<string>;
+  /** Queue positions of raised hands, by participant identity. */
+  handOrders: Map<string, number>;
+  /** Host only: ask a participant to put their hand down. */
+  onLowerHand?: (identity: string) => void;
 }
 
 /** Until the stage has been measured, assume a landscape screen. */
 const INITIAL_SIZE = { width: 1280, height: 720 };
 
-export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking }) => {
+export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking, handOrders, onLowerHand }) => {
   const stageRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(INITIAL_SIZE);
   const [page, setPage] = useState(0);
@@ -54,7 +58,12 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ participants, speaking
         >
           {pageItems.map((p) => (
             <FadeIn key={p.sid || p.identity}>
-              <ParticipantTile participant={p} speaking={speaking.has(p.identity)} />
+              <ParticipantTile
+                participant={p}
+                speaking={speaking.has(p.identity)}
+                handOrder={handOrders.get(p.identity)}
+                onLowerHand={onLowerHand && (() => onLowerHand(p.identity))}
+              />
             </FadeIn>
           ))}
         </div>

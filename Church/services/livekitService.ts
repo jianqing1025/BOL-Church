@@ -1,8 +1,12 @@
 import { LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
+import { HAND_ATTRIBUTE, handRaisedAt } from '../meeting/raisedHands';
 
 const MEDIA_UNSUPPORTED_MESSAGE = '目前的微信瀏覽器不支援開啟麥克風／鏡頭，請改用 iPhone Safari 開啟本頁，或升級微信後再試。';
 const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援分享螢幕。';
 const VIDEO_FILE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援把影片播給大家看，請改用電腦的 Chrome 或 Edge。';
+
+/** Data-channel topic carrying "put your hand down" from a host. */
+const HAND_TOPIC = 'meeting-hand';
 
 /** Track name for a broadcast video file, to tell it apart from a real screen share. */
 export const VIDEO_FILE_TRACK_NAME = 'meeting-video-file';
@@ -155,6 +159,10 @@ export class LiveKitService {
       .on(RoomEvent.TrackUnmuted, () => this.emit())
       .on(RoomEvent.LocalTrackPublished, () => this.emit())
       .on(RoomEvent.LocalTrackUnpublished, () => this.emit())
+      .on(RoomEvent.ParticipantAttributesChanged, () => this.emit())
+      .on(RoomEvent.DataReceived, (payload, _from, _kind, topic) => {
+        if (topic === HAND_TOPIC) void this.lowerOwnHand();
+      })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         this.handlers.onActiveSpeakersChanged?.(speakers.map((s) => s.identity));
         this.emit();
@@ -187,6 +195,56 @@ export class LiveKitService {
     await p.setCameraEnabled(enabled);
     this.emit();
     return enabled;
+  }
+
+  /** Whether this participant currently has a hand up. */
+  get handRaised(): boolean {
+    const p = this.room?.localParticipant;
+    return p ? handRaisedAt(p) !== null : false;
+  }
+
+  /** Raises or lowers this participant's own hand; returns the new state. */
+  async toggleHand(): Promise<boolean> {
+    const p = this.room?.localParticipant;
+    if (!p) return false;
+    const raised = handRaisedAt(p) !== null;
+    // setAttributes merges, so an empty string is how a key is "removed".
+    await p.setAttributes({ [HAND_ATTRIBUTE]: raised ? '' : String(Date.now()) });
+    this.emit();
+    return !raised;
+  }
+
+  /**
+   * Asks one participant to put their hand down.
+   *
+   * Only a participant may change their own attributes, so this cannot reach
+   * in and clear it — it sends them a note and their own client does it. The
+   * note is addressed, so nobody else's hand moves.
+   */
+  async lowerHandOf(identity: string): Promise<void> {
+    await this.sendLowerHand([identity]);
+  }
+
+  /** Asks the whole room to put their hands down. */
+  async lowerAllHands(): Promise<void> {
+    await this.sendLowerHand(undefined);
+  }
+
+  private async sendLowerHand(destinationIdentities: string[] | undefined): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p) return;
+    const payload = new TextEncoder().encode(JSON.stringify({ type: 'lowerHand' }));
+    await p.publishData(payload, { reliable: true, topic: HAND_TOPIC, destinationIdentities });
+    // Data messages reach everyone but the sender, so a host lowering the whole
+    // room would otherwise be left as the only hand still up.
+    if (!destinationIdentities || destinationIdentities.includes(p.identity)) await this.lowerOwnHand();
+  }
+
+  private async lowerOwnHand(): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p || handRaisedAt(p) === null) return;
+    await p.setAttributes({ [HAND_ATTRIBUTE]: '' });
+    this.emit();
   }
 
   async toggleScreenShare(): Promise<boolean> {
