@@ -2,7 +2,15 @@
 import { MEETING_ROOMS, livekitRoomName } from '../constants/meetingRooms';
 import { validateAuth, validateJoin, validateVideo } from './meetingValidation';
 import { createLiveKitToken } from './livekitToken';
-import { checkSelfHostedHealth, selectLiveKitProject, type LiveKitProjectEnv } from './livekitProject';
+import {
+  checkSelfHostedHealth,
+  isLiveKitProjectKey,
+  meetingDayNumber,
+  projectByKey,
+  selectLiveKitProjectKey,
+  type LiveKitProjectEnv,
+  type LiveKitProjectKey,
+} from './livekitProject';
 
 export interface MeetingEnv extends LiveKitProjectEnv {
   CHAT_ROOM: DurableObjectNamespace;
@@ -30,6 +38,32 @@ async function readActiveCount(env: MeetingEnv, roomId: string): Promise<number>
   if (!res.ok) return 0;
   const body = await res.json().catch(() => ({})) as { activeCount?: unknown };
   return typeof body.activeCount === 'number' ? body.activeCount : 0;
+}
+
+/**
+ * Asks the room which LiveKit server it is on, so every join lands on the same
+ * one. A failure here falls back to the proposal: a meeting that might be split
+ * beats no meeting at all.
+ */
+async function roomLiveKitProject(
+  env: MeetingEnv,
+  roomId: string,
+  proposed: LiveKitProjectKey,
+  day: number,
+): Promise<LiveKitProjectKey> {
+  try {
+    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(roomId));
+    const res = await stub.fetch('https://meeting-room.local/livekit-project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposed, day }),
+    });
+    if (!res.ok) return proposed;
+    const body = await res.json().catch(() => ({})) as { project?: unknown };
+    return isLiveKitProjectKey(body.project) ? body.project : proposed;
+  } catch {
+    return proposed;
+  }
 }
 
 /** Handles every /api/meeting/* request. Returns null if the path is not ours. */
@@ -68,10 +102,18 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     if (v.ok === false) return jsonCors(env, { error: v.error }, v.status);
     // The church's own server is preferred; the cloud projects catch the
     // meeting when it is unreachable, alternating by date between themselves.
-    // Everyone joining one meeting must resolve to the same server — see
+    // That choice is only a proposal: it reads a live health probe, so two
+    // people joining a minute apart can get different answers. The room itself
+    // settles it, so everyone in one meeting lands on the same server — see
     // livekitProject.ts for why that has to hold.
+    const now = new Date();
     const selfHealthy = await checkSelfHostedHealth(env);
-    const project = selectLiveKitProject(env, new Date(), { selfHealthy });
+    const proposed = selectLiveKitProjectKey(env, now, { selfHealthy });
+    if (!proposed) {
+      return jsonCors(env, { error: 'Video is not configured' }, 503);
+    }
+    const chosen = await roomLiveKitProject(env, v.room.id, proposed, meetingDayNumber(now));
+    const project = projectByKey(env, chosen) ?? projectByKey(env, proposed);
     if (!project) {
       return jsonCors(env, { error: 'Video is not configured' }, 503);
     }

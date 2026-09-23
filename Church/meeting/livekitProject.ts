@@ -64,6 +64,27 @@ function project(url?: string, apiKey?: string, apiSecret?: string): LiveKitProj
 }
 
 /**
+ * The three servers by name. Choosing is done in terms of these rather than the
+ * settings themselves so a room can write down which one it is on: a key is a
+ * short string worth storing, a project is three secrets that must not be.
+ */
+export type LiveKitProjectKey = 'self' | 'a' | 'b';
+
+const PROJECT_KEYS: readonly LiveKitProjectKey[] = ['self', 'a', 'b'];
+
+export function isLiveKitProjectKey(value: unknown): value is LiveKitProjectKey {
+  return typeof value === 'string' && (PROJECT_KEYS as readonly string[]).includes(value);
+}
+
+/** The settings behind a name, or null when that server is not configured. */
+export function projectByKey(env: LiveKitProjectEnv, key: LiveKitProjectKey | null): LiveKitProject | null {
+  if (key === 'self') return project(env.LIVEKIT_URL_SELF, env.LIVEKIT_API_KEY_SELF, env.LIVEKIT_API_SECRET_SELF);
+  if (key === 'a') return project(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
+  if (key === 'b') return project(env.LIVEKIT_URL_B, env.LIVEKIT_API_KEY_B, env.LIVEKIT_API_SECRET_B);
+  return null;
+}
+
+/**
  * The meeting day as a whole number of days, in church-local time with the 4am
  * boundary applied. Consecutive days differ by exactly one.
  */
@@ -90,42 +111,103 @@ export interface SelectOptions {
 }
 
 /**
- * The server to issue this meeting's token against, or null when none is
- * configured.
+ * The name of the server to issue this meeting's token against, or null when
+ * none is configured.
  *
  * The church's own machine is the default: it has no minute allowance to run
  * out. The two cloud projects are what catches the meeting when that machine
  * is unreachable, and among themselves they still alternate by date exactly as
  * before — that rule is untouched.
+ *
+ * This is only a *proposal*. It depends on a live health probe, so two people
+ * joining the same meeting can get different answers from it; stickyProject()
+ * is what turns the proposal into the one server the whole room uses.
  */
-export function selectLiveKitProject(
+export function selectLiveKitProjectKey(
   env: LiveKitProjectEnv,
   now: Date,
   options: SelectOptions = {},
-): LiveKitProject | null {
+): LiveKitProjectKey | null {
   const { selfHealthy = false, timeZone = MEETING_TIME_ZONE } = options;
-  const a = project(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
-  const b = project(env.LIVEKIT_URL_B, env.LIVEKIT_API_KEY_B, env.LIVEKIT_API_SECRET_B);
-  const self = project(env.LIVEKIT_URL_SELF, env.LIVEKIT_API_KEY_SELF, env.LIVEKIT_API_SECRET_SELF);
+  const has = (key: LiveKitProjectKey): boolean => projectByKey(env, key) !== null;
+  const firstConfigured = (...keys: LiveKitProjectKey[]): LiveKitProjectKey | null => keys.find(has) ?? null;
 
   // An override that names an unconfigured server falls through to whatever is
   // available: a meeting on the wrong server beats no meeting at all.
   switch ((env.LIVEKIT_ACTIVE ?? '').trim().toLowerCase()) {
-    case 'self': return self ?? a ?? b;
-    case 'a': return a ?? b ?? self;
-    case 'b': return b ?? a ?? self;
+    case 'self': return firstConfigured('self', 'a', 'b');
+    case 'a': return firstConfigured('a', 'b', 'self');
+    case 'b': return firstConfigured('b', 'a', 'self');
     default: break;
   }
 
   // Own machine first, but only while it is actually answering. Handing out a
   // token for a server that is down would let people into a room nobody can
   // reach, with no hint as to why.
-  if (self && selfHealthy) return self;
+  if (has('self') && selfHealthy) return 'self';
 
   // Fallen back to the cloud: the original date rotation, unchanged.
-  if (!a) return b ?? self;
-  if (!b) return a ?? self;
-  return meetingDayNumber(now, timeZone) % 2 === 0 ? a : b;
+  if (!has('a')) return firstConfigured('b', 'self');
+  if (!has('b')) return firstConfigured('a', 'self');
+  return meetingDayNumber(now, timeZone) % 2 === 0 ? 'a' : 'b';
+}
+
+/** The settings for selectLiveKitProjectKey's answer. */
+export function selectLiveKitProject(
+  env: LiveKitProjectEnv,
+  now: Date,
+  options: SelectOptions = {},
+): LiveKitProject | null {
+  return projectByKey(env, selectLiveKitProjectKey(env, now, options));
+}
+
+/** What a room has written down about which server it is using. */
+export interface StickyProject {
+  project: LiveKitProjectKey;
+  /** The meeting day the choice was made on (see meetingDayNumber). */
+  day: number;
+  /** When a token was last issued for this room, so a finished meeting expires. */
+  lastIssuedAt: number;
+}
+
+export interface StickyProjectInput {
+  stored: StickyProject | null;
+  proposed: LiveKitProjectKey;
+  day: number;
+  now: number;
+  /** People currently connected to the room's chat socket. */
+  activeCount: number;
+}
+
+/**
+ * How long a room stays bound to its server after the last person has gone.
+ *
+ * A Worker deploy restarts the Durable Object, and its session count is zero
+ * for the second or so everyone takes to reconnect — long enough to look like
+ * an empty room. This window is what stops that moment from re-deciding the
+ * server underneath a meeting that is still going.
+ */
+export const REDECIDE_IDLE_MS = 30 * 60 * 1000;
+
+/**
+ * The server a room must use — the decision that makes the proposal stick.
+ *
+ * Everyone in one meeting has to be on one server: two people handed different
+ * projects sit in identically named but entirely separate rooms, seeing and
+ * hearing nobody, with no error to explain it. The proposal alone cannot give
+ * that, because it reads a live health probe that can answer differently for
+ * two people joining a minute apart. So the room's first answer is written
+ * down and every later join is given the same one.
+ *
+ * It is let go of only when nothing can be split: a new meeting day, or a room
+ * that has been empty and quiet long enough that the meeting is over. That is
+ * also what lets a room come back to the church's own server once it recovers.
+ */
+export function stickyProject({ stored, proposed, day, now, activeCount }: StickyProjectInput): LiveKitProjectKey {
+  if (!stored || stored.day !== day) return proposed;
+  if (stored.project === proposed) return stored.project;
+  const meetingUnderWay = activeCount > 0 || now - stored.lastIssuedAt < REDECIDE_IDLE_MS;
+  return meetingUnderWay ? stored.project : proposed;
 }
 
 /**

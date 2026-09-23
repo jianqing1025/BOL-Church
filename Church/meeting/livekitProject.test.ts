@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   checkSelfHostedHealth,
+  isLiveKitProjectKey,
   meetingDayNumber,
+  projectByKey,
   selectLiveKitProject,
+  selectLiveKitProjectKey,
+  stickyProject,
   type LiveKitProjectEnv,
 } from './livekitProject';
 
@@ -217,5 +221,76 @@ describe('checkSelfHostedHealth', () => {
     // Half-configured counts as unconfigured — never sign a half-valid token.
     await expect(checkSelfHostedHealth({ LIVEKIT_URL_SELF: 'wss://x' }, fetcher as unknown as typeof fetch)).resolves.toBe(false);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('selectLiveKitProjectKey', () => {
+  it('names the project rather than returning it, so a room can remember the choice', () => {
+    expect(selectLiveKitProjectKey(ALL, meetingEvening('2026-09-15'), selfUp)).toBe('self');
+    expect(selectLiveKitProjectKey(BOTH, meetingEvening('2026-09-15'), selfDown)).toBe('b');
+    expect(selectLiveKitProjectKey(BOTH, meetingEvening('2026-09-16'), selfDown)).toBe('a');
+  });
+
+  it('never names a project that is not configured', () => {
+    expect(selectLiveKitProjectKey(A, meetingEvening('2026-09-15'), selfUp)).toBe('a');
+    expect(selectLiveKitProjectKey({ ...SELF }, meetingEvening('2026-09-15'), selfDown)).toBe('self');
+    expect(selectLiveKitProjectKey({}, meetingEvening('2026-09-15'), selfUp)).toBeNull();
+  });
+
+  it('agrees with selectLiveKitProject, which is now built on it', () => {
+    for (const env of [A, BOTH, ALL]) {
+      for (const health of [selfUp, selfDown]) {
+        const now = meetingEvening('2026-09-15');
+        const key = selectLiveKitProjectKey(env, now, health);
+        expect(projectByKey(env, key)).toEqual(selectLiveKitProject(env, now, health));
+      }
+    }
+  });
+});
+
+describe('stickyProject', () => {
+  const day = meetingDayNumber(meetingEvening('2026-09-22'));
+  const now = meetingEvening('2026-09-22').getTime();
+  const busy = { day, now, activeCount: 5 };
+  const empty = { day, now, activeCount: 0 };
+
+  it('takes the proposal when the room has never decided', () => {
+    expect(stickyProject({ stored: null, proposed: 'self', ...busy })).toBe('self');
+  });
+
+  it('holds the room to its decision even after the proposal changes', () => {
+    // The whole point: the health probe flipping mid-meeting must not hand the
+    // next person to join a different server from everyone already in the room.
+    const stored = { project: 'self' as const, day, lastIssuedAt: now - 60_000 };
+    expect(stickyProject({ stored, proposed: 'a', ...busy })).toBe('self');
+  });
+
+  it('still holds while the room is momentarily empty after a reconnect', () => {
+    // A Worker deploy restarts the Durable Object, so its session count is zero
+    // for about a second while everyone reconnects. The meeting is still on.
+    const stored = { project: 'self' as const, day, lastIssuedAt: now - 60_000 };
+    expect(stickyProject({ stored, proposed: 'a', ...empty })).toBe('self');
+  });
+
+  it('lets go once the room has been empty and quiet', () => {
+    const stored = { project: 'self' as const, day, lastIssuedAt: now - 31 * 60_000 };
+    expect(stickyProject({ stored, proposed: 'a', ...empty })).toBe('a');
+  });
+
+  it('decides afresh on a new meeting day', () => {
+    const stored = { project: 'a' as const, day: day - 1, lastIssuedAt: now - 60_000 };
+    expect(stickyProject({ stored, proposed: 'self', ...busy })).toBe('self');
+  });
+
+  it('keeps an unchanged proposal without fuss', () => {
+    const stored = { project: 'b' as const, day, lastIssuedAt: now - 60_000 };
+    expect(stickyProject({ stored, proposed: 'b', ...empty })).toBe('b');
+  });
+});
+
+describe('isLiveKitProjectKey', () => {
+  it('accepts only the three known names', () => {
+    expect(['self', 'a', 'b'].every(isLiveKitProjectKey)).toBe(true);
+    expect([null, undefined, '', 'c', 'SELF', 0].some(isLiveKitProjectKey)).toBe(false);
   });
 });

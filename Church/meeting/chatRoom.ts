@@ -8,8 +8,12 @@ import {
   type ChatMessage,
   type ServerMessage,
 } from './chatProtocol';
+import { isLiveKitProjectKey, stickyProject, type StickyProject } from './livekitProject';
 
 interface Session { id: string; name: string; isHost: boolean; }
+
+/** Durable storage key for the room's LiveKit server (see decideLiveKitProject). */
+const LIVEKIT_PROJECT_KEY = 'livekitProject';
 
 /**
  * One instance per room (addressed via idFromName(roomId)). Password and roomId
@@ -29,13 +33,48 @@ export class ChatRoom {
   /** Whether the room is reading full screen, so a newcomer matches the group. */
   private bibleExpanded = false;
 
-  constructor(_state: DurableObjectState, _env: unknown) {}
+  constructor(private state: DurableObjectState, _env: unknown) {}
+
+  /**
+   * Which LiveKit server this room is on.
+   *
+   * The Worker proposes one — it holds the settings and runs the health probe —
+   * but the decision belongs here, because this object is per room and its
+   * answer has to outlive the request that first asked. Two people in one
+   * meeting handed different servers sit in identically named but entirely
+   * separate rooms, seeing and hearing nobody; stickyProject() is what stops a
+   * probe that flips mid-meeting from doing that.
+   *
+   * Kept in durable storage rather than memory on purpose: a deploy restarts
+   * this object, and a meeting must not be re-decided underneath itself.
+   */
+  private async decideLiveKitProject(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => ({})) as { proposed?: unknown; day?: unknown };
+    if (!isLiveKitProjectKey(body.proposed) || typeof body.day !== 'number') {
+      return Response.json({ project: null }, { status: 400 });
+    }
+    const now = Date.now();
+    const stored = (await this.state.storage.get<StickyProject>(LIVEKIT_PROJECT_KEY)) ?? null;
+    const project = stickyProject({
+      stored,
+      proposed: body.proposed,
+      day: body.day,
+      now,
+      activeCount: this.sessions.size,
+    });
+    await this.state.storage.put(LIVEKIT_PROJECT_KEY, { project, day: body.day, lastIssuedAt: now });
+    return Response.json({ project });
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === 'GET' && url.pathname.endsWith('/status')) {
       return Response.json({ activeCount: this.sessions.size });
+    }
+
+    if (request.method === 'POST' && url.pathname.endsWith('/livekit-project')) {
+      return this.decideLiveKitProject(request);
     }
 
     if (request.headers.get('Upgrade') !== 'websocket') {
