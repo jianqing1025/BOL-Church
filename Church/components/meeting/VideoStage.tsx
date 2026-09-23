@@ -8,6 +8,8 @@ import { GalleryView } from './GalleryView';
 import { SpeakerView } from './SpeakerView';
 import { ScreenShareView } from './ScreenShareView';
 import { SelfViewPiP } from './SelfViewPiP';
+import { RoomVideoView } from './RoomVideoView';
+import type { RoomVideo } from '../../hooks/useRoomVideo';
 import { RoomAudio } from './RoomAudio';
 
 export type ViewMode = 'gallery' | 'speaker';
@@ -19,6 +21,8 @@ interface VideoStageProps {
   /** Host only: hand badges become buttons that put a hand down. */
   isHost: boolean;
   onLowerHand: (identity: string) => void;
+  /** The YouTube video the room is watching together, if any. */
+  roomVideo: RoomVideo;
   connecting: boolean;
   error: string;
   onRetry: () => void;
@@ -32,7 +36,7 @@ interface VideoStageProps {
  * is excluded from the main layout and shown as a floating self-view instead.
  */
 export const VideoStage: React.FC<VideoStageProps> = ({
-  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, connecting, error, onRetry, onRetryMedia,
+  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, roomVideo, connecting, error, onRetry, onRetryMedia,
 }) => {
   const { t } = useLocalization();
   // Raised hands first, so the six tiles a phone can fit are the six that
@@ -81,7 +85,10 @@ export const VideoStage: React.FC<VideoStageProps> = ({
   }
 
   const featured = remotes.find((r) => r.identity === featuredId) ?? remotes[0];
-  const speakerMode = !sharer && viewMode === 'speaker' && !!featured;
+  // A shared screen and a room video should never both be on — claiming the
+  // slot closes the other — but if they somehow are, the live screen wins.
+  const watching = !sharer && roomVideo.videoId !== null;
+  const speakerMode = !sharer && !watching && viewMode === 'speaker' && !!featured;
 
   let main: React.ReactNode;
   if (sharer) {
@@ -95,6 +102,20 @@ export const VideoStage: React.FC<VideoStageProps> = ({
         onLowerHand={lowerHand}
         pinnedId={pinnedId}
         onPin={setPinnedId}
+      />
+    );
+  } else if (watching && roomVideo.videoId) {
+    main = (
+      <RoomVideoView
+        videoId={roomVideo.videoId}
+        startSeconds={roomVideo.startSeconds}
+        leader={roomVideo.leader}
+        canLead={roomVideo.canLead}
+        onReport={roomVideo.report}
+        participants={ordered}
+        speaking={speaking}
+        handOrders={hands}
+        onLowerHand={lowerHand}
       />
     );
   } else if (speakerMode) {

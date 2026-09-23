@@ -3,9 +3,11 @@ import type { BibleMessage } from './chatProtocol';
 import {
   sanitizeBibleMessage,
   sanitizeHostMessage,
+  sanitizeRoomVideoMessage,
   sanitizeText,
   trimHistory,
   type ChatMessage,
+  type RoomVideoMessage,
   type ServerMessage,
 } from './chatProtocol';
 import { isLiveKitProjectKey, stickyProject, type StickyProject } from './livekitProject';
@@ -32,6 +34,14 @@ export class ChatRoom {
   private biblePosition: BibleMessage | null = null;
   /** Whether the room is reading full screen, so a newcomer matches the group. */
   private bibleExpanded = false;
+  /**
+   * The YouTube video the room is watching together, if any.
+   *
+   * Kept for the same reason as biblePosition: someone arriving late, or a
+   * phone whose socket dropped, should land on the video the group is already
+   * watching, at the point they are watching it.
+   */
+  private roomVideo: { videoId: string; playing: boolean; seconds: number } | null = null;
 
   constructor(private state: DurableObjectState, _env: unknown) {}
 
@@ -96,6 +106,12 @@ export class ChatRoom {
     if (this.biblePosition) this.sendTo(server, this.biblePosition);
     // After the position, so the panel is open before it is told to enlarge.
     if (this.bibleExpanded) this.sendTo(server, { type: 'bible', action: 'expand', expanded: true });
+    if (this.roomVideo) {
+      const { videoId, playing, seconds } = this.roomVideo;
+      // Open first so a player exists, then place it where the room is.
+      this.sendTo(server, { type: 'video', action: 'open', videoId, startSeconds: seconds });
+      this.sendTo(server, { type: 'video', action: 'state', playing, seconds });
+    }
     this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
     this.broadcastPresence();
 
@@ -117,6 +133,16 @@ export class ChatRoom {
         return;
       }
 
+      if (kind === 'video') {
+        const video = sanitizeRoomVideoMessage(parsed);
+        // Same rule as the Bible: a host leads, and with no host present
+        // anyone may, so a group without a designated leader still works.
+        if (!video || !(isHost || !this.hasHost())) return;
+        this.applyRoomVideo(video);
+        this.broadcast(video);
+        return;
+      }
+
       if (kind === 'host') {
         const command = sanitizeHostMessage(parsed);
         if (!command || !isHost) return;
@@ -124,7 +150,14 @@ export class ChatRoom {
         if (command.action === 'remove') this.removeUser(command.targetUserId);
         // The study is over: the next meeting should start from the contents,
         // not wherever this one happened to stop.
-        if (command.action === 'endMeeting') { this.biblePosition = null; this.bibleExpanded = false; }
+        if (command.action === 'endMeeting') { this.biblePosition = null; this.bibleExpanded = false; this.roomVideo = null; }
+        // Taking the shared picture slot ends whatever was in it. Forgetting
+        // the video is not enough — everyone already watching has to be told,
+        // or they sit in front of a film the room has moved on from.
+        if (command.action === 'claimShare' && this.roomVideo) {
+          this.roomVideo = null;
+          this.broadcast({ type: 'video', action: 'close' });
+        }
         return;
       }
 
@@ -147,6 +180,19 @@ export class ChatRoom {
     server.addEventListener('error', cleanup);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Keeps the remembered video in step with what the room was just told. */
+  private applyRoomVideo(message: RoomVideoMessage): void {
+    if (message.action === 'close') { this.roomVideo = null; return; }
+    if (message.action === 'open') {
+      this.roomVideo = { videoId: message.videoId, playing: true, seconds: message.startSeconds ?? 0 };
+      return;
+    }
+    // A position with no video open is stale chatter from a client that has
+    // not yet heard the video close; there is nothing for it to describe.
+    if (!this.roomVideo) return;
+    this.roomVideo = { ...this.roomVideo, playing: message.playing, seconds: message.seconds };
   }
 
   private hasHost(): boolean {

@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff,
-  LayoutGrid, UserSquare2, BookOpen, PlayCircle, Hand, MoreHorizontal,
+  LayoutGrid, UserSquare2, BookOpen, PlayCircle, Hand, MoreHorizontal, FileVideo, Youtube, Square,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { overflowKeys, type OverflowKey } from './controlBarItems';
@@ -16,7 +16,13 @@ interface MeetingControlBarProps {
   chatBadge: number;
   membersOpen: boolean;
   bibleOpen: boolean;
+  /** Something is in the shared-picture slot: a local file or a room video. */
   videoFileOn: boolean;
+  /** Whether this participant is allowed to stop what is in that slot. */
+  canStopSharedVideo: boolean;
+  onStopSharedVideo: () => void;
+  onPickLocalVideo: () => void;
+  onPickYouTubeVideo: () => void;
   /** Whether this participant has a hand up. */
   handRaised: boolean;
   /** Host sees "lower all hands"; members do not. */
@@ -34,14 +40,65 @@ interface MeetingControlBarProps {
   onToggleChat: () => void;
   onToggleMembers: () => void;
   onToggleBible: () => void;
-  onToggleVideoFile: () => void;
   onLeave: () => void;
 }
 
-const Badge: React.FC<{ count: number }> = ({ count }) => (
-  <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
-    {count > 99 ? '99+' : count}
-  </span>
+/**
+ * Closes a popup when the next press lands outside it, or on Escape.
+ *
+ * Both menus on this bar need exactly this, and a second copy would be the
+ * kind that quietly stops matching the first.
+ */
+function useDismissable(open: boolean, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, onClose]);
+  return ref;
+}
+
+const MenuPanel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div
+    role="menu"
+    className="absolute bottom-full left-1/2 z-40 mb-3 w-52 -translate-x-1/2 rounded-xl border border-white/10 bg-gray-800 p-1.5 shadow-2xl"
+  >
+    {children}
+  </div>
+);
+
+const MenuItem: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  active?: boolean;
+  badge?: number;
+  onSelect: () => void;
+}> = ({ label, icon, active, badge, onSelect }) => (
+  <button
+    type="button"
+    role="menuitem"
+    onClick={onSelect}
+    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-white/10 ${
+      active ? 'text-blue-300' : 'text-gray-100'
+    }`}
+  >
+    <span className="shrink-0 opacity-85">{icon}</span>
+    <span className="truncate">{label}</span>
+    {badge && badge > 0 ? (
+      <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white">
+        {badge > 99 ? '99+' : badge}
+      </span>
+    ) : null}
+  </button>
 );
 
 const CircleButton: React.FC<{
@@ -69,7 +126,11 @@ const CircleButton: React.FC<{
     }`}
   >
     {children}
-    {badge && badge > 0 ? <Badge count={badge} /> : null}
+    {badge && badge > 0 ? (
+      <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
+        {badge > 99 ? '99+' : badge}
+      </span>
+    ) : null}
   </button>
 );
 
@@ -82,34 +143,26 @@ const CircleButton: React.FC<{
  * the far edge because it is the one button nobody may press by accident.
  */
 export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
-  hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen, videoFileOn,
+  hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen,
+  videoFileOn, canStopSharedVideo, onStopSharedVideo, onPickLocalVideo, onPickYouTubeVideo,
   handRaised, isHost, raisedHands, showViewToggle, viewMode,
   onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onToggleScreenShare,
-  onToggleChat, onToggleMembers, onToggleBible, onToggleVideoFile, onLeave,
+  onToggleChat, onToggleMembers, onToggleBible, onLeave,
 }) => {
   const { t } = useLocalization();
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [videoMenuOpen, setVideoMenuOpen] = useState(false);
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeVideoMenu = useCallback(() => setVideoMenuOpen(false), []);
+  const menuRef = useDismissable(menuOpen, closeMenu);
+  const videoMenuRef = useDismissable(videoMenuOpen, closeVideoMenu);
 
   const keys = overflowKeys({ hasVideo, showViewToggle, isHost, raisedHands });
 
   // A badge hidden inside the menu would never be seen, so the menu button
   // carries whatever its contents are trying to say.
   const hiddenBadges = keys.includes('chat') ? chatBadge : 0;
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [menuOpen]);
 
   const items: Record<OverflowKey, { label: string; icon: React.ReactNode; active?: boolean; badge?: number; onSelect: () => void }> = {
     screenShare: { label: t('meeting.screenShare'), icon: <ScreenShare size={16} />, active: screenOn, onSelect: onToggleScreenShare },
@@ -145,40 +198,49 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
       </CircleButton>
 
       {hasVideo && (
-        <CircleButton label={t('meeting.videoFile')} active={videoFileOn} onClick={onToggleVideoFile}>
-          <PlayCircle size={20} />
-        </CircleButton>
+        <div ref={videoMenuRef} className="relative">
+          {videoMenuOpen && (
+            <MenuPanel>
+              <MenuItem
+                label={t('meeting.videoLocal')}
+                icon={<FileVideo size={16} />}
+                onSelect={() => { setVideoMenuOpen(false); onPickLocalVideo(); }}
+              />
+              <MenuItem
+                label={t('meeting.videoYouTube')}
+                icon={<Youtube size={16} />}
+                onSelect={() => { setVideoMenuOpen(false); onPickYouTubeVideo(); }}
+              />
+            </MenuPanel>
+          )}
+          <CircleButton
+            label={t(canStopSharedVideo ? 'meeting.videoFileStop' : 'meeting.videoFile')}
+            active={videoFileOn}
+            expanded={canStopSharedVideo ? undefined : videoMenuOpen}
+            onClick={canStopSharedVideo ? onStopSharedVideo : () => setVideoMenuOpen((v) => !v)}
+          >
+            {canStopSharedVideo ? <Square size={18} /> : <PlayCircle size={20} />}
+          </CircleButton>
+        </div>
       )}
 
       <div ref={menuRef} className="relative">
         {menuOpen && (
-          <div
-            role="menu"
-            className="absolute bottom-full left-1/2 z-40 mb-3 w-52 -translate-x-1/2 rounded-xl border border-white/12 bg-gray-800 p-1.5 shadow-2xl"
-          >
+          <MenuPanel>
             {keys.map((key) => {
               const item = items[key];
               return (
-                <button
+                <MenuItem
                   key={key}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setMenuOpen(false); item.onSelect(); }}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-white/10 ${
-                    item.active ? 'text-blue-300' : 'text-gray-100'
-                  }`}
-                >
-                  <span className="shrink-0 opacity-85">{item.icon}</span>
-                  <span className="truncate">{item.label}</span>
-                  {item.badge && item.badge > 0 ? (
-                    <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white">
-                      {item.badge > 99 ? '99+' : item.badge}
-                    </span>
-                  ) : null}
-                </button>
+                  label={item.label}
+                  icon={item.icon}
+                  active={item.active}
+                  badge={item.badge}
+                  onSelect={() => { setMenuOpen(false); item.onSelect(); }}
+                />
               );
             })}
-          </div>
+          </MenuPanel>
         )}
         <CircleButton
           label={t('meeting.more')}

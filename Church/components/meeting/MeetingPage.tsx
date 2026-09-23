@@ -3,8 +3,9 @@ import { useLocalization } from '../../hooks/useLocalization';
 import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import { isValidDisplayName, normalizeDisplayName, MEETING_NAME_KEY } from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
-import type { BibleMessage, HostMessage, PresenceUser, ServerMessage } from '../../meeting/chatProtocol';
+import type { BibleMessage, HostMessage, PresenceUser, RoomVideoMessage, ServerMessage } from '../../meeting/chatProtocol';
 import { useBibleSync } from '../../hooks/useBibleSync';
+import { useRoomVideo } from '../../hooks/useRoomVideo';
 import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
@@ -61,12 +62,17 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   // A host leads the room through the text; with no host present, anyone may.
   const roomHasHost = members.some((m) => m.isHost);
   const bible = useBibleSync(sendBible, isHost || !roomHasHost);
+  const sendRoomVideo = useCallback((message: RoomVideoMessage) => socketRef.current?.sendRoomVideo(message), []);
+  // Same rule as the Bible: a host leads, and with no host anyone may.
+  const roomVideo = useRoomVideo(sendRoomVideo, isHost || !roomHasHost);
   const sendHostCommand = useCallback((message: HostMessage) => socketRef.current?.sendHostCommand(message), []);
 
   // The socket handler below is built once per room, so it reads the applier
   // through a ref rather than capturing a value that changes every render.
   const applyBibleRef = useRef(bible.apply);
   applyBibleRef.current = bible.apply;
+  const applyRoomVideoRef = useRef(roomVideo.apply);
+  applyRoomVideoRef.current = roomVideo.apply;
 
   const closeSocket = useCallback(() => {
     socketRef.current?.close();
@@ -147,6 +153,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
           setMembers(msg.users);
         } else if (msg.type === 'bible') {
           applyBibleRef.current(msg);
+        } else if (msg.type === 'video') {
+          applyRoomVideoRef.current(msg);
         } else if (msg.type === 'host') {
           setHostCommand((prev) => ({ message: msg, seq: (prev?.seq ?? 0) + 1 }));
         }
@@ -241,6 +249,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         ownUserId={ownUserId}
         isHost={isHost}
         bible={bible}
+        roomVideo={roomVideo}
         hostCommand={hostCommand}
         onHostCommand={sendHostCommand}
         onSend={send}

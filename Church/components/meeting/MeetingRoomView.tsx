@@ -12,9 +12,11 @@ import { ChatInput } from './ChatInput';
 import { ChatPanel } from './ChatPanel';
 import { MemberList } from './MemberList';
 import type { BibleSync } from '../../hooks/useBibleSync';
+import type { RoomVideo } from '../../hooks/useRoomVideo';
 import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
-import { churchAlert, churchConfirm } from '../ChurchDialog';
+import { churchAlert, churchConfirm, churchPrompt } from '../ChurchDialog';
+import { parseYouTubeStart, parseYouTubeVideoId } from '../../meeting/youtube';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
 
 interface MeetingRoomViewProps {
@@ -28,6 +30,8 @@ interface MeetingRoomViewProps {
   isHost: boolean;
   /** The room's shared position in the Bible. */
   bible: BibleSync;
+  /** The YouTube video the room is watching together. */
+  roomVideo: RoomVideo;
   /** Latest command from a host; the seq makes an identical repeat re-fire. */
   hostCommand: { message: HostMessage; seq: number } | null;
   onHostCommand: (message: HostMessage) => void;
@@ -45,7 +49,7 @@ const formatElapsed = (seconds: number): string => {
 
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   room, name, password, messages, members, ownUserId, isHost,
-  bible, hostCommand, onHostCommand, onSend, onLeave,
+  bible, roomVideo, hostCommand, onHostCommand, onSend, onLeave,
 }) => {
   const { language, t } = useLocalization();
   const lk = useLiveKit(room, name, password, isHost);
@@ -137,13 +141,29 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seq]);
 
-  const toggleVideoFile = useCallback(() => {
-    if (videoFile) { stopVideoFile(); return; }
+  const pickLocalVideo = useCallback(() => {
     if (isHost) onHostCommand({ type: 'host', action: 'claimShare' });
     // Reset the value so re-picking the same file still fires onChange.
     if (filePickerRef.current) filePickerRef.current.value = '';
     filePickerRef.current?.click();
-  }, [videoFile, stopVideoFile, isHost, onHostCommand]);
+  }, [isHost, onHostCommand]);
+
+  const pickYouTubeVideo = useCallback(async () => {
+    if (lk.shareSlotTaken && !isHost) { await churchAlert(t('meeting.screenShareBusy')); return; }
+    const entered = await churchPrompt(t('meeting.youtubePrompt'));
+    if (entered === null) return;
+    const videoId = parseYouTubeVideoId(entered);
+    if (!videoId) { await churchAlert(t('meeting.youtubeBadLink')); return; }
+    if (isHost) onHostCommand({ type: 'host', action: 'claimShare' });
+    roomVideo.open(videoId, parseYouTubeStart(entered));
+  }, [lk.shareSlotTaken, isHost, onHostCommand, roomVideo, t]);
+
+  // One button for the shared picture: it stops whatever is playing, or offers
+  // the two ways to start something when nothing is.
+  const stopSharedVideo = useCallback(() => {
+    if (videoFile) { stopVideoFile(); return; }
+    roomVideo.close();
+  }, [videoFile, stopVideoFile, roomVideo]);
 
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
@@ -174,10 +194,18 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             </button>
           )}
         </div>
-        <div className="flex items-center gap-1.5 text-sm text-gray-400">
+        <button
+          type="button"
+          onClick={() => setMembersOpen((v) => !v)}
+          aria-label={t('meeting.members')}
+          aria-pressed={membersOpen}
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-sm transition-colors ${
+            membersOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+          }`}
+        >
           <Users size={16} />
           {members.length}
-        </div>
+        </button>
       </header>
 
       {/* Body: stage + optional right drawer */}
@@ -190,6 +218,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               viewMode={viewMode}
               isHost={isHost}
               onLowerHand={(identity) => void lk.lowerHandOf(identity)}
+              roomVideo={roomVideo}
               connecting={lk.connecting}
               error={lk.error}
               onRetry={() => void lk.join()}
@@ -270,7 +299,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         chatBadge={unread}
         membersOpen={membersOpen}
         bibleOpen={bible.open}
-        videoFileOn={!!videoFile}
+        videoFileOn={!!videoFile || roomVideo.videoId !== null}
+        canStopSharedVideo={!!videoFile || (roomVideo.videoId !== null && roomVideo.canLead)}
+        onStopSharedVideo={stopSharedVideo}
+        onPickLocalVideo={pickLocalVideo}
+        onPickYouTubeVideo={() => void pickYouTubeVideo()}
         handRaised={lk.handRaised}
         isHost={isHost}
         raisedHands={raisedHands}
@@ -288,7 +321,6 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onToggleChat={() => setChatOpen((v) => !v)}
         onToggleMembers={() => setMembersOpen((v) => !v)}
         onToggleBible={bible.toggle}
-        onToggleVideoFile={toggleVideoFile}
         onLeave={() => void leaveRoom()}
       />
     </div>

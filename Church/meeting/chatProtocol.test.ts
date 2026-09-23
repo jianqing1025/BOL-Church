@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  sanitizeRoomVideoMessage,
   sanitizeText,
   sanitizeName,
   sanitizeBibleMessage,
@@ -144,5 +145,48 @@ describe('sanitizeHostMessage', () => {
     expect(sanitizeHostMessage({ type: 'host', action: 'shutdown', targetUserId: 'u1' })).toBeNull();
     expect(sanitizeHostMessage({ type: 'bible', action: 'contents' })).toBeNull();
     expect(sanitizeHostMessage(undefined)).toBeNull();
+  });
+});
+
+describe('sanitizeRoomVideoMessage', () => {
+  const ID = 'dQw4w9WgXcQ';
+
+  it('accepts opening a video, with and without a start time', () => {
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'open', videoId: ID }))
+      .toEqual({ type: 'video', action: 'open', videoId: ID });
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'open', videoId: ID, startSeconds: 90 }))
+      .toEqual({ type: 'video', action: 'open', videoId: ID, startSeconds: 90 });
+  });
+
+  it('accepts closing and a playback position', () => {
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'close' }))
+      .toEqual({ type: 'video', action: 'close' });
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'state', playing: true, seconds: 12.5 }))
+      .toEqual({ type: 'video', action: 'state', playing: true, seconds: 12.5 });
+  });
+
+  it('refuses anything that is not a real video id', () => {
+    // The room object rebroadcasts this to everyone, so a bad id would load a
+    // stranger's page into every member's meeting.
+    for (const videoId of ['', 'short', 'way-too-long-to-be-an-id', '<script>xx', 42, null]) {
+      expect(sanitizeRoomVideoMessage({ type: 'video', action: 'open', videoId })).toBeNull();
+    }
+  });
+
+  it('refuses a position that is not a sane number of seconds', () => {
+    for (const seconds of [-1, Number.NaN, Number.POSITIVE_INFINITY, 90000, '30', undefined]) {
+      expect(sanitizeRoomVideoMessage({ type: 'video', action: 'state', playing: true, seconds })).toBeNull();
+    }
+  });
+
+  it('refuses a missing or unknown action, and other message types', () => {
+    expect(sanitizeRoomVideoMessage({ type: 'video' })).toBeNull();
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'rewind' })).toBeNull();
+    expect(sanitizeRoomVideoMessage({ type: 'bible', action: 'close' })).toBeNull();
+    expect(sanitizeRoomVideoMessage(null)).toBeNull();
+  });
+
+  it('refuses a playing flag that is not a boolean', () => {
+    expect(sanitizeRoomVideoMessage({ type: 'video', action: 'state', playing: 'yes', seconds: 1 })).toBeNull();
   });
 });

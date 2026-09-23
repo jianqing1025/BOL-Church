@@ -63,6 +63,19 @@ export type HostMessage =
    */
   | { type: 'host'; action: 'endMeeting' };
 
+/**
+ * A video the whole room is watching on YouTube.
+ *
+ * The picture never travels through LiveKit: every participant embeds their
+ * own player and follows the leader's position, because a cross-origin iframe
+ * cannot be captured and republished the way a local file can. So these
+ * messages are the only thing holding the room together on one frame.
+ */
+export type RoomVideoMessage =
+  | { type: 'video'; action: 'open'; videoId: string; startSeconds?: number }
+  | { type: 'video'; action: 'close' }
+  | { type: 'video'; action: 'state'; playing: boolean; seconds: number };
+
 export interface PresenceUser {
   id: string;
   name: string;
@@ -79,12 +92,13 @@ export interface WelcomeMessage {
   userId: string;
   messages: ChatMessage[];
 }
-export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage | BibleMessage | HostMessage;
+export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage | BibleMessage | HostMessage | RoomVideoMessage;
 
 export type ClientMessage =
   | { type: 'message'; text: string }
   | BibleMessage
-  | HostMessage;
+  | HostMessage
+  | RoomVideoMessage;
 
 /**
  * Validates a Bible navigation message from a client. The Durable Object
@@ -113,6 +127,50 @@ export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
     if (typeof verse !== 'number' || !Number.isInteger(verse) || verse < 1 || verse > 200) return null;
     return { type: 'bible', action: 'scroll', bookId: book.id, chapter, verse };
   }
+  return null;
+}
+
+/** A YouTube video id is always eleven of these characters. */
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** Nothing anyone watches together runs past a day. */
+const MAX_VIDEO_SECONDS = 86400;
+
+function videoSeconds(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  if (value < 0 || value > MAX_VIDEO_SECONDS) return null;
+  return value;
+}
+
+/**
+ * Validates a room video message from a client.
+ *
+ * The Durable Object rebroadcasts this to everyone, so an unchecked id would
+ * put a stranger's page in front of the whole room. Whether the sender is
+ * allowed to lead is checked separately, as it is for Bible navigation.
+ */
+export function sanitizeRoomVideoMessage(input: unknown): RoomVideoMessage | null {
+  if (!input || typeof input !== 'object') return null;
+  const msg = input as { type?: unknown; action?: unknown; videoId?: unknown; startSeconds?: unknown; playing?: unknown; seconds?: unknown };
+  if (msg.type !== 'video') return null;
+
+  if (msg.action === 'close') return { type: 'video', action: 'close' };
+
+  if (msg.action === 'open') {
+    if (typeof msg.videoId !== 'string' || !VIDEO_ID.test(msg.videoId)) return null;
+    if (msg.startSeconds === undefined) return { type: 'video', action: 'open', videoId: msg.videoId };
+    const start = videoSeconds(msg.startSeconds);
+    if (start === null) return null;
+    return { type: 'video', action: 'open', videoId: msg.videoId, startSeconds: start };
+  }
+
+  if (msg.action === 'state') {
+    if (typeof msg.playing !== 'boolean') return null;
+    const seconds = videoSeconds(msg.seconds);
+    if (seconds === null) return null;
+    return { type: 'video', action: 'state', playing: msg.playing, seconds };
+  }
+
   return null;
 }
 
