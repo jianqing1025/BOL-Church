@@ -50,3 +50,6 @@ Legacy/wrangler.json
 # Excluded folders
 Data/
 Finance-Original/
+
+# Brainstorm visual companion
+.superpowers/
