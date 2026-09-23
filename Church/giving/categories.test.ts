@@ -27,6 +27,34 @@ describe('parseCategories', () => {
   it('過濾掉非字串與空白項目', () => {
     expect(parseCategories('["什一", 123, "", "  ", "建堂"]')).toEqual(['什一', '建堂']);
   });
+
+  it('null 回傳複本，非共用常數', () => {
+    expect(parseCategories(null)).not.toBe(DEFAULT_CATEGORIES);
+  });
+
+  it('null 時回傳複本——變更結果不影響下次呼叫', () => {
+    const first = parseCategories(null);
+    first.push('污染標記');
+    const second = parseCategories(null);
+    expect(second).not.toContain('污染標記');
+    expect(second).toEqual(DEFAULT_CATEGORIES);
+  });
+
+  it('壞掉 JSON 時回傳複本——變更結果不影響下次呼叫', () => {
+    const first = parseCategories('{invalid');
+    first.push('污染標記');
+    const second = parseCategories('{invalid');
+    expect(second).not.toContain('污染標記');
+    expect(second).toEqual(DEFAULT_CATEGORIES);
+  });
+
+  it('空陣列時回傳複本——變更結果不影響下次呼叫', () => {
+    const first = parseCategories('[]');
+    first.push('污染標記');
+    const second = parseCategories('[]');
+    expect(second).not.toContain('污染標記');
+    expect(second).toEqual(DEFAULT_CATEGORIES);
+  });
 });
 
 describe('isValidCategory', () => {
