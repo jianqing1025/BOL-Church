@@ -96,6 +96,8 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   onReportRef.current = onReport;
   const startRef = useRef(startSeconds);
   startRef.current = startSeconds;
+  const leaderRef = useRef(leader);
+  leaderRef.current = leader;
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +110,9 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
       if (cancelled || !hostRef.current) return;
       player = new YT.Player(hostRef.current, {
         videoId,
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
+        // autoplay asks; whether it is granted is the browser's call, and the
+        // tap-to-play cover below is what answers when it refuses.
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
         events: {
           onReady: () => { if (!cancelled) setReady(true); },
           onStateChange: (event: { data: number }) => {
@@ -160,17 +164,20 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaderSeq, ready, canLead]);
 
-  // A follower's playback was never asked for by a tap, so Safari refuses it.
-  // Check shortly after and, if nothing started, ask for the tap plainly
-  // instead of leaving a silent black rectangle.
+  // Playback nobody tapped for is refused by Safari, and by Chrome when the
+  // tab has not earned it. Check shortly after and, if nothing started, ask
+  // for the tap plainly instead of leaving a silent black rectangle. The
+  // leader needs this as much as anyone: their own player is just as likely to
+  // be refused, and without it they go hunting for YouTube's own play button —
+  // which starts playback outside the room's knowledge entirely.
   useEffect(() => {
-    if (!ready || canLead || !leaderPlaying) { setBlocked(false); return; }
+    if (!ready || !leaderPlaying) { setBlocked(false); return; }
     const id = window.setTimeout(() => {
       const state = playerRef.current?.getPlayerState();
       setBlocked(state !== PLAYING && state !== BUFFERING);
     }, 1200);
     return () => window.clearTimeout(id);
-  }, [ready, canLead, leaderSeq, leaderPlaying]);
+  }, [ready, leaderSeq, leaderPlaying]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 md:flex-row">
@@ -190,7 +197,16 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         {blocked && (
           <button
             type="button"
-            onClick={() => { playerRef.current?.playVideo(); setBlocked(false); }}
+            onClick={() => {
+              const player = playerRef.current;
+              // Join the room where it is now. Playing from wherever this
+              // player happened to be parked is how someone ends up watching
+              // the same film several minutes behind everyone else.
+              const at = leaderRef.current?.seconds;
+              if (player && at !== undefined) player.seekTo(at, true);
+              player?.playVideo();
+              setBlocked(false);
+            }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/65 text-white"
           >
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/15">

@@ -52,7 +52,11 @@ export function useRoomVideo(send: (message: RoomVideoMessage) => void, canLead:
     if (message.action === 'open') {
       setVideoId(message.videoId);
       setStartSeconds(message.startSeconds ?? 0);
-      setLeader(null);
+      // Opening *is* the room starting to watch, which is how the room object
+      // records it too. Leaving this null until the first heartbeat gave
+      // followers nothing to follow for up to three seconds — long enough for
+      // someone to press YouTube's own play button and end up watching alone.
+      setLeader((prev) => ({ playing: true, seconds: message.startSeconds ?? 0, seq: (prev?.seq ?? 0) + 1 }));
       return;
     }
     setLeader((prev) => ({ playing: message.playing, seconds: message.seconds, seq: (prev?.seq ?? 0) + 1 }));
