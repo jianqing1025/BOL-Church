@@ -5,6 +5,7 @@ import { useLocalization } from '../../hooks/useLocalization';
 import { canSetMediaVolume, followRoomVideo, needsSoundGesture, type PlaybackState } from '../../meeting/youtube';
 import type { LeaderPlayback } from '../../hooks/useRoomVideo';
 import { ParticipantTile } from './ParticipantTile';
+import { useTimedNotice } from '../../hooks/useTimedNotice';
 
 /** Only the handful of the YouTube IFrame API this view actually uses. */
 interface YouTubePlayer {
@@ -101,6 +102,8 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   const soundNeedsTap = needsSoundGesture(userAgent);
   const [muted, setMuted] = useState(soundNeedsTap);
   const [volume, setVolume] = useState(100);
+  // Followers are told once who is driving, then left to watch.
+  const showFollowNotice = useTimedNotice(canLead ? null : videoId);
   const volumeAdjustable = canSetMediaVolume(userAgent);
 
   // Read through refs so the player is built once per video rather than torn
@@ -212,6 +215,12 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
             <div ref={hostRef} className="h-full w-full" />
           </div>
         </div>
+
+        {showFollowNotice && (
+          <p className="pointer-events-none absolute inset-x-3 top-3 z-10 mx-auto max-w-sm rounded-lg bg-blue-950/85 px-3 py-1.5 text-center text-xs text-blue-100 ring-1 ring-blue-400/30">
+            {t('meeting.videoFollowingHost')}
+          </p>
+        )}
 
         {failed && (
           <div className="absolute inset-0 flex items-center justify-center p-6 text-center">

@@ -18,6 +18,8 @@ export interface UseLiveKit {
   screenOn: boolean;
   /** True while this participant is broadcasting a video file to the room. */
   videoFileOn: boolean;
+  /** Changes on every error report, so a repeat of the same words still shows. */
+  errorSeq: number;
   /** True while this participant has a hand up. */
   handRaised: boolean;
   join: () => Promise<void>;
@@ -74,7 +76,16 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
   const [activeSpeakerIds, setActiveSpeakerIds] = useState<string[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [joined, setJoined] = useState(false);
-  const [error, setError] = useState('');
+  /**
+   * Kept with a sequence because the banner showing it hides itself after a
+   * few seconds: a second failure worded exactly like the first still has to
+   * bring it back, and identical state alone would not re-render anything.
+   */
+  const [errorState, setErrorState] = useState({ text: '', seq: 0 });
+  const error = errorState.text;
+  const setError = useCallback((text: string) => {
+    setErrorState((prev) => ({ text, seq: prev.seq + 1 }));
+  }, []);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
@@ -282,7 +293,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
   }, [room.hasVideo]);
 
   return {
-    participants, activeSpeakerIds, connecting, joined, error,
+    participants, activeSpeakerIds, connecting, joined, error, errorSeq: errorState.seq,
     micOn, camOn, screenOn, videoFileOn, handRaised, shareSlotTaken,
     join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile, retryLocalMedia,
     toggleHand, lowerHandOf, lowerAllHands,

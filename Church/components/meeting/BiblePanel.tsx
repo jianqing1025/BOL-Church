@@ -3,6 +3,7 @@ import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Minus, Plus, List, 
 import { BIBLE_BOOKS, booksOfTestament, findBibleBook, localizeBookName, type BibleBook, type Testament } from '../../constants/bibleBooks';
 import { useLocalization } from '../../hooks/useLocalization';
 import type { BibleScrollPosition, BibleView } from '../../hooks/useBibleSync';
+import { useTimedNotice } from '../../hooks/useTimedNotice';
 import {
   BibleService,
   BIBLE_FONT_STEPS,
@@ -45,6 +46,9 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
   expanded, onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
 }) => {
   const { language, t } = useLocalization();
+  // Who is leading is worth saying once; leaving it there just takes a line
+  // away from the text for the rest of the study.
+  const showLeadNotice = useTimedNotice(!canLead);
   const initial = useMemo(loadReadingState, []);
   const [fontStep, setFontStep] = useState(initial.fontStep);
   const [testament, setTestament] = useState<Testament>(() => findBibleBook(initial.bookId)?.testament ?? 'old');
@@ -235,8 +239,9 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
         </button>
       </div>
 
-      {/* A host is choosing the passage for everyone. */}
-      {!canLead && (
+      {/* A host is choosing the passage for everyone. Said once, then out of
+          the way — it is a fact about the room, not a warning. */}
+      {!canLead && showLeadNotice && (
         <p className="shrink-0 border-b border-white/10 bg-blue-950/40 px-4 py-1.5 text-center text-xs text-blue-200">
           {t('bible.followingHost')}
         </p>

@@ -223,6 +223,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               roomVideo={roomVideo}
               connecting={lk.connecting}
               error={lk.error}
+              errorSeq={lk.errorSeq}
               onRetry={() => void lk.join()}
               onRetryMedia={() => void lk.retryLocalMedia()}
             />

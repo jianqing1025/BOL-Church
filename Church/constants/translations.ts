@@ -240,19 +240,19 @@ export const translations = {
     },
     retryMedia: { en: 'Try again', zh: '再試一次' },
     mediaDenied: {
-      en: 'Camera and microphone are blocked. Tap “Try again”, or allow them for this site in your browser settings.',
-      zh: '鏡頭與麥克風被拒絕了。請點「再試一次」，或到瀏覽器設定中允許本網站使用。'
+      en: 'Camera and microphone are blocked. Allow them for this site in your browser settings, then press 視訊 on the control bar.',
+      zh: '鏡頭與麥克風被拒絕了。請到瀏覽器設定允許本網站使用，再按控制列的「視訊」重新開啟。'
     },
     mediaNotFound: { en: 'No camera or microphone was found on this device.', zh: '這台裝置上找不到鏡頭或麥克風。' },
     mediaInUse: {
-      en: 'Another app is using the camera or microphone. Close it and tap “Try again”.',
-      zh: '有其他 App 正在使用鏡頭或麥克風，請關掉它再點「再試一次」。'
+      en: 'Another app is using the camera or microphone. Close it, then press 視訊 on the control bar.',
+      zh: '有其他 App 正在使用鏡頭或麥克風，請先關掉它，再按控制列的「視訊」重新開啟。'
     },
     mediaUnsupported: {
       en: 'This browser cannot open the camera or microphone. Please open this page in Safari or Chrome.',
       zh: '這個瀏覽器無法開啟鏡頭或麥克風，請改用 Safari 或 Chrome 開啟本頁。'
     },
-    mediaFailed: { en: 'Could not turn on the camera or microphone.', zh: '無法開啟鏡頭或麥克風。' },
+    mediaFailed: { en: 'Could not turn on the camera or microphone. Press 視訊 on the control bar to try again.', zh: '無法開啟鏡頭或麥克風，請按控制列的「視訊」再試一次。' },
     host: { en: 'Host', zh: 'Host' },
     hostMute: { en: 'Mute this person', zh: '將此人靜音' },
     cancel: { en: 'Cancel', zh: '取消' },
@@ -287,7 +287,11 @@ export const translations = {
     youtubeBadLink: { en: 'That is not a YouTube video link.', zh: '這不是有效的 YouTube 影片網址。' },
     youtubeUnavailable: { en: 'The YouTube player could not be loaded.', zh: '無法載入 YouTube 播放器。' },
     videoTapToPlay: { en: 'Tap to play', zh: '點一下開始播放' },
-    videoSoundOn: { en: 'Tap for sound', zh: '點一下開啟聲音' },
+    videoFollowingHost: {
+      en: 'The host is sharing this video and controls the playback.',
+      zh: 'Host 正在分享影片，播放進度由他控制。',
+    },
+    videoSoundOn: { en: 'Turn on sound', zh: '開啟聲音' },
     videoSoundOff: { en: 'Mute', zh: '關閉聲音' },
     videoVolume: { en: 'Video volume', zh: '影片音量' },
     videoVolumeHardware: {
@@ -310,7 +314,7 @@ export const translations = {
     textLarger: { en: 'Larger text', zh: '放大字級' },
     expand: { en: 'Full screen', zh: '全螢幕閱讀' },
     collapse: { en: 'Exit full screen', zh: '結束全螢幕' },
-    followingHost: { en: 'The host leads this room — their page turns reach everyone.', zh: 'Host 正在帶查經，他翻到哪裡大家就會跟到哪裡。' },
+    followingHost: { en: 'The host is leading the study and controls the passage.', zh: 'Host 正在帶查經，經文進度由他控制。' },
     backToHost: { en: "Back to the host's place", zh: '回到 Host 的位置' },
   },
   events: {

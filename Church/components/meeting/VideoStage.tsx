@@ -3,6 +3,7 @@ import { Video as VideoIcon, RotateCcw } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
 import { handOrders, orderByRaisedHand } from '../../meeting/raisedHands';
+import { useTimedNotice } from '../../hooks/useTimedNotice';
 import { useLocalization } from '../../hooks/useLocalization';
 import { GalleryView } from './GalleryView';
 import { SpeakerView } from './SpeakerView';
@@ -25,6 +26,8 @@ interface VideoStageProps {
   roomVideo: RoomVideo;
   connecting: boolean;
   error: string;
+  /** Bumped on every report, so the banner reappears for a repeated error. */
+  errorSeq: number;
   onRetry: () => void;
   /** Ask for the camera and mic again from this button's own press. */
   onRetryMedia: () => void;
@@ -36,7 +39,7 @@ interface VideoStageProps {
  * is excluded from the main layout and shown as a floating self-view instead.
  */
 export const VideoStage: React.FC<VideoStageProps> = ({
-  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, roomVideo, connecting, error, onRetry, onRetryMedia,
+  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, roomVideo, connecting, error, errorSeq, onRetry, onRetryMedia,
 }) => {
   const { t } = useLocalization();
   // Raised hands first, so the six tiles a phone can fit are the six that
@@ -62,6 +65,9 @@ export const VideoStage: React.FC<VideoStageProps> = ({
   // Pin a participant into the main area while someone is screen sharing.
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   useEffect(() => { if (!sharer) setPinnedId(null); }, [sharer]);
+
+  // The banner sits over people's faces, so it says its piece and goes.
+  const showError = useTimedNotice(error ? `${errorSeq}:${error}` : null);
 
   // Not connected yet: connecting spinner / retry button / error.
   if (participants.length === 0) {
@@ -142,7 +148,7 @@ export const VideoStage: React.FC<VideoStageProps> = ({
       {main}
       {/* Camera/mic trouble happens after joining, when the stage is already
           showing participants — without this banner the failure is invisible. */}
-      {error && (
+      {showError && (
         <div className="absolute inset-x-2 top-2 z-20 flex flex-wrap items-center justify-center gap-2 rounded-lg bg-red-950/90 px-3 py-2 text-center ring-1 ring-red-500/40">
           <p className="text-sm text-red-100">{error}</p>
           <button
