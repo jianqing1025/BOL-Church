@@ -36,6 +36,7 @@ interface MeetingControlBarProps {
   onToggleCamera: () => void;
   onToggleHand: () => void;
   onLowerAllHands: () => void;
+  onMuteAll: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
   onToggleMembers: () => void;
@@ -163,7 +164,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   hasVideo, micOn, camOn, screenOn, chatOpen, chatBadge, membersOpen, bibleOpen,
   videoFileOn, canStopSharedVideo, onStopSharedVideo, onPickLocalVideo, onPickYouTubeVideo,
   handRaised, isHost, raisedHands, showViewToggle, viewMode,
-  onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onToggleScreenShare,
+  onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onMuteAll, onToggleScreenShare,
   onToggleChat, onToggleMembers, onToggleBible, onLeave,
 }) => {
   const { t } = useLocalization();
@@ -191,6 +192,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
       onSelect: onToggleView,
     },
     lowerAllHands: { label: t('meeting.lowerAllHands'), icon: <Hand size={16} />, onSelect: onLowerAllHands },
+    muteAll: { label: t('meeting.muteAll'), icon: <MicOff size={16} />, onSelect: onMuteAll },
   };
 
   return (

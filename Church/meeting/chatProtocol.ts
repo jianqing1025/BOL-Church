@@ -59,6 +59,14 @@ export type BibleMessage =
  */
 export type HostMessage =
   | { type: 'host'; action: 'mute'; targetUserId: string }
+  /**
+   * Switching someone's microphone back on for them. Carried out by their own
+   * client, like every other host command — nothing here reaches into another
+   * person's device.
+   */
+  | { type: 'host'; action: 'unmute'; targetUserId: string }
+  /** Quiet please: everyone but the host mutes. */
+  | { type: 'host'; action: 'muteAll' }
   | { type: 'host'; action: 'remove'; targetUserId: string }
   /** Host takes the shared-picture slot: whoever else is sharing stops. */
   | { type: 'host'; action: 'claimShare' }
@@ -197,7 +205,8 @@ export function sanitizeHostMessage(input: unknown): HostMessage | null {
   if (msg.type !== 'host') return null;
   if (msg.action === 'claimShare') return { type: 'host', action: 'claimShare' };
   if (msg.action === 'endMeeting') return { type: 'host', action: 'endMeeting' };
-  if (msg.action !== 'mute' && msg.action !== 'remove') return null;
+  if (msg.action === 'muteAll') return { type: 'host', action: 'muteAll' };
+  if (msg.action !== 'mute' && msg.action !== 'unmute' && msg.action !== 'remove') return null;
   const target = msg.targetUserId;
   if (typeof target !== 'string' || !target || target.length > 100) return null;
   return { type: 'host', action: msg.action, targetUserId: target };

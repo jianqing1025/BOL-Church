@@ -5,6 +5,7 @@ import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
 import { LiveKitService } from '../../services/livekitService';
 import { raisedHandCount } from '../../meeting/raisedHands';
+import { microphoneStates } from '../../meeting/participantFlags';
 import { VideoStage, type ViewMode } from './VideoStage';
 import { MeetingControlBar } from './MeetingControlBar';
 import { MessageList, type DisplayMessage } from './MessageList';
@@ -52,9 +53,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   bible, roomVideo, hostCommand, onHostCommand, onSend, onLeave,
 }) => {
   const { language, t } = useLocalization();
-  const lk = useLiveKit(room, name, password, isHost);
+  const lk = useLiveKit(room, name, password, isHost, ownUserId);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const raisedHands = raisedHandCount(lk.participants);
+  // The member list is presence; microphones belong to LiveKit participants.
+  const micOn = microphoneStates(lk.participants);
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -132,9 +135,15 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
       });
       return;
     }
+    if (command.action === 'muteAll') {
+      if (lk.micOn) void lk.toggleMic();
+      return;
+    }
     if (command.targetUserId !== ownUserId) return;
     if (command.action === 'mute') {
       if (lk.micOn) void lk.toggleMic();
+    } else if (command.action === 'unmute') {
+      if (!lk.micOn) void lk.toggleMic();
     } else if (command.action === 'remove') {
       onLeave();
     }
@@ -267,7 +276,9 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               users={members}
               isHost={isHost}
               ownUserId={ownUserId}
+              micOn={micOn}
               onMute={(userId) => onHostCommand({ type: 'host', action: 'mute', targetUserId: userId })}
+              onUnmute={(userId) => onHostCommand({ type: 'host', action: 'unmute', targetUserId: userId })}
               onRemove={(userId) => onHostCommand({ type: 'host', action: 'remove', targetUserId: userId })}
             />
           </aside>
@@ -321,6 +332,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onToggleCamera={() => void lk.toggleCamera()}
         onToggleHand={() => void lk.toggleHand()}
         onLowerAllHands={() => void lk.lowerAllHands()}
+        onMuteAll={() => onHostCommand({ type: 'host', action: 'muteAll' })}
         onToggleScreenShare={() => {
           if (isHost && !lk.screenOn) onHostCommand({ type: 'host', action: 'claimShare' });
           void lk.toggleScreenShare();

@@ -6,7 +6,7 @@
  * Everything else lives in here, and which of those apply depends on the room
  * and on who is looking, which is the bit worth testing on its own.
  */
-export type OverflowKey = 'screenShare' | 'chat' | 'members' | 'view' | 'lowerAllHands';
+export type OverflowKey = 'screenShare' | 'chat' | 'members' | 'view' | 'lowerAllHands' | 'muteAll';
 
 export interface OverflowInput {
   hasVideo: boolean;
@@ -23,5 +23,7 @@ export function overflowKeys({ hasVideo, showViewToggle, isHost, raisedHands }: 
   if (showViewToggle) keys.push('view');
   // Nothing to lower, nothing to offer — a host should not face a dead item.
   if (isHost && raisedHands > 0) keys.push('lowerAllHands');
+  // No microphones in a room without video, so nothing to quieten.
+  if (isHost && hasVideo) keys.push('muteAll');
   return keys;
 }

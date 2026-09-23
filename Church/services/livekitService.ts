@@ -1,6 +1,6 @@
 import { LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 import { HAND_ATTRIBUTE, handRaisedAt } from '../meeting/raisedHands';
-import { HOST_ATTRIBUTE } from '../meeting/participantFlags';
+import { HOST_ATTRIBUTE, USER_ID_ATTRIBUTE } from '../meeting/participantFlags';
 
 const MEDIA_UNSUPPORTED_MESSAGE = '目前的微信瀏覽器不支援開啟麥克風／鏡頭，請改用 iPhone Safari 開啟本頁，或升級微信後再試。';
 const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援分享螢幕。';
@@ -201,6 +201,20 @@ export class LiveKitService {
     await p.setCameraEnabled(enabled);
     this.emit();
     return enabled;
+  }
+
+  /**
+   * Tells the room which presence user this participant is.
+   *
+   * The two ids are handed out by different systems and arrive at different
+   * moments — the chat socket's welcome can land after the video is already
+   * connected — so this is set whenever the id turns up rather than at connect.
+   */
+  async setUserId(userId: string): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p) return;
+    await p.setAttributes({ [USER_ID_ATTRIBUTE]: userId });
+    this.emit();
   }
 
   /** Whether this participant currently has a hand up. */

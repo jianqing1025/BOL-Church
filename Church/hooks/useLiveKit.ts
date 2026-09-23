@@ -68,7 +68,7 @@ const needsPermissionIntro = async (names: BrowserPermissionName[]): Promise<boo
  * A host is allowed to take the shared-picture slot from whoever holds it; for
  * everyone else it stays first-come, first-served.
  */
-export function useLiveKit(room: MeetingRoom, name: string, password: string, isHost = false): UseLiveKit {
+export function useLiveKit(room: MeetingRoom, name: string, password: string, isHost = false, ownUserId: string | null = null): UseLiveKit {
   const { t } = useLocalization();
   const serviceRef = useRef<LiveKitService | null>(null);
   const joiningRef = useRef(false);
@@ -276,6 +276,13 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  // The chat socket's welcome may arrive before or after the video connects,
+  // so publish the presence id whenever both exist rather than at one moment.
+  useEffect(() => {
+    if (!joined || !ownUserId) return;
+    void serviceRef.current?.setUserId(ownUserId).catch(() => undefined);
+  }, [joined, ownUserId]);
 
   // Keep a live ref to join so the auto-join effect need not depend on its
   // (intentionally unstable) identity — depending on `join` would re-run the

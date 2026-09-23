@@ -20,3 +20,33 @@ const HOST_MARKER = '1';
 export function isHostParticipant(participant: Participant): boolean {
   return participant.attributes?.[HOST_ATTRIBUTE] === HOST_MARKER;
 }
+
+/**
+ * The presence id of the person behind a video tile.
+ *
+ * The member list is built from presence — a Durable Object session keyed by a
+ * uuid — and a microphone belongs to a LiveKit participant keyed by its own
+ * identity. Carrying the presence id on the participant is what lets the list
+ * say whether someone is muted, and lets a host's command find the right tile.
+ */
+export const USER_ID_ATTRIBUTE = 'uid';
+
+export function participantUserId(participant: Participant): string | null {
+  const id = participant.attributes?.[USER_ID_ATTRIBUTE];
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/**
+ * Who in the room has their microphone on, by presence id.
+ *
+ * Absent from the map means unknown rather than muted: a participant whose
+ * attributes have not arrived yet should not be drawn as silenced.
+ */
+export function microphoneStates(participants: Participant[]): Map<string, boolean> {
+  const states = new Map<string, boolean>();
+  for (const participant of participants) {
+    const id = participantUserId(participant);
+    if (id) states.set(id, participant.isMicrophoneEnabled);
+  }
+  return states;
+}

@@ -219,3 +219,20 @@ describe('sanitizeRoomVideoMessage leader', () => {
     expect(cleaned).toEqual({ type: 'video', action: 'open', videoId: ID });
   });
 });
+
+describe('sanitizeHostMessage mute controls', () => {
+  it('accepts unmuting one person', () => {
+    expect(sanitizeHostMessage({ type: 'host', action: 'unmute', targetUserId: 'u1' }))
+      .toEqual({ type: 'host', action: 'unmute', targetUserId: 'u1' });
+  });
+
+  it('accepts muting the whole room, which needs no target', () => {
+    expect(sanitizeHostMessage({ type: 'host', action: 'muteAll' }))
+      .toEqual({ type: 'host', action: 'muteAll' });
+  });
+
+  it('still refuses a targeted command with no target', () => {
+    expect(sanitizeHostMessage({ type: 'host', action: 'unmute' })).toBeNull();
+    expect(sanitizeHostMessage({ type: 'host', action: 'mute' })).toBeNull();
+  });
+});

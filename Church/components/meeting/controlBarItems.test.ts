@@ -26,3 +26,18 @@ describe('overflowKeys', () => {
     expect(overflowKeys({ ...base, hasVideo: false, showViewToggle: false })).toEqual(['members']);
   });
 });
+
+describe('overflowKeys mute all', () => {
+  it('offers a host "mute everyone" in a room with video', () => {
+    expect(overflowKeys({ ...base, isHost: true })).toContain('muteAll');
+  });
+
+  it('never offers it to a member', () => {
+    expect(overflowKeys(base)).not.toContain('muteAll');
+  });
+
+  it('leaves it out of a room without video, where nobody has a microphone', () => {
+    expect(overflowKeys({ ...base, isHost: true, hasVideo: false, showViewToggle: false }))
+      .toEqual(['members']);
+  });
+});
