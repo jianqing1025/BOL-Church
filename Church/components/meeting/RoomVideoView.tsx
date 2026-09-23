@@ -242,7 +242,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         {/* The sound control. Prominent while silent, because a muted video is
             the normal way this starts and nobody should have to guess why. */}
         {!failed && !blocked && (
-          <div className="absolute bottom-3 left-3 flex items-center gap-2">
+          <div className="absolute right-3 top-3 flex items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -258,6 +258,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
               <span>{t(muted ? 'meeting.videoSoundOn' : 'meeting.videoSoundOff')}</span>
             </button>
 
+            {/* Slider first, so it grows leftwards and the button stays put. */}
             {volumeAdjustable && !muted && (
               <input
                 type="range"
@@ -279,7 +280,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         {/* Where a slider would be pointless, say why rather than leave the
             person pressing buttons that cannot help them. */}
         {!failed && !blocked && !muted && !volumeAdjustable && (
-          <p className="pointer-events-none absolute bottom-16 left-3 max-w-[15rem] rounded-lg bg-black/60 px-2.5 py-1.5 text-[11px] leading-snug text-gray-200">
+          <p className="pointer-events-none absolute right-3 top-16 max-w-[15rem] rounded-lg bg-black/60 px-2.5 py-1.5 text-right text-[11px] leading-snug text-gray-200">
             {t('meeting.videoVolumeHardware')}
           </p>
         )}

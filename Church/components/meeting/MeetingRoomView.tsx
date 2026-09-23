@@ -15,8 +15,8 @@ import type { BibleSync } from '../../hooks/useBibleSync';
 import type { RoomVideo } from '../../hooks/useRoomVideo';
 import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
-import { churchAlert, churchConfirm, churchPrompt } from '../ChurchDialog';
-import { parseYouTubeStart, parseYouTubeVideoId } from '../../meeting/youtube';
+import { churchAlert, churchConfirm } from '../ChurchDialog';
+import { YouTubePromptDialog } from './YouTubePromptDialog';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
 
 interface MeetingRoomViewProps {
@@ -59,6 +59,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [youtubeOpen, setYoutubeOpen] = useState(false);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
   const [elapsed, setElapsed] = useState(0);
@@ -150,13 +151,14 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
 
   const pickYouTubeVideo = useCallback(async () => {
     if (lk.shareSlotTaken && !isHost) { await churchAlert(t('meeting.screenShareBusy')); return; }
-    const entered = await churchPrompt(t('meeting.youtubePrompt'));
-    if (entered === null) return;
-    const videoId = parseYouTubeVideoId(entered);
-    if (!videoId) { await churchAlert(t('meeting.youtubeBadLink')); return; }
+    setYoutubeOpen(true);
+  }, [lk.shareSlotTaken, isHost, t]);
+
+  const playYouTubeVideo = useCallback((videoId: string, startSeconds?: number) => {
+    setYoutubeOpen(false);
     if (isHost) onHostCommand({ type: 'host', action: 'claimShare' });
-    roomVideo.open(videoId, parseYouTubeStart(entered));
-  }, [lk.shareSlotTaken, isHost, onHostCommand, roomVideo, t]);
+    roomVideo.open(videoId, startSeconds);
+  }, [isHost, onHostCommand, roomVideo]);
 
   // One button for the shared picture: it stops whatever is playing, or offers
   // the two ways to start something when nothing is.
@@ -270,6 +272,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
           </aside>
         )}
       </div>
+
+      {youtubeOpen && (
+        <YouTubePromptDialog onCancel={() => setYoutubeOpen(false)} onPlay={playYouTubeVideo} />
+      )}
 
       {videoFile && (
         <VideoBroadcastBar
