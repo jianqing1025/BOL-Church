@@ -297,7 +297,12 @@ export class LiveKitService {
     if (!p) return false;
     if (!this.hasDisplayMedia()) throw new Error(SCREEN_SHARE_UNSUPPORTED_MESSAGE);
     const enabled = !p.isScreenShareEnabled;
-    await p.setScreenShareEnabled(enabled);
+    // Asking for audio is what puts the "also share audio" tick box in the
+    // browser's own picker — there is no other way to offer it, since that
+    // dialog belongs to the browser and a page may not touch it. Whether the
+    // box appears at all is the browser's call: Chrome and Edge offer it for a
+    // tab everywhere and for a whole screen on Windows, Safari not at all.
+    await p.setScreenShareEnabled(enabled, { audio: true });
     this.emit();
     return enabled;
   }

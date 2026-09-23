@@ -79,7 +79,7 @@ export function useLiveKit(
   }, []);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
-  const [screenOn, setScreenOn] = useState(false);
+
   const [videoFileOn, setVideoFileOn] = useState(false);
 
   // The shared-picture slot holds either a screen share or a broadcast video —
@@ -89,6 +89,15 @@ export function useLiveKit(
   // Derived rather than stored: a host can lower this hand from the other side
   // of the room, and a separate piece of state would quietly fall out of step.
   const handRaised = participants.some((p) => p.isLocal && handRaisedAt(p) !== null);
+
+  /**
+   * Also derived, and for a sharper reason: the browser puts its own "Stop
+   * sharing" bar on screen whenever a page captures the display, and a page
+   * cannot remove it. Somebody who stops there leaves stored state saying the
+   * share is still on — and the next press of our own button, computed from
+   * that stale value, would start a second share instead of ending one.
+   */
+  const screenOn = participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
 
   const confirmPermission = useCallback((messageKey: string) => churchPermissionConfirm(t(messageKey), {
     title: t('meeting.permissionTitle'),
@@ -229,10 +238,9 @@ export function useLiveKit(
         const allowed = await confirmPermission('meeting.screenPermissionMessage');
         if (!allowed) return;
       }
-      setScreenOn(await svc.toggleScreenShare());
+      await svc.toggleScreenShare();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setScreenOn(svc.localParticipant?.isScreenShareEnabled ?? false);
     }
   }, [shareSlotTaken, isHost, t, confirmPermission]);
 
