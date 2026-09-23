@@ -33,6 +33,11 @@ interface BiblePanelProps {
 const gridButton =
   'flex items-center justify-center rounded-lg bg-gray-800 px-2 py-2.5 text-center text-sm text-gray-100 transition-colors hover:bg-blue-600 active:bg-blue-700';
 
+/** Phones, where the passage is a sheet rather than a column (Tailwind's sm). */
+const isNarrowScreen = (): boolean =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 639px)').matches;
+
 /**
  * 和合本 reader for the meeting rooms: table of contents → chapter → text.
  *
@@ -49,7 +54,10 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
   // Who is leading is worth saying once; leaving it there just takes a line
   // away from the text for the rest of the study.
   const showLeadNotice = useTimedNotice(!canLead);
-  const initial = useMemo(loadReadingState, []);
+  // Measured once, when the panel opens: the size is the reader's from then
+  // on, and having it jump because a window was resized would be worse than
+  // being a step off on a tablet somebody turned sideways.
+  const initial = useMemo(() => loadReadingState(isNarrowScreen()), []);
   const [fontStep, setFontStep] = useState(initial.fontStep);
   const [testament, setTestament] = useState<Testament>(() => findBibleBook(initial.bookId)?.testament ?? 'old');
   const [verses, setVerses] = useState<string[] | null>(null);

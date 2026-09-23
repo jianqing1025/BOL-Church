@@ -83,6 +83,19 @@ export const BIBLE_FONT_STEPS = [0.95, 1.1, 1.3, 1.55, 1.85, 2.2] as const;
 export const DEFAULT_FONT_STEP = 4;
 
 /**
+ * Two steps down on a phone.
+ *
+ * There the passage is a sheet over the bottom of the screen, not the quarter
+ * of a window it gets on a computer — the size that reads well in a column
+ * leaves barely a line and a half in a sheet.
+ */
+export const NARROW_DEFAULT_FONT_STEP = 2;
+
+export function defaultFontStep(narrow: boolean): number {
+  return narrow ? NARROW_DEFAULT_FONT_STEP : DEFAULT_FONT_STEP;
+}
+
+/**
  * Bumped when a stored value stops meaning what it used to.
  *
  * The size is written on every render, so by now everyone has the old default
@@ -114,12 +127,13 @@ const clampStep = (step: unknown): number => {
  * no longer makes sense (a bad chapter, a hand-edited value, a cleared
  * localStorage) falls back to 創世記 1 rather than throwing.
  */
-export function loadReadingState(): BibleReadingState {
+export function loadReadingState(narrow = false): BibleReadingState {
+  const fallback = defaultFontStep(narrow);
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_READING_STATE;
+    if (!raw) return { ...DEFAULT_READING_STATE, fontStep: fallback };
     const parsed = JSON.parse(raw) as Partial<BibleReadingState> & { v?: number };
-    const fontStep = parsed.v === READING_STATE_VERSION ? clampStep(parsed.fontStep) : DEFAULT_FONT_STEP;
+    const fontStep = parsed.v === READING_STATE_VERSION ? clampStep(parsed.fontStep) : fallback;
     const book = findBibleBook(Number(parsed.bookId));
     const chapter = Number(parsed.chapter);
     if (!book || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters) {
@@ -127,7 +141,7 @@ export function loadReadingState(): BibleReadingState {
     }
     return { bookId: book.id, chapter, fontStep };
   } catch {
-    return DEFAULT_READING_STATE;
+    return { ...DEFAULT_READING_STATE, fontStep: fallback };
   }
 }
 

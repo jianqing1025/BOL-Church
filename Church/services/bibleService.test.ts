@@ -7,7 +7,9 @@ import {
   DEFAULT_READING_STATE,
   BIBLE_FONT_STEPS,
   DEFAULT_FONT_STEP,
+  NARROW_DEFAULT_FONT_STEP,
   READING_STATE_VERSION,
+  defaultFontStep,
 } from './bibleService';
 
 const book = (chapters: Record<string, string[]>) => ({
@@ -142,6 +144,25 @@ describe('reading position', () => {
     expect(loadReadingState().fontStep).toBe(0);
     store.set('bolccop.bible.reading', stored('big'));
     expect(loadReadingState().fontStep).toBe(DEFAULT_READING_STATE.fontStep);
+  });
+
+  it('starts two steps smaller on a phone, where the passage is a sheet not a column', () => {
+    expect(defaultFontStep(true)).toBe(DEFAULT_FONT_STEP - 2);
+    expect(defaultFontStep(false)).toBe(DEFAULT_FONT_STEP);
+  });
+
+  it('uses the narrow default for a phone reader with nothing stored', () => {
+    expect(loadReadingState(true).fontStep).toBe(NARROW_DEFAULT_FONT_STEP);
+  });
+
+  it('uses the narrow default when the stored shape is older', () => {
+    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 19, chapter: 23, fontStep: 1 }));
+    expect(loadReadingState(true)).toEqual({ bookId: 19, chapter: 23, fontStep: NARROW_DEFAULT_FONT_STEP });
+  });
+
+  it('keeps a size the reader chose themselves, whatever the screen', () => {
+    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 19, chapter: 23, fontStep: 5, v: READING_STATE_VERSION }));
+    expect(loadReadingState(true).fontStep).toBe(5);
   });
 
   it('survives storage being unavailable', () => {
