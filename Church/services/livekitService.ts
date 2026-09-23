@@ -249,6 +249,22 @@ export class LiveKitService {
       .filter((t): t is Track => Boolean(t));
   }
 
+  /**
+   * Every remote audio track in the room, in participant order, each one once.
+   *
+   * Playback deliberately reads the whole room rather than one participant:
+   * tying it to a participant meant tying it to that participant's tile, and a
+   * gallery page or a screen-share rail that left someone off screen left them
+   * inaudible too. Hearing everyone must not depend on seeing everyone.
+   */
+  static roomAudioTracks(participants: Participant[]): Track[] {
+    const seen = new Set<Track>();
+    for (const participant of participants) {
+      for (const track of LiveKitService.audioTracks(participant)) seen.add(track);
+    }
+    return [...seen];
+  }
+
   /** Whether a participant's screen share is a broadcast video file. */
   static isPlayingVideoFile(participant: Participant): boolean {
     return [...participant.videoTrackPublications.values()]

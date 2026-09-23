@@ -6,23 +6,6 @@ import { ScreenSharePanZoom } from './ScreenSharePanZoom';
 
 const initials = (label: string): string => label.trim().slice(0, 2).toUpperCase() || '?';
 
-/**
- * One <audio> element per remote audio track. A participant can publish more
- * than one — their microphone plus the soundtrack of a video they are playing
- * for the room — and attaching them all is what keeps a broadcast video from
- * arriving silently.
- */
-const TrackAudio: React.FC<{ track: Track }> = ({ track }) => {
-  const ref = useRef<HTMLAudioElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    track.attach(el);
-    return () => { try { track.detach(el); } catch { /* ignore */ } };
-  }, [track]);
-  return <audio ref={ref} autoPlay />;
-};
-
 interface ParticipantTileProps {
   participant: Participant;
   /** Highlight ring when this participant is the active speaker. */
@@ -38,10 +21,13 @@ interface ParticipantTileProps {
 }
 
 /**
- * One participant's video, with audio playback, an initials avatar when the
- * camera is off, a name label, mic-muted indicator, and an active-speaker ring.
- * Recomputes the tracks each render because LiveKit mutates participant objects
- * in place — the attach effects key on the track so they re-run on publish.
+ * One participant's video, with an initials avatar when the camera is off, a
+ * name label, mic-muted indicator, and an active-speaker ring. Recomputes the
+ * track each render because LiveKit mutates participant objects in place — the
+ * attach effect keys on the track so it re-runs on publish.
+ *
+ * Deliberately silent: sound is played by RoomAudio, above the layout, so that
+ * a tile this viewer's layout happens not to draw is still heard.
  */
 export const ParticipantTile: React.FC<ParticipantTileProps> = ({
   participant, speaking, fit = 'cover', zoomable, large, onClick, className = '',
@@ -49,7 +35,6 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const videoTrack = LiveKitService.videoTrack(participant);
-  const audioTracks = LiveKitService.audioTracks(participant);
   const label = participant.name || participant.identity;
   const muted = !participant.isMicrophoneEnabled;
 
@@ -82,8 +67,6 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
           </span>
         </div>
       )}
-      {audioTracks.map((track) => <TrackAudio key={track.sid ?? track.mediaStreamID} track={track} />)}
-
       <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 rounded-md bg-black/45 px-1.5 py-0.5">
         {muted && <MicOff size={13} className="text-red-300" />}
         <span className={`font-semibold text-white ${large ? 'text-sm' : 'text-xs'}`}>{label}</span>

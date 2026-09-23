@@ -113,3 +113,43 @@ describe('LiveKitService.canCaptureVideoFile', () => {
     expect(LiveKitService.canCaptureVideoFile(null)).toBe(false);
   });
 });
+
+describe('LiveKitService.roomAudioTracks', () => {
+  it('collects the audio of every participant, including ones the layout does not draw', () => {
+    // The regression this guards: audio used to be attached by the participant
+    // tile, so a gallery page — or a screen-share rail — that left someone out
+    // left them inaudible. Playback must not depend on who is on screen.
+    const onPage = {}; const offPage = {};
+    const participants = [
+      participant({ audio: [{ track: onPage, source: Track.Source.Microphone }] }),
+      participant({ audio: [{ track: offPage, source: Track.Source.Microphone }] }),
+    ];
+    expect(LiveKitService.roomAudioTracks(participants)).toEqual([onPage, offPage]);
+  });
+
+  it('includes a broadcast video soundtrack alongside the microphone', () => {
+    const mic = {}; const film = {};
+    const p = participant({ audio: [
+      { track: mic, source: Track.Source.Microphone },
+      { track: film, source: Track.Source.ScreenShareAudio, trackName: VIDEO_FILE_TRACK_NAME },
+    ] });
+    expect(LiveKitService.roomAudioTracks([p])).toEqual([mic, film]);
+  });
+
+  it('leaves out the local participant so nobody hears themselves', () => {
+    const mine = {}; const theirs = {};
+    const participants = [
+      participant({ isLocal: true, audio: [{ track: mine, source: Track.Source.Microphone }] }),
+      participant({ audio: [{ track: theirs, source: Track.Source.Microphone }] }),
+    ];
+    expect(LiveKitService.roomAudioTracks(participants)).toEqual([theirs]);
+  });
+
+  it('returns a track once even if the same participant is listed twice', () => {
+    // Two <audio> elements on one track play it twice over, which is what the
+    // pinned thumbnail during a screen share used to do.
+    const mic = {};
+    const p = participant({ audio: [{ track: mic, source: Track.Source.Microphone }] });
+    expect(LiveKitService.roomAudioTracks([p, p])).toEqual([mic]);
+  });
+});

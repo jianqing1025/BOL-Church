@@ -7,6 +7,7 @@ import { GalleryView } from './GalleryView';
 import { SpeakerView } from './SpeakerView';
 import { ScreenShareView } from './ScreenShareView';
 import { SelfViewPiP } from './SelfViewPiP';
+import { RoomAudio } from './RoomAudio';
 
 export type ViewMode = 'gallery' | 'speaker';
 
@@ -101,6 +102,9 @@ export const VideoStage: React.FC<VideoStageProps> = ({
 
   return (
     <div className="relative h-full min-h-0">
+      {/* Outside {main} on purpose: every layout below draws a different subset
+          of the room, and none of them may decide who is audible. */}
+      <RoomAudio participants={participants} />
       {main}
       {/* Camera/mic trouble happens after joining, when the stage is already
           showing participants — without this banner the failure is invisible. */}
