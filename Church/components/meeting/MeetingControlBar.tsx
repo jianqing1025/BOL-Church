@@ -101,15 +101,25 @@ const MenuItem: React.FC<{
   </button>
 );
 
+/**
+ * One control: the round icon with its word underneath.
+ *
+ * The caption is two characters wide by design — seven of these plus a divider
+ * have to sit on one row of a 360px phone, and the icons carry the state (a
+ * struck-through microphone, an amber hand) so the word only has to name the
+ * thing. `aria-label` stays the longer, situational wording, which is what a
+ * screen reader should hear.
+ */
 const CircleButton: React.FC<{
   label: string;
+  caption: string;
   active?: boolean;
   danger?: boolean;
   badge?: number;
   expanded?: boolean;
   onClick: () => void;
   children: React.ReactNode;
-}> = ({ label, active, danger, badge, expanded, onClick, children }) => (
+}> = ({ label, caption, active, danger, badge, expanded, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
@@ -117,20 +127,27 @@ const CircleButton: React.FC<{
     aria-pressed={expanded === undefined ? active : undefined}
     aria-haspopup={expanded === undefined ? undefined : 'menu'}
     aria-expanded={expanded}
-    className={`relative flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors sm:h-12 sm:w-12 ${
-      danger
-        ? 'bg-red-600 hover:bg-red-700'
-        : active
-          ? 'bg-blue-600 hover:bg-blue-500'
-          : 'bg-gray-700 hover:bg-gray-600'
-    }`}
+    className="flex shrink-0 flex-col items-center gap-1"
   >
-    {children}
-    {badge && badge > 0 ? (
-      <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
-        {badge > 99 ? '99+' : badge}
-      </span>
-    ) : null}
+    <span
+      className={`relative flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors sm:h-12 sm:w-12 ${
+        danger
+          ? 'bg-red-600 hover:bg-red-700'
+          : active
+            ? 'bg-blue-600 hover:bg-blue-500'
+            : 'bg-gray-700 hover:bg-gray-600'
+      }`}
+    >
+      {children}
+      {badge && badge > 0 ? (
+        <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ring-2 ring-gray-900">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      ) : null}
+    </span>
+    <span className={`text-[10px] font-semibold leading-none sm:text-[11px] ${danger ? 'text-red-300' : 'text-gray-300'}`}>
+      {caption}
+    </span>
   </button>
 );
 
@@ -177,28 +194,33 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   };
 
   return (
-    <div className="relative flex shrink-0 items-center justify-center gap-2 border-t border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
+    <div className="relative flex shrink-0 items-end justify-center gap-1.5 border-t border-white/10 bg-gray-900/80 px-2 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
       {hasVideo && (
         <>
-          <CircleButton label={t('meeting.microphone')} active={micOn} onClick={onToggleMic}>
+          <CircleButton label={t('meeting.microphone')} caption={t('meeting.tagAudio')} active={micOn} onClick={onToggleMic}>
             {micOn ? <Mic size={20} /> : <MicOff size={20} className="text-red-300" />}
           </CircleButton>
-          <CircleButton label={t('meeting.camera')} active={camOn} onClick={onToggleCamera}>
+          <CircleButton label={t('meeting.camera')} caption={t('meeting.tagCamera')} active={camOn} onClick={onToggleCamera}>
             {camOn ? <VideoIcon size={20} /> : <VideoOff size={20} className="text-red-300" />}
           </CircleButton>
-          <CircleButton label={t(handRaised ? 'meeting.lowerHand' : 'meeting.raiseHand')} active={handRaised} onClick={onToggleHand}>
+          <CircleButton
+            label={t(handRaised ? 'meeting.lowerHand' : 'meeting.raiseHand')}
+            caption={t(handRaised ? 'meeting.tagLowerHand' : 'meeting.tagHand')}
+            active={handRaised}
+            onClick={onToggleHand}
+          >
             <Hand size={20} className={handRaised ? 'text-amber-200' : undefined} />
           </CircleButton>
-          <div role="separator" aria-orientation="vertical" className="h-8 w-px shrink-0 bg-white/30" />
+          <div role="separator" aria-orientation="vertical" className="mb-4 h-7 w-px shrink-0 bg-white/25" />
         </>
       )}
 
-      <CircleButton label={t('bible.open')} active={bibleOpen} onClick={onToggleBible}>
+      <CircleButton label={t('bible.open')} caption={t('meeting.tagBible')} active={bibleOpen} onClick={onToggleBible}>
         <BookOpen size={20} />
       </CircleButton>
 
       {hasVideo && (
-        <div ref={videoMenuRef} className="relative">
+        <div ref={videoMenuRef} className="relative flex shrink-0">
           {videoMenuOpen && (
             <MenuPanel>
               <MenuItem
@@ -215,6 +237,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           )}
           <CircleButton
             label={t(canStopSharedVideo ? 'meeting.videoFileStop' : 'meeting.videoFile')}
+            caption={t(canStopSharedVideo ? 'meeting.tagStop' : 'meeting.tagVideo')}
             active={videoFileOn}
             expanded={canStopSharedVideo ? undefined : videoMenuOpen}
             onClick={canStopSharedVideo ? onStopSharedVideo : () => setVideoMenuOpen((v) => !v)}
@@ -224,7 +247,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
         </div>
       )}
 
-      <div ref={menuRef} className="relative">
+      <div ref={menuRef} className="relative flex shrink-0">
         {menuOpen && (
           <MenuPanel>
             {keys.map((key) => {
@@ -244,6 +267,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
         )}
         <CircleButton
           label={t('meeting.more')}
+          caption={t('meeting.tagMore')}
           active={menuOpen}
           badge={menuOpen ? 0 : hiddenBadges}
           expanded={menuOpen}
@@ -253,7 +277,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
         </CircleButton>
       </div>
 
-      <CircleButton label={t('meeting.leave')} danger onClick={onLeave}>
+      <CircleButton label={t('meeting.leave')} caption={t('meeting.tagLeave')} danger onClick={onLeave}>
         <PhoneOff size={20} />
       </CircleButton>
     </div>
