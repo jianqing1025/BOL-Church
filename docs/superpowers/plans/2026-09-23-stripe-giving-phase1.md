@@ -3271,8 +3271,6 @@ const DONATION_STATUS_CLASS: Record<string, string> = {
   refunded: 'bg-gray-100 text-gray-700',
 };
 
-const DONATION_CATEGORIES = ['什一', '感恩', '建堂', '宣教', '愛心'];
-
 function formatDonationAmount(cents: number): string {
   return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -3337,6 +3335,12 @@ function formatDonationAmount(cents: number): string {
     (!donationStatusFilter || donation.status === donationStatusFilter) &&
     (!donationCategoryFilter || donation.category === donationCategoryFilter)
   );
+
+  // 分類清單從實際資料推導，不要硬寫。用途分類存在 settings 表就是為了讓同工
+  // 自己增刪而不必改程式 —— 後台若硬寫一份，管理員改了分類後這裡就會悄悄過期。
+  const donationCategoryOptions = Array.from(
+    new Set(donations.map(donation => donation.category).filter((c): c is string => Boolean(c)))
+  ).sort();
 ```
 
 - [ ] **Step 5: 替換整個奉獻記錄表格**
@@ -3364,7 +3368,7 @@ function formatDonationAmount(cents: number): string {
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
           >
             <option value="">全部用途</option>
-            {DONATION_CATEGORIES.map(category => (
+            {donationCategoryOptions.map(category => (
               <option key={category} value={category}>{category}</option>
             ))}
           </select>
