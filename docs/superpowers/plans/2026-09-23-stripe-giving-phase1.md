@@ -12,6 +12,10 @@
 
 **工作目錄:** 所有指令都在 `Church/` 下執行。
 
+**全計畫適用的型別陷阱：** 本專案 `Church/tsconfig.json` 沒有開 `strict`，所以 `strictNullChecks` 是關的。在這個設定下，TypeScript **不會**用真假值判斷把可辨識聯合收斂到分支 —— `if (r.ok) throw` 之後存取 `r.field`，或 `if (!r.ok) { r.error }`，兩種寫法都會報 `TS2339: Property does not exist`。（已實測確認：同一段程式碼加上 `--strict` 就編得過。）
+
+因此本計畫中每一個 `{ ok: true; ... } | { ok: false; ... }` 形狀的型別，都要在兩個分支補上對方欄位的 `?: undefined` 宣告。這是純型別層的寫法，執行期毫無差異。不要改 `tsconfig.json` —— 對既有程式碼的影響範圍太大。
+
 ---
 
 ## File Structure
@@ -1426,9 +1430,18 @@ export type CreatePaymentIntentParams = {
   metadata: Record<string, string>;
 };
 
+/**
+ * 注意那幾個 `?: undefined` 欄位不是贅字，拿掉會編不過。
+ *
+ * 本專案的 tsconfig 沒有開 `strict`（因此 `strictNullChecks` 為 false），
+ * 在這個設定下 TypeScript 不會用 `if (!r.ok)` 這類真假值判斷把可辨識聯合
+ * 收斂到某一分支 —— `intent.error` 會報 TS2339。加上共用的 optional
+ * 欄位後，兩個分支都有這些屬性，收斂失敗也能編譯。純型別層，執行期毫無差異。
+ * Task 3 的 ValidationResult 出於同樣原因也是這樣寫的。
+ */
 export type CreatePaymentIntentResult =
-  | { ok: true; id: string; clientSecret: string }
-  | { ok: false; error: string };
+  | { ok: true; id: string; clientSecret: string; error?: undefined }
+  | { ok: false; error: string; id?: undefined; clientSecret?: undefined };
 
 export async function createPaymentIntent(
   secretKey: string,
