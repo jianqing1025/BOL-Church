@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { Track, type Participant } from 'livekit-client';
 import { LiveKitService, VIDEO_FILE_TRACK_NAME } from './livekitService';
 
@@ -151,5 +151,106 @@ describe('LiveKitService.roomAudioTracks', () => {
     const mic = {};
     const p = participant({ audio: [{ track: mic, source: Track.Source.Microphone }] });
     expect(LiveKitService.roomAudioTracks([p, p])).toEqual([mic]);
+  });
+});
+
+/**
+ * livekit-client builds a MediaStream internally when a local track is
+ * created; node has no such global, so the camera tests supply a stand-in.
+ */
+class FakeMediaStream {
+  private tracks: unknown[];
+  constructor(tracks: unknown[] = []) { this.tracks = tracks; }
+  getTracks(): unknown[] { return this.tracks; }
+  addTrack(): void { /* not used */ }
+  removeTrack(): void { /* not used */ }
+}
+
+const mediaStreamTrack = (kind: 'audio' | 'video'): MediaStreamTrack => ({
+  kind,
+  id: `${kind}-1`,
+  enabled: true,
+  readyState: 'live',
+  muted: false,
+  addEventListener() { /* noop */ },
+  removeEventListener() { /* noop */ },
+  stop() { /* noop */ },
+  getSettings: () => ({ deviceId: kind === 'video' ? 'cam' : 'mic' }),
+  getConstraints: () => ({ deviceId: kind === 'video' ? 'cam' : 'mic' }),
+} as unknown as MediaStreamTrack);
+
+describe('LiveKitService.managedCameraTrack', () => {
+  beforeAll(() => {
+    (globalThis as { MediaStream?: unknown }).MediaStream = FakeMediaStream;
+  });
+
+  it('hands the camera to the SDK so muting stops the hardware', () => {
+    // The regression this guards: publishing a bare MediaStreamTrack marks it
+    // "user provided", and LocalVideoTrack.mute() then skips stopping the
+    // device on purpose — the button said off while the camera and its
+    // indicator light stayed on.
+    const track = LiveKitService.managedCameraTrack(mediaStreamTrack('video'));
+    expect(track.isUserProvided).toBe(false);
+  });
+
+  it('carries the capture constraints over so it can be re-acquired', () => {
+    const track = LiveKitService.managedCameraTrack(mediaStreamTrack('video'));
+    expect(track.constraints).toEqual({ deviceId: 'cam' });
+  });
+});
+
+describe('LiveKitService.publishLocalMedia', () => {
+  beforeAll(() => {
+    (globalThis as { MediaStream?: unknown }).MediaStream = FakeMediaStream;
+  });
+
+  function fakeParticipant() {
+    const published: { source: Track.Source }[] = [];
+    const unpublished: unknown[] = [];
+    const existing = new Map<Track.Source, { track: object }>();
+    return {
+      published,
+      unpublished,
+      existing,
+      participant: {
+        getTrackPublication: (source: Track.Source) => existing.get(source),
+        publishTrack: async (_t: unknown, opts: { source: Track.Source }) => { published.push(opts); },
+        unpublishTrack: async (t: unknown) => { unpublished.push(t); },
+      },
+    };
+  }
+
+  const serviceFor = (participant: unknown): LiveKitService => {
+    const service = new LiveKitService({ onParticipantsChanged: () => undefined });
+    (service as unknown as { room: unknown }).room = { localParticipant: participant, remoteParticipants: new Map() };
+    return service;
+  };
+
+  const stream = () => ({
+    getAudioTracks: () => [mediaStreamTrack('audio')],
+    getVideoTracks: () => [mediaStreamTrack('video')],
+  } as unknown as MediaStream);
+
+  it('publishes the microphone and camera', async () => {
+    const fake = fakeParticipant();
+    await serviceFor(fake.participant).publishLocalMedia(stream());
+    expect(fake.published.map((p) => p.source)).toEqual([Track.Source.Microphone, Track.Source.Camera]);
+  });
+
+  it('retires an existing capture instead of publishing a second one', async () => {
+    // The regression this guards: "retry camera/mic" published again without
+    // retiring what was there, leaving a second camera track live. Turning the
+    // camera off then muted only the first one — the button read off while the
+    // room still saw the picture.
+    const fake = fakeParticipant();
+    const oldCam = { id: 'old-cam' };
+    const oldMic = { id: 'old-mic' };
+    fake.existing.set(Track.Source.Camera, { track: oldCam });
+    fake.existing.set(Track.Source.Microphone, { track: oldMic });
+
+    await serviceFor(fake.participant).publishLocalMedia(stream());
+
+    expect(fake.unpublished).toEqual([oldMic, oldCam]);
+    expect(fake.published.map((p) => p.source)).toEqual([Track.Source.Microphone, Track.Source.Camera]);
   });
 });

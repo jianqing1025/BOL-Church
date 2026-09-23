@@ -1,4 +1,4 @@
-import { Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
+import { LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 
 const MEDIA_UNSUPPORTED_MESSAGE = '目前的微信瀏覽器不支援開啟麥克風／鏡頭，請改用 iPhone Safari 開啟本頁，或升級微信後再試。';
 const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援分享螢幕。';
@@ -74,14 +74,46 @@ export class LiveKitService {
     }
   }
 
-  /** Publishes an already-captured camera/mic stream. */
+  /**
+   * Wraps a raw camera track so the SDK, not us, owns the device.
+   *
+   * publishTrack() on a bare MediaStreamTrack marks it "user provided", and
+   * LocalVideoTrack.mute() then skips stopping the hardware on purpose —
+   * which is why turning the camera off muted the picture for the room but
+   * left the device running and its indicator light on. Handing LiveKit a
+   * track it manages restores the normal pair: mute stops the camera, unmute
+   * re-acquires it. The constraints come along so it can be re-acquired from
+   * the same device.
+   */
+  static managedCameraTrack(track: MediaStreamTrack): LocalVideoTrack {
+    const constraints = typeof track.getConstraints === 'function' ? track.getConstraints() : undefined;
+    return new LocalVideoTrack(track, constraints, false);
+  }
+
+  /** Drops whatever is already published on a source, device and all. */
+  private static async retireSource(p: LocalParticipant, source: Track.Source): Promise<void> {
+    const existing = p.getTrackPublication(source)?.track;
+    if (existing) await p.unpublishTrack(existing, true);
+  }
+
+  /**
+   * Publishes an already-captured camera/mic stream, replacing any capture
+   * already published on those sources.
+   *
+   * Replacing rather than adding matters: a second capture (what the "retry
+   * camera/mic" button does) used to leave the first one published as well,
+   * and muting afterwards only reached the first of the two — the button read
+   * off while the room still heard the microphone and saw the camera.
+   */
   async publishLocalMedia(stream: MediaStream): Promise<void> {
     const p = this.room?.localParticipant;
     if (!p) return;
     const [audio] = stream.getAudioTracks();
     const [video] = stream.getVideoTracks();
+    if (audio) await LiveKitService.retireSource(p, Track.Source.Microphone);
+    if (video) await LiveKitService.retireSource(p, Track.Source.Camera);
     if (audio) await p.publishTrack(audio, { source: Track.Source.Microphone });
-    if (video) await p.publishTrack(video, { source: Track.Source.Camera });
+    if (video) await p.publishTrack(LiveKitService.managedCameraTrack(video), { source: Track.Source.Camera });
     this.emit();
   }
 
