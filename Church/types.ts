@@ -39,6 +39,9 @@ export interface LiveStreamViewer {
   guestNumber: number | null;
 }
 
+/** Who has reacted to each live-chat message: { messageId: { emoji: sessionId[] } }. */
+export type LiveChatReactions = Record<string, Record<string, string[]>>;
+
 export interface LiveChatMessage {
   id: string;
   displayName: string;

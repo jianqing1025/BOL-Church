@@ -1,5 +1,5 @@
 import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
-import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage } from './types';
+import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage, LiveChatReactions } from './types';
 
 export interface LiveStreamSavePayload {
   channelId?: string;
@@ -260,9 +260,11 @@ export const api = {
   livePing: (sessionId: string) =>
     request<{ ok: boolean }>('/api/live/ping', { method: 'POST', body: JSON.stringify({ sessionId }) }),
   liveChatGet: (videoId: string, since = 0) =>
-    request<{ messages: LiveChatMessage[] }>(`/api/live/chat?videoId=${encodeURIComponent(videoId)}&since=${since}`),
+    request<{ messages: LiveChatMessage[]; reactions?: LiveChatReactions }>(`/api/live/chat?videoId=${encodeURIComponent(videoId)}&since=${since}`),
   liveChatPost: (payload: { sessionId: string; message: string }) =>
     request<{ ok: boolean; message?: LiveChatMessage; error?: string }>('/api/live/chat', { method: 'POST', body: JSON.stringify(payload) }),
+  liveChatReact: (payload: { videoId: string; messageId: string; sessionId: string; emoji: string }) =>
+    request<{ ok: boolean; reactions?: LiveChatReactions; error?: string }>('/api/live/chat/react', { method: 'POST', body: JSON.stringify(payload) }),
   liveChatDelete: (id: string) =>
     request<{ ok: true }>(`/api/live/chat/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

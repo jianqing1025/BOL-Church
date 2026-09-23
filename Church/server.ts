@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { DEFAULT_SERMONS, type AdminRole, type WebAnalyticsRange } from './data';
+import { isReactionEmoji } from './meeting/reactions';
 import { translations } from './constants/translations';
 import {
   buildClassifier,
@@ -3428,6 +3429,66 @@ async function ensureLiveChatTables(env: Env): Promise<void> {
       deleted_at INTEGER
     )`
   ).run();
+  // video_id is repeated here on purpose: recomputing one stream's tally must
+  // not have to join back to live_chat_messages.
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS live_chat_reactions (
+      message_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, session_id, emoji)
+    )`
+  ).run();
+}
+
+/** KV key holding one stream's reaction tally. */
+const liveReactionsKey = (videoId: string): string => `live-chat-reactions:${videoId}`;
+
+/**
+ * Who has reacted to what, for one stream: { messageId: { emoji: sessionId[] } }.
+ *
+ * Session ids rather than counts, because each viewer has to be able to see
+ * which ones they gave — with counts alone, their own marks would vanish on a
+ * refresh. Chat is pruned on a schedule, so this stays small.
+ */
+type LiveReactionTally = Record<string, Record<string, string[]>>;
+
+async function readLiveReactions(env: Env, videoId: string): Promise<LiveReactionTally> {
+  try {
+    const raw = await env.SNAPSHOT.get(liveReactionsKey(videoId));
+    return raw ? JSON.parse(raw) as LiveReactionTally : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Rebuilds one stream's tally from D1 and stores it in KV.
+ *
+ * This is the only place reactions are read out of D1, and it runs on a
+ * reaction rather than on a poll. That is the whole point: the cost follows
+ * the number of reactions, not the number of viewers refreshing every three
+ * seconds — which is the shape that took D1 down on 2026-09-22.
+ */
+async function rebuildLiveReactions(env: Env, videoId: string): Promise<LiveReactionTally> {
+  const result = await env.DB
+    .prepare('SELECT message_id, emoji, session_id FROM live_chat_reactions WHERE video_id = ?')
+    .bind(videoId)
+    .all<{ message_id: string; emoji: string; session_id: string }>();
+
+  const tally: LiveReactionTally = {};
+  for (const row of result.results || []) {
+    const forMessage = tally[row.message_id] || (tally[row.message_id] = {});
+    (forMessage[row.emoji] || (forMessage[row.emoji] = [])).push(row.session_id);
+  }
+  try {
+    await env.SNAPSHOT.put(liveReactionsKey(videoId), JSON.stringify(tally));
+  } catch {
+    /* the tally is rebuilt on the next reaction; chat itself keeps working */
+  }
+  return tally;
 }
 
 function resolveActiveVideoId(config: LiveStreamConfigRow, state: LiveStreamStateRow): string | null {
@@ -3578,6 +3639,12 @@ async function cleanupLiveData(env: Env): Promise<void> {
   } catch { /* table may not exist yet */ }
   try {
     await env.DB.prepare('DELETE FROM live_chat_messages WHERE created_at < ?').bind(chatCutoff).run();
+  } catch { /* table may not exist yet */ }
+  try {
+    // Reactions outlive nothing: once the message they sit on is gone they are
+    // orphans, and left alone they would grow the table and the KV tally for
+    // ever. Same cutoff, so the two stay in step.
+    await env.DB.prepare('DELETE FROM live_chat_reactions WHERE created_at < ?').bind(chatCutoff).run();
   } catch { /* table may not exist yet */ }
   try {
     await env.DB.prepare('DELETE FROM live_session_seen WHERE joined_at < ?').bind(chatCutoff).run();
@@ -4261,9 +4328,49 @@ async function handleLiveChatGet(request: Request, env: Env): Promise<Response> 
       message: r.message,
       createdAt: Number(r.created_at),
     }));
-    return json({ messages });
+    // Straight from KV: adding a D1 query here would run once per viewer
+    // every three seconds, which is millions of row reads over one service.
+    const reactions = await readLiveReactions(env, videoId);
+    return json({ messages, reactions });
   } catch (err) {
-    return json({ messages: [], error: err instanceof Error ? err.message : String(err) });
+    return json({ messages: [], reactions: {}, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/** Gives or takes back one emoji on one message. */
+async function handleLiveChatReact(request: Request, env: Env): Promise<Response> {
+  try {
+    await ensureLiveChatTables(env);
+    const payload = await readJson<{ videoId?: string; messageId?: string; sessionId?: string; emoji?: string }>(request);
+    const videoId = String(payload.videoId || '').trim();
+    const messageId = String(payload.messageId || '').trim();
+    const sessionId = String(payload.sessionId || '').trim();
+    const emoji = String(payload.emoji || '');
+    if (!videoId || !messageId || !sessionId || !isReactionEmoji(emoji)) {
+      return json({ ok: false, error: 'Invalid reaction' }, 400);
+    }
+
+    const existing = await env.DB
+      .prepare('SELECT 1 FROM live_chat_reactions WHERE message_id = ? AND session_id = ? AND emoji = ?')
+      .bind(messageId, sessionId, emoji)
+      .first();
+
+    if (existing) {
+      await env.DB
+        .prepare('DELETE FROM live_chat_reactions WHERE message_id = ? AND session_id = ? AND emoji = ?')
+        .bind(messageId, sessionId, emoji)
+        .run();
+    } else {
+      await env.DB
+        .prepare('INSERT INTO live_chat_reactions (message_id, session_id, emoji, video_id, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(messageId, sessionId, emoji, videoId, Date.now())
+        .run();
+    }
+
+    const reactions = await rebuildLiveReactions(env, videoId);
+    return json({ ok: true, reactions });
+  } catch (err) {
+    return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
   }
 }
 
@@ -4949,6 +5056,9 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     }
     if (url.pathname === '/api/live/chat' && request.method === 'GET') {
       return handleLiveChatGet(request, env);
+    }
+    if (url.pathname === '/api/live/chat/react' && request.method === 'POST') {
+      return handleLiveChatReact(request, env);
     }
     if (url.pathname === '/api/live/chat' && request.method === 'POST') {
       return handleLiveChatPost(request, env);

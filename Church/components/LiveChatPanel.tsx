@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
-import type { LiveChatMessage } from '../types';
+import type { LiveChatMessage, LiveChatReactions } from '../types';
+import { REACTION_EMOJI, reactionSummary } from '../meeting/reactions';
 import { churchConfirm } from './ChurchDialog';
+import { SmilePlus } from 'lucide-react';
 
 interface LiveChatPanelProps {
   videoId: string | null;
@@ -27,6 +29,8 @@ function localizeAuthorName(name: string, language: Language): string {
 const LiveChatPanel: React.FC<LiveChatPanelProps> = ({ videoId, sessionId, displayName, isAdmin, enabled }) => {
   const { t, language } = useLocalization();
   const [messages, setMessages] = useState<LiveChatMessage[]>([]);
+  const [reactions, setReactions] = useState<LiveChatReactions>({});
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +43,11 @@ const LiveChatPanel: React.FC<LiveChatPanelProps> = ({ videoId, sessionId, displ
     const poll = async () => {
       try {
         const res = await api.liveChatGet(videoId, lastSinceRef.current);
-        if (cancelled || !res.messages || res.messages.length === 0) return;
+        if (cancelled) return;
+        // Before the early return below: a reaction lands on a message that is
+        // already here, so it arrives on a poll that brings nothing new.
+        if (res.reactions) setReactions(res.reactions);
+        if (!res.messages || res.messages.length === 0) return;
         setMessages(prev => {
           const seen = new Set(prev.map(m => m.id));
           const fresh = res.messages.filter(m => !seen.has(m.id));
@@ -84,6 +92,15 @@ const LiveChatPanel: React.FC<LiveChatPanelProps> = ({ videoId, sessionId, displ
     }
   };
 
+  const react = async (messageId: string, emoji: string) => {
+    if (!videoId || !enabled) return;
+    setPickerFor(null);
+    try {
+      const res = await api.liveChatReact({ videoId, messageId, sessionId, emoji });
+      if (res.reactions) setReactions(res.reactions);
+    } catch { /* the next poll brings the room's version anyway */ }
+  };
+
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
     if (!await churchConfirm(t('liveChat.confirmDelete'))) return;
@@ -118,6 +135,58 @@ const LiveChatPanel: React.FC<LiveChatPanelProps> = ({ videoId, sessionId, displ
                 <button onClick={() => handleDelete(m.id)} className="ml-1 hidden text-xs text-red-500 hover:underline group-hover:inline-block">
                   {t('liveChat.deleteLabel')}
                 </button>
+              )}
+
+              {enabled && (
+                <div className="relative mt-0.5 flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPickerFor(current => (current === m.id ? null : m.id))}
+                    aria-label={t('meeting.react')}
+                    aria-expanded={pickerFor === m.id}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                  >
+                    <SmilePlus size={13} strokeWidth={1.5} />
+                  </button>
+
+                  {reactionSummary(reactions[m.id], sessionId).map(pill => (
+                    <button
+                      key={pill.emoji}
+                      type="button"
+                      onClick={() => void react(m.id, pill.emoji)}
+                      className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-none transition-colors ${
+                        pill.mine ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <span>{pill.emoji}</span>
+                      <span className="font-bold tabular-nums">{pill.count}</span>
+                    </button>
+                  ))}
+
+                  {pickerFor === m.id && (
+                    <>
+                      <button
+                        type="button"
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        onClick={() => setPickerFor(null)}
+                        className="fixed inset-0 z-30 cursor-default"
+                      />
+                      <div className="absolute bottom-full left-0 z-40 mb-1 flex gap-0.5 rounded-full border border-gray-200 bg-white px-1.5 py-1 shadow-lg">
+                        {REACTION_EMOJI.map(emoji => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => void react(m.id, emoji)}
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-base transition-transform hover:scale-125"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           );
