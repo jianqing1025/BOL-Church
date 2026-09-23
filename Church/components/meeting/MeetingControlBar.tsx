@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff,
-  LayoutGrid, UserSquare2, BookOpen, Play, Hand, FileVideo, Youtube, Square,
+  LayoutGrid, UserSquare2, BookOpen, Play, Hand, FileVideo, Youtube,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { overflowKeys, type OverflowKey } from './controlBarItems';
@@ -88,6 +88,21 @@ const MoreIcon: React.FC = () => (
     <circle cx="5" cy="12" r="1.15" fill="currentColor" />
     <circle cx="12" cy="12" r="2.5" strokeWidth={ICON.strokeWidth} />
     <circle cx="19" cy="12" r="1.15" fill="currentColor" />
+  </svg>
+);
+
+/**
+ * The stop mark, filled.
+ *
+ * Every other icon here is line work, and this one deliberately is not: an
+ * outlined square at this stroke weight reads as an empty box — a checkbox
+ * waiting to be ticked — rather than the stop symbol off a tape deck. Filling
+ * it is what makes it a control. It is the only solid glyph on the bar, which
+ * suits the only button that ends something for the whole room.
+ */
+const StopIcon: React.FC = () => (
+  <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="7" y="7" width="10" height="10" rx="2.5" fill="currentColor" />
   </svg>
 );
 
@@ -269,7 +284,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           >
             {/* A bare triangle and a bare square: a play symbol drawn inside a
                 circle, sitting inside this round button, was a circle in a circle. */}
-            {canStopSharedVideo ? <Square {...ICON} /> : <Play {...ICON} />}
+            {canStopSharedVideo ? <StopIcon /> : <Play {...ICON} />}
           </CircleButton>
         </div>
       )}

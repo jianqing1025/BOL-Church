@@ -177,8 +177,12 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
       className={
         expanded
           ? 'fixed inset-0 z-30 flex flex-col bg-gray-900'
+          // A quarter of the width on a computer, but never narrower than it
+          // used to be: on a 1280px laptop a quarter would be less than the
+          // fixed width it replaced, and the passage would read worse, not
+          // better. On a phone it stays a sheet over the bottom of the screen.
           : `fixed inset-x-0 bottom-0 z-20 flex h-[60vh] flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl
-             sm:static sm:z-auto sm:h-auto sm:w-96 sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none`
+             sm:static sm:z-auto sm:h-auto sm:w-1/4 sm:min-w-[24rem] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none`
       }
     >
       {/* Header: contents / title / text size / expand / close */}
