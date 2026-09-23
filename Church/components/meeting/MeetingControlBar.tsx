@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff,
-  LayoutGrid, UserSquare2, BookOpen, PlayCircle, Hand, MoreHorizontal, FileVideo, Youtube, Square,
+  LayoutGrid, UserSquare2, BookOpen, Play, Hand, FileVideo, Youtube, Square,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { overflowKeys, type OverflowKey } from './controlBarItems';
@@ -67,6 +67,29 @@ function useDismissable(open: boolean, onClose: () => void) {
   }, [open, onClose]);
   return ref;
 }
+
+/**
+ * The weight the whole bar is drawn at: a little larger than the label under
+ * it, and a lighter stroke than the icon set's default, so seven of them in a
+ * row read as one quiet line of controls rather than seven heavy glyphs.
+ */
+const ICON = { size: 22, strokeWidth: 1.5 } as const;
+const MENU_ICON = { size: 16, strokeWidth: 1.5 } as const;
+
+/**
+ * Three marks with a ring in the middle.
+ *
+ * The icon set's own "more" is three solid dots, which at this stroke weight
+ * looks heavier than everything beside it. Opening the middle one out into a
+ * ring keeps the meaning and matches the line work.
+ */
+const MoreIcon: React.FC = () => (
+  <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.15" fill="currentColor" />
+    <circle cx="12" cy="12" r="2.5" strokeWidth={ICON.strokeWidth} />
+    <circle cx="19" cy="12" r="1.15" fill="currentColor" />
+  </svg>
+);
 
 const MenuPanel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div
@@ -183,16 +206,16 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   const hiddenBadges = keys.includes('chat') ? chatBadge : 0;
 
   const items: Record<OverflowKey, { label: string; icon: React.ReactNode; active?: boolean; badge?: number; onSelect: () => void }> = {
-    screenShare: { label: t('meeting.screenShare'), icon: <ScreenShare size={16} />, active: screenOn, onSelect: onToggleScreenShare },
-    chat: { label: t('meeting.chat'), icon: <MessageSquare size={16} />, active: chatOpen, badge: chatBadge, onSelect: onToggleChat },
-    members: { label: t('meeting.members'), icon: <Users size={16} />, active: membersOpen, onSelect: onToggleMembers },
+    screenShare: { label: t('meeting.screenShare'), icon: <ScreenShare {...MENU_ICON} />, active: screenOn, onSelect: onToggleScreenShare },
+    chat: { label: t('meeting.chat'), icon: <MessageSquare {...MENU_ICON} />, active: chatOpen, badge: chatBadge, onSelect: onToggleChat },
+    members: { label: t('meeting.members'), icon: <Users {...MENU_ICON} />, active: membersOpen, onSelect: onToggleMembers },
     view: {
       label: t(viewMode === 'gallery' ? 'meeting.viewSpeakerLong' : 'meeting.viewGalleryLong'),
-      icon: viewMode === 'gallery' ? <UserSquare2 size={16} /> : <LayoutGrid size={16} />,
+      icon: viewMode === 'gallery' ? <UserSquare2 {...MENU_ICON} /> : <LayoutGrid {...MENU_ICON} />,
       onSelect: onToggleView,
     },
-    lowerAllHands: { label: t('meeting.lowerAllHands'), icon: <Hand size={16} />, onSelect: onLowerAllHands },
-    muteAll: { label: t('meeting.muteAll'), icon: <MicOff size={16} />, onSelect: onMuteAll },
+    lowerAllHands: { label: t('meeting.lowerAllHands'), icon: <Hand {...MENU_ICON} />, onSelect: onLowerAllHands },
+    muteAll: { label: t('meeting.muteAll'), icon: <MicOff {...MENU_ICON} />, onSelect: onMuteAll },
   };
 
   return (
@@ -200,10 +223,10 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
       {hasVideo && (
         <>
           <CircleButton label={t('meeting.microphone')} caption={t('meeting.tagAudio')} active={micOn} onClick={onToggleMic}>
-            {micOn ? <Mic size={20} /> : <MicOff size={20} className="text-red-300" />}
+            {micOn ? <Mic {...ICON} /> : <MicOff {...ICON} className="text-red-300" />}
           </CircleButton>
           <CircleButton label={t('meeting.camera')} caption={t('meeting.tagCamera')} active={camOn} onClick={onToggleCamera}>
-            {camOn ? <VideoIcon size={20} /> : <VideoOff size={20} className="text-red-300" />}
+            {camOn ? <VideoIcon {...ICON} /> : <VideoOff {...ICON} className="text-red-300" />}
           </CircleButton>
           <CircleButton
             label={t(handRaised ? 'meeting.lowerHand' : 'meeting.raiseHand')}
@@ -211,14 +234,14 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
             active={handRaised}
             onClick={onToggleHand}
           >
-            <Hand size={20} className={handRaised ? 'text-amber-200' : undefined} />
+            <Hand {...ICON} className={handRaised ? 'text-amber-200' : undefined} />
           </CircleButton>
           <div role="separator" aria-orientation="vertical" className="mb-4 h-7 w-px shrink-0 bg-white/25" />
         </>
       )}
 
       <CircleButton label={t('bible.open')} caption={t('meeting.tagBible')} active={bibleOpen} onClick={onToggleBible}>
-        <BookOpen size={20} />
+        <BookOpen {...ICON} />
       </CircleButton>
 
       {hasVideo && (
@@ -227,12 +250,12 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
             <MenuPanel>
               <MenuItem
                 label={t('meeting.videoLocal')}
-                icon={<FileVideo size={16} />}
+                icon={<FileVideo {...MENU_ICON} />}
                 onSelect={() => { setVideoMenuOpen(false); onPickLocalVideo(); }}
               />
               <MenuItem
                 label={t('meeting.videoYouTube')}
-                icon={<Youtube size={16} />}
+                icon={<Youtube {...MENU_ICON} />}
                 onSelect={() => { setVideoMenuOpen(false); onPickYouTubeVideo(); }}
               />
             </MenuPanel>
@@ -244,7 +267,9 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
             expanded={canStopSharedVideo ? undefined : videoMenuOpen}
             onClick={canStopSharedVideo ? onStopSharedVideo : () => setVideoMenuOpen((v) => !v)}
           >
-            {canStopSharedVideo ? <Square size={18} /> : <PlayCircle size={20} />}
+            {/* A bare triangle and a bare square: a play symbol drawn inside a
+                circle, sitting inside this round button, was a circle in a circle. */}
+            {canStopSharedVideo ? <Square {...ICON} /> : <Play {...ICON} />}
           </CircleButton>
         </div>
       )}
@@ -275,12 +300,14 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
         >
-          <MoreHorizontal size={20} />
+          <MoreIcon />
         </CircleButton>
       </div>
 
+      <div role="separator" aria-orientation="vertical" className="mb-4 h-7 w-px shrink-0 bg-white/25" />
+
       <CircleButton label={t('meeting.leave')} caption={t('meeting.tagLeave')} danger onClick={onLeave}>
-        <PhoneOff size={20} />
+        <PhoneOff {...ICON} />
       </CircleButton>
     </div>
   );

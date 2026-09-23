@@ -278,9 +278,9 @@ export const translations = {
     hostRemoveTitle: { en: 'Remove from room', zh: '請出房間' },
     hostRemoveConfirm: {
       en: 'Remove {name} from the room? They are taken out straight away, and would have to join again themselves.',
-      zh: '要請 {name} 離開房間嗎？他會立刻被移出，之後要自己重新加入才能回來。',
+      zh: '要請 {name} 離開房間嗎？Ta 會立刻被移出，之後要自己重新加入才能回來。',
     },
-    hostRemoveAction: { en: 'Remove', zh: '請他離開' },
+    hostRemoveAction: { en: 'Remove', zh: '請 Ta 離開' },
     videoFile: { en: 'Play a video', zh: '播放影片' },
     videoLocal: { en: 'Local video', zh: '本機影片' },
     videoYouTube: { en: 'YouTube video', zh: 'YouTube 影片' },
@@ -298,7 +298,7 @@ export const translations = {
     videoTapToPlay: { en: 'Tap to play', zh: '點一下開始播放' },
     videoFollowingHost: {
       en: 'The host is sharing this video and controls the playback.',
-      zh: 'Host 正在分享影片，播放進度由他控制。',
+      zh: 'Host 正在分享影片，播放進度由 Ta 控制。',
     },
     videoSoundOn: { en: 'Turn on sound', zh: '開啟聲音' },
     videoSoundOff: { en: 'Mute', zh: '關閉聲音' },
@@ -323,7 +323,7 @@ export const translations = {
     textLarger: { en: 'Larger text', zh: '放大字級' },
     expand: { en: 'Full screen', zh: '全螢幕閱讀' },
     collapse: { en: 'Exit full screen', zh: '結束全螢幕' },
-    followingHost: { en: 'The host is leading the study and controls the passage.', zh: 'Host 正在帶查經，經文進度由他控制。' },
+    followingHost: { en: 'The host is leading the study and controls the passage.', zh: 'Host 正在帶查經，經文進度由 Ta 控制。' },
     backToHost: { en: "Back to the host's place", zh: '回到 Host 的位置' },
   },
   events: {
