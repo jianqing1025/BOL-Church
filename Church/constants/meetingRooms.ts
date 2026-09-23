@@ -30,11 +30,11 @@ export const MEETING_ROOMS: readonly MeetingRoom[] = [
     hasVideo: true,
   },
   {
-    id: 'bible-study-2',
-    name: { en: "Brothers' Group Bible Study", zh: '弟兄小組查經' },
-    schedule: { en: 'Tuesdays at 7:00 PM', zh: '每週二晚上7:00' },
-    imageUrl: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?ixlib=rb-4.1.0&auto=format&fit=crop&q=80&w=1200',
-    type: 'bible',
+    id: 'prayer',
+    name: { en: 'Prayer Meeting', zh: '禱告會' },
+    schedule: { en: 'Wednesdays at 7:00 PM', zh: '每週三晚上7:00' },
+    imageUrl: 'https://images.unsplash.com/photo-1600288480699-0b0d8a456dd8?ixlib=rb-4.1.0&auto=format&fit=crop&q=80&w=1200',
+    type: 'prayer',
     hasVideo: true,
   },
   {
@@ -46,11 +46,11 @@ export const MEETING_ROOMS: readonly MeetingRoom[] = [
     hasVideo: true,
   },
   {
-    id: 'prayer',
-    name: { en: 'Prayer Meeting', zh: '禱告會' },
-    schedule: { en: 'Wednesdays at 7:00 PM', zh: '每週三晚上7:00' },
-    imageUrl: 'https://images.unsplash.com/photo-1600288480699-0b0d8a456dd8?ixlib=rb-4.1.0&auto=format&fit=crop&q=80&w=1200',
-    type: 'prayer',
+    id: 'bible-study-2',
+    name: { en: "Brothers' Group Bible Study", zh: '弟兄小組查經' },
+    schedule: { en: 'Tuesdays at 7:00 PM', zh: '每週二晚上7:00' },
+    imageUrl: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?ixlib=rb-4.1.0&auto=format&fit=crop&q=80&w=1200',
+    type: 'bible',
     hasVideo: true,
   },
 ] as const;
