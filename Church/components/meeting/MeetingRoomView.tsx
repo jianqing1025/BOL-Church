@@ -6,6 +6,7 @@ import { useLocalization } from '../../hooks/useLocalization';
 import { LiveKitService } from '../../services/livekitService';
 import { raisedHandCount } from '../../meeting/raisedHands';
 import { microphoneStates } from '../../meeting/participantFlags';
+import { troubleByUserId } from '../../meeting/connectionQuality';
 import { VideoStage, type ViewMode } from './VideoStage';
 import { MeetingControlBar } from './MeetingControlBar';
 import { MessageList, type DisplayMessage } from './MessageList';
@@ -62,6 +63,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const raisedHands = raisedHandCount(lk.participants);
   // The member list is presence; microphones belong to LiveKit participants.
   const micOn = microphoneStates(lk.participants);
+  const connectionTrouble = troubleByUserId(lk.participants);
   const localSharing = lk.participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -349,6 +351,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               isHost={isHost}
               ownUserId={ownUserId}
               micOn={micOn}
+              connectionTrouble={connectionTrouble}
               onMute={(userId) => onHostCommand({ type: 'host', action: 'mute', targetUserId: userId })}
               onUnmute={(userId) => onHostCommand({ type: 'host', action: 'unmute', targetUserId: userId })}
               onRemove={(userId, memberName) => void removeMember(userId, memberName)}

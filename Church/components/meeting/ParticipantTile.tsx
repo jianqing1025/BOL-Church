@@ -3,6 +3,7 @@ import { Hand, MicOff } from 'lucide-react';
 import { Track, type Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
 import { isHostParticipant } from '../../meeting/participantFlags';
+import { connectionTrouble, type ConnectionTrouble } from '../../meeting/connectionQuality';
 import { useLocalization } from '../../hooks/useLocalization';
 import { ScreenSharePanZoom } from './ScreenSharePanZoom';
 
@@ -25,6 +26,35 @@ interface ParticipantTileProps {
   onClick?: () => void;
   className?: string;
 }
+
+/**
+ * Three bars, the weak ones hollow.
+ *
+ * Only drawn for a connection in difficulty. A meter on every tile in a room
+ * that is working is decoration, and decoration is what people learn to stop
+ * seeing — including on the day it turns red.
+ */
+const SignalBars: React.FC<{ trouble: ConnectionTrouble; label: string }> = ({ trouble, label }) => {
+  const lost = trouble === 'lost';
+  const colour = lost ? 'text-red-400' : 'text-amber-300';
+  const lit = lost ? 0 : 1;
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`pointer-events-none absolute bottom-1.5 right-2 z-10 flex items-end gap-[2px] drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] ${colour}`}
+    >
+      {[3, 6, 9].map((height, i) => (
+        <span
+          key={height}
+          style={{ height }}
+          className={`w-[3px] rounded-[1px] ${i < lit ? 'bg-current' : 'border border-current bg-transparent'}`}
+        />
+      ))}
+    </span>
+  );
+};
 
 /**
  * The queue position of a raised hand. A host gets it as a button - tapping it
@@ -67,6 +97,7 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const videoTrack = LiveKitService.videoTrack(participant);
   const label = participant.name || participant.identity;
   const hosting = isHostParticipant(participant);
+  const trouble = connectionTrouble(participant);
   const muted = !participant.isMicrophoneEnabled;
 
   useEffect(() => {
@@ -109,6 +140,13 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
           order={handOrder}
           label={`${t(onLowerHand ? 'meeting.lowerHand' : 'meeting.raiseHand')}: ${label}`}
           onLower={onLowerHand}
+        />
+      )}
+
+      {trouble && (
+        <SignalBars
+          trouble={trouble}
+          label={`${t(trouble === 'lost' ? 'meeting.connectionLost' : 'meeting.connectionPoor')}: ${label}`}
         />
       )}
 

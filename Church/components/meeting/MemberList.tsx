@@ -1,7 +1,8 @@
 import React from 'react';
-import { Mic, MicOff, UserMinus } from 'lucide-react';
+import { Mic, MicOff, UserMinus, WifiOff } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import type { PresenceUser } from '../../meeting/chatProtocol';
+import type { ConnectionTrouble } from '../../meeting/connectionQuality';
 
 interface MemberListProps {
   users: PresenceUser[];
@@ -13,12 +14,18 @@ interface MemberListProps {
    * known yet — someone still connecting should not be drawn as silenced.
    */
   micOn?: Map<string, boolean>;
+  /**
+   * Who is having connection trouble, by presence id. Seeing them all in one
+   * list is what answers the question a report of choppy sound never does:
+   * one person, or everybody at once.
+   */
+  connectionTrouble?: Map<string, ConnectionTrouble>;
   onMute?: (userId: string) => void;
   onUnmute?: (userId: string) => void;
   onRemove?: (userId: string, name: string) => void;
 }
 
-export const MemberList: React.FC<MemberListProps> = ({ users, isHost, ownUserId, micOn, onMute, onUnmute, onRemove }) => {
+export const MemberList: React.FC<MemberListProps> = ({ users, isHost, ownUserId, micOn, connectionTrouble, onMute, onUnmute, onRemove }) => {
   const { t } = useLocalization();
   return (
     <div className="flex h-full flex-col">
@@ -30,11 +37,20 @@ export const MemberList: React.FC<MemberListProps> = ({ users, isHost, ownUserId
           // A host's controls apply to the others, never to a host themselves.
           const controllable = isHost && u.id !== ownUserId && !u.isHost;
           const muted = micOn?.get(u.id) === false;
+          const trouble = connectionTrouble?.get(u.id);
           return (
             <li key={u.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-300">
               <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
               <span className="truncate">{u.name}</span>
               {muted && <MicOff size={14} className="shrink-0 text-red-400" aria-label={t('meeting.mutedNow')} />}
+              {trouble && (
+                <WifiOff
+                  size={14}
+                  strokeWidth={1.5}
+                  className={`shrink-0 ${trouble === 'lost' ? 'text-red-400' : 'text-amber-300'}`}
+                  aria-label={t(trouble === 'lost' ? 'meeting.connectionLost' : 'meeting.connectionPoor')}
+                />
+              )}
               {u.isHost && (
                 <span className="shrink-0 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
                   {t('meeting.host')}

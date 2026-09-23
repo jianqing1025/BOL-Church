@@ -202,6 +202,8 @@ export const translations = {
     back: { en: 'Back', zh: '返回' },
     chat: { en: 'Chat', zh: '聊天' },
     react: { en: 'Add a reaction', zh: '加上表情' },
+    connectionPoor: { en: 'Weak connection', zh: '連線不穩' },
+    connectionLost: { en: 'Connection lost', zh: '連線中斷' },
     close: { en: 'Close', zh: '關閉' },
     screenShare: { en: 'Share screen', zh: '分享螢幕' },
     camera: { en: 'Camera', zh: '視訊' },

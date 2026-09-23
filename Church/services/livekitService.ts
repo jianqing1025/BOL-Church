@@ -165,6 +165,7 @@ export class LiveKitService {
       .on(RoomEvent.LocalTrackPublished, () => this.emit())
       .on(RoomEvent.LocalTrackUnpublished, () => this.emit())
       .on(RoomEvent.ParticipantAttributesChanged, () => this.emit())
+      .on(RoomEvent.ConnectionQualityChanged, () => this.emit())
       .on(RoomEvent.DataReceived, (payload, _from, _kind, topic) => {
         if (topic === HAND_TOPIC) void this.lowerOwnHand();
       })
