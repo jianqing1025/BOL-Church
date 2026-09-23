@@ -33,8 +33,9 @@ export interface RoomVideo {
  * Nothing about the picture travels through LiveKit — a cross-origin iframe
  * cannot be captured and republished the way a local file can — so every
  * participant runs their own player and this carries the leader's position to
- * the rest. Whoever leads is the same rule as the Bible: a host, or anyone
- * when the room has no host.
+ * the rest. Opening one is gated on the room's shared picture being free
+ * rather than on a host being absent: a host who is showing nothing should not
+ * stop everyone else from showing something.
  *
  * Followers are not locked out of their own scrubber on purpose. Dragging it
  * pulls you off the group, and the leader's next heartbeat (three seconds at

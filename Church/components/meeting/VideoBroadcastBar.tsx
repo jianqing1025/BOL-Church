@@ -27,6 +27,18 @@ export const VideoBroadcastBar: React.FC<VideoBroadcastBarProps> = ({ file, onRe
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
 
+  // Read through refs so the effect below belongs to the file, not to the
+  // render. Its callers rebuild these every render — and the meeting's elapsed
+  // clock forces a render every second — so depending on them directly re-ran
+  // the effect once a second: re-attaching the listener and calling play()
+  // again. On a film that had finished, that play() started it over, which
+  // looked like looping, and the republish that followed was met with "someone
+  // else is sharing" — about the viewer's own share.
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+
   // Publish once the file is actually playing: capturing before the first frame
   // can hand LiveKit an empty track, which arrives as a black screen.
   useEffect(() => {
@@ -37,14 +49,23 @@ export const VideoBroadcastBar: React.FC<VideoBroadcastBarProps> = ({ file, onRe
     const publish = async () => {
       if (cancelled) return;
       el.removeEventListener('playing', publish);
-      const ok = await onReady(el);
-      if (!ok && !cancelled) onStop();
+      const ok = await onReadyRef.current(el);
+      if (!ok && !cancelled) onStopRef.current();
     };
 
+    // A film that has run out has nothing left to share; leaving it published
+    // would hold the room's one shared picture on a still frame.
+    const finish = () => { if (!cancelled) onStopRef.current(); };
+
     el.addEventListener('playing', publish);
+    el.addEventListener('ended', finish);
     void el.play().catch(() => { /* the user can press play on the controls */ });
-    return () => { cancelled = true; el.removeEventListener('playing', publish); };
-  }, [url, onReady, onStop]);
+    return () => {
+      cancelled = true;
+      el.removeEventListener('playing', publish);
+      el.removeEventListener('ended', finish);
+    };
+  }, [url]);
 
   return (
     <div className="flex shrink-0 items-center gap-3 border-t border-white/10 bg-gray-900 px-3 py-2">

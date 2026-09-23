@@ -145,9 +145,11 @@ export class ChatRoom {
         if (!video) return;
 
         if (video.action === 'open') {
-          // Starting one follows the Bible's rule: a host may, and with no
-          // host present anyone may. Whoever does becomes its leader.
-          if (!(isHost || !this.hasHost())) return;
+          // The gate is the room's one shared picture, not whether a host
+          // happens to be present: a host who is not showing anything should
+          // not stop everybody else from showing something. A host may still
+          // take the slot from whoever has it.
+          if (!(isHost || !this.roomVideo)) return;
           const stamped = { ...video, leaderId: id };
           this.applyRoomVideo(stamped, id);
           this.broadcast(stamped);
