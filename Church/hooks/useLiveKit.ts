@@ -127,7 +127,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
         onError: (e) => setError(e instanceof Error ? e.message : String(e)),
       });
       serviceRef.current = service;
-      await service.connect({ roomId: room.id, name, password, stream });
+      await service.connect({ roomId: room.id, name, password, stream, isHost });
       setJoined(true);
       setMicOn(service.localParticipant?.isMicrophoneEnabled ?? false);
       setCamOn(service.localParticipant?.isCameraEnabled ?? false);
@@ -139,7 +139,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       joiningRef.current = false;
       setConnecting(false);
     }
-  }, [room.hasVideo, room.id, name, password, confirmPermission, t]);
+  }, [room.hasVideo, room.id, name, password, isHost, confirmPermission, t]);
 
   const retryLocalMedia = useCallback(async () => {
     const svc = serviceRef.current;

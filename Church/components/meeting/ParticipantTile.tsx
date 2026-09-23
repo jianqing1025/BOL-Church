@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Hand, MicOff } from 'lucide-react';
 import { Track, type Participant } from 'livekit-client';
 import { LiveKitService } from '../../services/livekitService';
+import { isHostParticipant } from '../../meeting/participantFlags';
 import { useLocalization } from '../../hooks/useLocalization';
 import { ScreenSharePanZoom } from './ScreenSharePanZoom';
 
@@ -31,14 +32,16 @@ interface ParticipantTileProps {
  * marker, so nobody is offered a control that would do nothing.
  */
 const HandBadge: React.FC<{ order: number; label: string; onLower?: () => void }> = ({ order, label, onLower }) => {
-  const shape = 'absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[11px] font-bold leading-none text-gray-900';
-  const content = <><Hand size={11} />{order}</>;
+  // No disc behind it: at the size the control bar uses, the icon reads on its
+  // own, and a drop shadow keeps it legible over a bright frame of video.
+  const shape = 'absolute right-2 top-2 z-10 flex items-center gap-1 text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]';
+  const content = <><Hand size={20} />{order > 0 && <span className="text-sm font-bold leading-none">{order}</span>}</>;
   if (!onLower) return <span className={`${shape} pointer-events-none`} aria-label={label}>{content}</span>;
   return (
     <button
       type="button"
       aria-label={label}
-      className={`${shape} transition-colors hover:bg-amber-300`}
+      className={`${shape} transition-colors hover:text-amber-200`}
       onClick={(e) => { e.stopPropagation(); onLower(); }}
     >
       {content}
@@ -63,6 +66,7 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
   const videoTrack = LiveKitService.videoTrack(participant);
   const label = participant.name || participant.identity;
+  const hosting = isHostParticipant(participant);
   const muted = !participant.isMicrophoneEnabled;
 
   useEffect(() => {
@@ -94,6 +98,12 @@ export const ParticipantTile: React.FC<ParticipantTileProps> = ({
           </span>
         </div>
       )}
+      {hosting && (
+        <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-md bg-blue-600/90 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white">
+          Host
+        </span>
+      )}
+
       {handOrder !== undefined && (
         <HandBadge
           order={handOrder}

@@ -109,3 +109,18 @@ export function followRoomVideo(local: PlaybackState, leader: PlaybackState): Fo
 export function canSetMediaVolume(userAgent: string): boolean {
   return !/iPad|iPhone|iPod/i.test(userAgent);
 }
+
+/**
+ * Whether a video has to start silent here.
+ *
+ * Phones and tablets refuse playback with sound that no tap asked for, and a
+ * follower's playback is started by a message from the room — so on those the
+ * video starts muted and offers a button for the sound. A desktop browser has
+ * already been clicked half a dozen times on the way into the meeting, which
+ * is what its autoplay policy asks for, so it simply starts with sound and
+ * needs no button at all. If a desktop browser refuses anyway, the tap-to-play
+ * cover is still there to catch it.
+ */
+export function needsSoundGesture(userAgent: string): boolean {
+  return /iPad|iPhone|iPod|Android/i.test(userAgent);
+}

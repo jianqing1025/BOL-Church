@@ -1,5 +1,6 @@
 import { LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 import { HAND_ATTRIBUTE, handRaisedAt } from '../meeting/raisedHands';
+import { HOST_ATTRIBUTE } from '../meeting/participantFlags';
 
 const MEDIA_UNSUPPORTED_MESSAGE = '目前的微信瀏覽器不支援開啟麥克風／鏡頭，請改用 iPhone Safari 開啟本頁，或升級微信後再試。';
 const SCREEN_SHARE_UNSUPPORTED_MESSAGE = '目前的瀏覽器不支援分享螢幕。';
@@ -24,6 +25,8 @@ export interface LiveKitConnectParams {
   password: string;
   /** Camera/mic captured up front by the caller (see captureLocalMedia). */
   stream?: MediaStream | null;
+  /** Whether this participant ticked Host, so their tile can say so. */
+  isHost?: boolean;
 }
 
 /** Wraps a single LiveKit Room connection and the local track toggles. */
@@ -173,6 +176,9 @@ export class LiveKitService {
     // Browsers block autoplay of remote audio until a gesture; the click that
     // brought the user into the room usually satisfies it. Best-effort resume.
     await room.startAudio().catch(() => undefined);
+    // The tiles are LiveKit participants and the host flag lives in presence,
+    // which shares no id with them — so the marker goes on the participant.
+    if (params.isHost) await room.localParticipant.setAttributes({ [HOST_ATTRIBUTE]: '1' }).catch(() => undefined);
     await this.enableInitialLocalMedia(params.stream);
     this.emit();
   }

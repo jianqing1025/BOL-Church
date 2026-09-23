@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Play, Volume2, VolumeX } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { useLocalization } from '../../hooks/useLocalization';
-import { canSetMediaVolume, followRoomVideo, type PlaybackState } from '../../meeting/youtube';
+import { canSetMediaVolume, followRoomVideo, needsSoundGesture, type PlaybackState } from '../../meeting/youtube';
 import type { LeaderPlayback } from '../../hooks/useRoomVideo';
 import { ParticipantTile } from './ParticipantTile';
 
@@ -90,16 +90,18 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
   /**
-   * Starts silent on purpose. iOS refuses to start audible playback that no
-   * tap asked for, and a follower's playback is started by a message from the
-   * room — so an audible player would simply not start, leaving that person
-   * out of step with everyone else. Silent, it starts and stays in step, and
-   * the one tap they make is only to turn the sound on.
+   * Phones start silent on purpose: they refuse audible playback no tap asked
+   * for, and a follower's playback is started by a message from the room, so
+   * an audible player would simply not start — leaving that person out of step
+   * with everyone else. Silent it starts and stays in step, and their one tap
+   * is only for the sound. A desktop browser needs none of this.
    */
-  const [muted, setMuted] = useState(true);
+  const soundNeedsTap = needsSoundGesture(userAgent);
+  const [muted, setMuted] = useState(soundNeedsTap);
   const [volume, setVolume] = useState(100);
-  const volumeAdjustable = typeof navigator !== 'undefined' && canSetMediaVolume(navigator.userAgent);
+  const volumeAdjustable = canSetMediaVolume(userAgent);
 
   // Read through refs so the player is built once per video rather than torn
   // down and rebuilt — which would restart the film — whenever a prop changes.
@@ -125,9 +127,9 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         videoId,
         // autoplay asks; whether it is granted is the browser's call, and the
         // tap-to-play cover below is what answers when it refuses.
-        playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
+        playerVars: { autoplay: 1, mute: soundNeedsTap ? 1 : 0, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
         events: {
-          onReady: () => { if (!cancelled) { setReady(true); setMuted(true); } },
+          onReady: () => { if (!cancelled) { setReady(true); setMuted(soundNeedsTap); } },
           onStateChange: (event: { data: number }) => {
             // Only the leader speaks; everyone else's player is an echo, and
             // reporting from all of them would fight over the room's position.
@@ -145,7 +147,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
       try { player?.destroy(); } catch { /* already gone with the iframe */ }
       playerRef.current = null;
     };
-  }, [videoId]);
+  }, [videoId, soundNeedsTap]);
 
   // The leader's heartbeat. Without it a follower who drifted — or who joined
   // midway — would stay adrift until the leader next touched the controls.
@@ -243,20 +245,22 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
             the normal way this starts and nobody should have to guess why. */}
         {!failed && !blocked && (
           <div className="absolute right-3 top-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (muted) { turnSoundOn(); return; }
-                playerRef.current?.mute();
-                setMuted(true);
-              }}
-              className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold shadow-lg transition-colors ${
-                muted ? 'bg-amber-400 text-gray-900 hover:bg-amber-300' : 'bg-black/60 text-white hover:bg-black/75'
-              }`}
-            >
-              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              <span>{t(muted ? 'meeting.videoSoundOn' : 'meeting.videoSoundOff')}</span>
-            </button>
+            {soundNeedsTap && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (muted) { turnSoundOn(); return; }
+                  playerRef.current?.mute();
+                  setMuted(true);
+                }}
+                className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold shadow-lg transition-colors ${
+                  muted ? 'bg-amber-400 text-gray-900 hover:bg-amber-300' : 'bg-black/60 text-white hover:bg-black/75'
+                }`}
+              >
+                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                <span>{t(muted ? 'meeting.videoSoundOn' : 'meeting.videoSoundOff')}</span>
+              </button>
+            )}
 
             {/* Slider first, so it grows leftwards and the button stays put. */}
             {volumeAdjustable && !muted && (

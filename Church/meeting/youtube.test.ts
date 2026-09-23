@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canSetMediaVolume, DRIFT_TOLERANCE_SECONDS, followRoomVideo, parseYouTubeStart, parseYouTubeVideoId } from './youtube';
+import { canSetMediaVolume, DRIFT_TOLERANCE_SECONDS, followRoomVideo, needsSoundGesture, parseYouTubeStart, parseYouTubeVideoId } from './youtube';
 
 const ID = 'dQw4w9WgXcQ';
 
@@ -112,5 +112,25 @@ describe('canSetMediaVolume', () => {
 
   it('assumes it works when the user agent says nothing useful', () => {
     expect(canSetMediaVolume('')).toBe(true);
+  });
+});
+
+describe('needsSoundGesture', () => {
+  it('is true on phones and tablets, which refuse sound nobody asked for', () => {
+    const mobile = [
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 Version/16.6 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36',
+    ];
+    for (const ua of mobile) expect(needsSoundGesture(ua)).toBe(true);
+  });
+
+  it('is false on desktop, which has already been clicked into the meeting', () => {
+    const desktop = [
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+    ];
+    for (const ua of desktop) expect(needsSoundGesture(ua)).toBe(false);
   });
 });
