@@ -45,7 +45,7 @@ const UserManager: React.FC = () => {
 
   const resetPassword = async (user: AdminUser) => {
     const password = passwords[user.id] || '';
-    if (password.length < 8) {
+    if (password.length < 6) {
       setError(t('admin.passwordTooShort'));
       return;
     }
@@ -88,7 +88,8 @@ const UserManager: React.FC = () => {
             value={form.password}
             onChange={event => setForm(current => ({ ...current, password: event.target.value }))}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-            placeholder={t('admin.password8Plus')}
+            placeholder={t('admin.password6Plus')}
+            minLength={6}
             required
           />
           <select

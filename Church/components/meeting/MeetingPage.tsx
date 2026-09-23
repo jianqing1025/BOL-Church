@@ -10,6 +10,8 @@ import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
 import PageHeader from '../PageHeader';
 import MinistrySecondaryNav from '../MinistrySecondaryNav';
+import { MeetingBrowserGuide } from './MeetingBrowserGuide';
+import { detectMeetingInAppBrowser } from '../../meeting/inAppBrowser';
 
 export type Stage = 'auth' | 'pick' | 'room';
 type RoomWithActivity = MeetingRoom & { activeCount?: number };
@@ -23,7 +25,19 @@ const readName = (): string => {
   try { return localStorage.getItem(MEETING_NAME_KEY) || ''; } catch { return ''; }
 };
 
-export const MeetingPage: React.FC<MeetingPageProps> = ({ onStageChange }) => {
+export const MeetingPage: React.FC<MeetingPageProps> = (props) => {
+  const [guideBrowser] = useState(() => {
+    if (typeof navigator === 'undefined') return null;
+    return detectMeetingInAppBrowser(navigator.userAgent);
+  });
+
+  if (guideBrowser) {
+    return <MeetingBrowserGuide browser={guideBrowser} />;
+  }
+  return <MeetingPageContent {...props} />;
+};
+
+const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const { language, t } = useLocalization();
   const [stage, setStage] = useState<Stage>('auth');
   const [name, setName] = useState(readName);

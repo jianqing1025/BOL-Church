@@ -45,6 +45,8 @@ const LiveStreamManager: React.FC = () => {
   const [state, setState] = useState<LiveStreamAdminState | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeyEditing, setApiKeyEditing] = useState(false);
+  const [channelIdInput, setChannelIdInput] = useState('');
+  const [channelIdEditing, setChannelIdEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +95,7 @@ const LiveStreamManager: React.FC = () => {
     setError(null);
     try {
       const payload = {
-        channelId: config.channelId,
+        channelId: channelIdEditing ? channelIdInput : config.channelId,
         apiKey: apiKeyEditing ? apiKeyInput : UNCHANGED_API_KEY,
         serviceDay: config.serviceDay,
         serviceStartLocal: config.serviceStartLocal,
@@ -104,6 +106,8 @@ const LiveStreamManager: React.FC = () => {
       };
       const res = await api.liveStreamAdminSave(payload);
       setConfig(res.config);
+      setChannelIdEditing(false);
+      setChannelIdInput('');
       setApiKeyEditing(false);
       setApiKeyInput('');
       setSavedMessage(t('admin.livestreamSaved'));
@@ -120,7 +124,7 @@ const LiveStreamManager: React.FC = () => {
     setError(null);
     try {
       const res = await api.liveStreamAdminTest({
-        channelId: config.channelId,
+        channelId: channelIdEditing ? channelIdInput : config.channelId,
         apiKey: apiKeyEditing ? apiKeyInput : UNCHANGED_API_KEY,
       });
       if (res.ok && res.channelName) {
@@ -168,41 +172,64 @@ const LiveStreamManager: React.FC = () => {
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-semibold text-gray-700">{t('admin.livestreamChannelId')}</label>
-            <input
-              type="text"
-              value={config.channelId}
-              onChange={event => updateConfigField('channelId', event.target.value)}
-              placeholder="UCxxxxxxxxxxxxxxxxxxxxxx"
-              className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            />
+            <label htmlFor="livestream-channel-id" className="block text-sm font-semibold text-gray-700">{t('admin.livestreamChannelId')}</label>
+            <div className="mt-1 flex gap-2">
+              <input
+                id="livestream-channel-id"
+                type="text"
+                value={channelIdEditing ? channelIdInput : config.channelId}
+                disabled={!channelIdEditing || saving}
+                onChange={event => {
+                  setChannelIdInput(event.target.value);
+                  setSavedMessage(null);
+                }}
+                placeholder="UCxxxxxxxxxxxxxxxxxxxxxx"
+                className="min-w-0 w-full rounded border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
+              />
+              <button
+                type="button"
+                disabled={saving}
+                aria-controls="livestream-channel-id"
+                onClick={() => {
+                  setChannelIdInput(config.channelId);
+                  setChannelIdEditing(editing => !editing);
+                  setSavedMessage(null);
+                }}
+                className="shrink-0 rounded border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {channelIdEditing ? t('admin.cancel') : t('admin.edit')}
+              </button>
+            </div>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700">{t('admin.livestreamApiKey')}</label>
+            <label htmlFor="livestream-api-key" className="block text-sm font-semibold text-gray-700">{t('admin.livestreamApiKey')}</label>
             <div className="mt-1 flex gap-2">
               <input
+                id="livestream-api-key"
                 type={apiKeyEditing ? 'text' : 'password'}
                 value={apiKeyEditing ? apiKeyInput : (config.apiKeyMasked || '')}
+                disabled={!apiKeyEditing || saving}
                 onChange={event => {
-                  setApiKeyEditing(true);
                   setApiKeyInput(event.target.value);
+                  setSavedMessage(null);
                 }}
                 placeholder={config.apiKeyPresent ? '' : 'AIzaSy...'}
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                className="min-w-0 w-full rounded border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
               />
-              {apiKeyEditing && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setApiKeyEditing(false);
-                    setApiKeyInput('');
-                  }}
-                  className="rounded border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50"
-                >
-                  ↺
-                </button>
-              )}
+              <button
+                type="button"
+                disabled={saving}
+                aria-controls="livestream-api-key"
+                onClick={() => {
+                  setApiKeyEditing(editing => !editing);
+                  setApiKeyInput('');
+                  setSavedMessage(null);
+                }}
+                className="shrink-0 rounded border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {apiKeyEditing ? t('admin.cancel') : t('admin.edit')}
+              </button>
             </div>
             <p className="mt-1 text-xs text-gray-500">{t('admin.livestreamApiKeyHint')}</p>
           </div>

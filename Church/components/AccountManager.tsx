@@ -65,7 +65,7 @@ const AccountManager: React.FC<AccountManagerProps> = ({ initialMode = 'profile'
     setError('');
     setMessage('');
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < 6) {
       setError(t('admin.newPasswordTooShort'));
       return;
     }
