@@ -201,18 +201,29 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-950 text-gray-100">
       {/* Top bar */}
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-gray-900/80 px-4 py-3">
-        <button
-          type="button"
-          onClick={() => void leaveRoom()}
-          className="flex min-w-0 items-center gap-1 text-sm font-semibold text-gray-300 hover:text-white"
-        >
-          <ChevronLeft size={18} className="shrink-0" />
-          <span className="truncate">{t('meeting.brandTitle')}</span>
-        </button>
-        <div className="flex min-w-0 items-center gap-3">
+      {/*
+        Two groups, not three: everything that describes the room on the left,
+        the two buttons on the right. The church's name is the first thing to
+        go when there is no room for it — on a phone, or on any screen whose
+        owner has set a large system font, which no breakpoint can see. What is
+        left is what someone in a meeting actually needs: which room, how long,
+        and the way to the chat and the member list.
+      */}
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => void leaveRoom()}
+            aria-label={t('meeting.brandTitle')}
+            className="flex min-w-0 shrink-0 items-center gap-1 text-sm font-semibold text-gray-300 hover:text-white"
+          >
+            <ChevronLeft size={18} className="shrink-0" />
+            <span className="hidden truncate md:inline">{t('meeting.brandTitle')}</span>
+          </button>
+
           <span className="truncate font-bold">{localizeMeetingRoomText(room.name, language)}</span>
           <span className="shrink-0 tabular-nums text-sm text-gray-400">{formatElapsed(elapsed)}</span>
+
           {localSharing && (
             <button
               type="button"
@@ -224,37 +235,40 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             </button>
           )}
         </div>
-        {room.hasVideo && (
+
+        <div className="flex shrink-0 items-center gap-1">
+          {room.hasVideo && (
+            <button
+              type="button"
+              onClick={() => setChatOpen((v) => !v)}
+              aria-label={t('meeting.chat')}
+              aria-pressed={chatOpen}
+              className={`relative flex shrink-0 items-center rounded-full px-2 py-1 transition-colors ${
+                chatOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <MessageSquare size={16} strokeWidth={1.5} />
+              {unread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-gray-900">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={() => setChatOpen((v) => !v)}
-            aria-label={t('meeting.chat')}
-            aria-pressed={chatOpen}
-            className={`relative flex shrink-0 items-center rounded-full px-2 py-1 transition-colors ${
-              chatOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+            onClick={() => setMembersOpen((v) => !v)}
+            aria-label={t('meeting.members')}
+            aria-pressed={membersOpen}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-sm transition-colors ${
+              membersOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
             }`}
           >
-            <MessageSquare size={16} strokeWidth={1.5} />
-            {unread > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-gray-900">
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
+            <Users size={16} />
+            {members.length}
           </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setMembersOpen((v) => !v)}
-          aria-label={t('meeting.members')}
-          aria-pressed={membersOpen}
-          className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-sm transition-colors ${
-            membersOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-white/10 hover:text-white'
-          }`}
-        >
-          <Users size={16} />
-          {members.length}
-        </button>
+        </div>
       </header>
 
       {/* Body: stage + optional right drawer */}
