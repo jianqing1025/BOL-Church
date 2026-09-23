@@ -27,6 +27,8 @@ export interface LiveKitConnectParams {
   stream?: MediaStream | null;
   /** Whether this participant ticked Host, so their tile can say so. */
   isHost?: boolean;
+  /** Which devices to arrive with; both are captured either way (see below). */
+  media?: { camOn: boolean; micOn: boolean };
 }
 
 /** Wraps a single LiveKit Room connection and the local track toggles. */
@@ -180,7 +182,30 @@ export class LiveKitService {
     // which shares no id with them — so the marker goes on the participant.
     if (params.isHost) await room.localParticipant.setAttributes({ [HOST_ATTRIBUTE]: '1' }).catch(() => undefined);
     await this.enableInitialLocalMedia(params.stream);
+    await this.applyInitialMedia(params.media);
     this.emit();
+  }
+
+  /**
+   * Closes whichever device the joiner did not ask for.
+   *
+   * Both are captured regardless, in the one getUserMedia call iOS allows —
+   * asking for them separately makes the second request stop the first one's
+   * tracks, so somebody who joined with only a microphone would lose it the
+   * moment they turned their camera on. Muting instead costs nothing: the
+   * camera track is SDK-managed, so muting it stops the device and puts the
+   * indicator light out, and turning it on later is the path that already
+   * works rather than a fresh capture outside a tap.
+   */
+  private async applyInitialMedia(media?: { camOn: boolean; micOn: boolean }): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p || !media) return;
+    try {
+      if (!media.micOn) await p.setMicrophoneEnabled(false);
+      if (!media.camOn) await p.setCameraEnabled(false);
+    } catch (error) {
+      this.handlers.onError?.(error);
+    }
   }
 
   async toggleMic(): Promise<boolean> {

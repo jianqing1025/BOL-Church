@@ -14,6 +14,7 @@ import { ChatPanel } from './ChatPanel';
 import { MemberList } from './MemberList';
 import type { BibleSync } from '../../hooks/useBibleSync';
 import type { RoomVideo } from '../../hooks/useRoomVideo';
+import type { JoinMedia } from '../../meeting/joinDefaults';
 import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
 import { churchAlert, churchConfirm } from '../ChurchDialog';
@@ -29,6 +30,8 @@ interface MeetingRoomViewProps {
   ownUserId: string | null;
   /** Whether this participant ticked Host on the room card. */
   isHost: boolean;
+  /** Which devices this person chose to arrive with. */
+  joinMedia: JoinMedia;
   /** The room's shared position in the Bible. */
   bible: BibleSync;
   /** The YouTube video the room is watching together. */
@@ -49,11 +52,11 @@ const formatElapsed = (seconds: number): string => {
 };
 
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
-  room, name, password, messages, members, ownUserId, isHost,
+  room, name, password, messages, members, ownUserId, isHost, joinMedia,
   bible, roomVideo, hostCommand, onHostCommand, onSend, onLeave,
 }) => {
   const { language, t } = useLocalization();
-  const lk = useLiveKit(room, name, password, isHost, ownUserId);
+  const lk = useLiveKit(room, name, password, isHost, ownUserId, joinMedia);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const raisedHands = raisedHandCount(lk.participants);
   // The member list is presence; microphones belong to LiveKit participants.

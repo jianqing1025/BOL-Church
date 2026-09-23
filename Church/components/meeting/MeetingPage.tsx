@@ -16,6 +16,8 @@ import { useRoomVideo } from '../../hooks/useRoomVideo';
 import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
+import { MeetingJoinDialog } from './MeetingJoinDialog';
+import { defaultJoinMedia, type JoinMedia } from '../../meeting/joinDefaults';
 import PageHeader from '../PageHeader';
 import MinistrySecondaryNav from '../MinistrySecondaryNav';
 import { MeetingBrowserGuide } from './MeetingBrowserGuide';
@@ -64,6 +66,9 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const [isHost, setIsHost] = useState(false);
   /** Latest host command, with a sequence so an identical repeat still fires. */
   const [hostCommand, setHostCommand] = useState<{ message: HostMessage; seq: number } | null>(null);
+  /** The room whose join dialog is open, before anyone has committed to it. */
+  const [pendingRoom, setPendingRoom] = useState<RoomWithActivity | null>(null);
+  const [joinMedia, setJoinMedia] = useState<JoinMedia>(() => defaultJoinMedia(0));
   const socketRef = useRef<MeetingSocket | null>(null);
 
   const sendBible = useCallback((message: BibleMessage) => socketRef.current?.sendBible(message), []);
@@ -185,7 +190,9 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
     }
   };
 
-  const enterRoom = useCallback((target: MeetingRoom) => {
+  const enterRoom = useCallback((target: MeetingRoom, media: JoinMedia) => {
+    setJoinMedia(media);
+    setPendingRoom(null);
     closeSocket();
     setMessages([]);
     setMembers([]);
@@ -294,7 +301,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
                     </label>
                     <button
                       type="button"
-                      onClick={() => enterRoom(r)}
+                      onClick={() => (r.hasVideo ? setPendingRoom(r) : enterRoom(r, { camOn: false, micOn: false }))}
                       className="rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
                       {t('meeting.join')}
@@ -305,6 +312,15 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
             ))}
           </div>
         </div>
+
+        {pendingRoom && (
+          <MeetingJoinDialog
+            roomName={localizeMeetingRoomText(pendingRoom.name, language)}
+            activeCount={pendingRoom.activeCount}
+            onCancel={() => setPendingRoom(null)}
+            onJoin={(media) => enterRoom(pendingRoom, media)}
+          />
+        )}
       </div>
     );
   }
@@ -320,6 +336,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         members={members}
         ownUserId={ownUserId}
         isHost={isHost}
+        joinMedia={joinMedia}
         bible={bible}
         roomVideo={roomVideo}
         hostCommand={hostCommand}

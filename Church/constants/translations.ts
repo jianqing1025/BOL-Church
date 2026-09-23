@@ -175,6 +175,17 @@ export const translations = {
     pickPrompt: { en: 'Please choose a group room', zh: '請選擇小組房間' },
     inProgress: { en: 'Meeting in progress', zh: '正在聚會' },
     join: { en: 'Join', zh: '加入' },
+    joinTitle: { en: 'Join {room}', zh: '加入 {room}' },
+    joinCamera: { en: 'Camera on', zh: '開啟視訊' },
+    joinMic: { en: 'Microphone on', zh: '開啟麥克風' },
+    joinCrowded: {
+      en: 'The study is already under way, so your microphone and camera are off to start with. Turn them on whenever you like.',
+      zh: '房間已有多人，已先為您關閉麥克風與鏡頭，進入後可隨時開啟。',
+    },
+    joinPermissionNote: {
+      en: 'Your browser will ask for the camera and microphone together. Once allowed, whatever is unticked above stays off, and you can turn it on inside the room.',
+      zh: '瀏覽器接下來會一次詢問鏡頭與麥克風的權限。允許之後，上面沒有勾選的仍然保持關閉，進入後隨時可以開啟。',
+    },
     memberJoined: { en: '{name} joined the room', zh: '{name} 加入了房間' },
     memberLeft: { en: '{name} left the room', zh: '{name} 離開了房間' },
     changeRoom: { en: 'Rooms', zh: '房間' },
@@ -222,10 +233,6 @@ export const translations = {
     permissionTitle: { en: 'Permission Needed', zh: '需要權限' },
     permissionContinue: { en: 'Continue', zh: '繼續' },
     permissionCancel: { en: 'Not Now', zh: '暫時不要' },
-    mediaPermissionMessage: {
-      en: 'To join this video room, this site needs access to your microphone and camera. Your browser may show one more permission prompt next.',
-      zh: '若要加入視訊房間，網站需要使用您的麥克風與鏡頭。接下來瀏覽器可能還會顯示一次權限確認。'
-    },
     microphonePermissionMessage: {
       en: 'To turn on your microphone, this site needs microphone access. Your browser may ask you to allow it next.',
       zh: '若要開啟麥克風，網站需要麥克風權限。接下來瀏覽器可能會要求您允許。'

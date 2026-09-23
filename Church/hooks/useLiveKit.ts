@@ -6,6 +6,8 @@ import { useLocalization } from './useLocalization';
 import type { MeetingRoom } from '../constants/meetingRooms';
 import { churchPermissionConfirm } from '../components/ChurchDialog';
 import { classifyMediaError } from '../services/mediaErrors';
+import { needsPermissionIntro } from '../meeting/mediaPermission';
+import type { JoinMedia } from '../meeting/joinDefaults';
 
 export interface UseLiveKit {
   participants: Participant[];
@@ -41,24 +43,6 @@ export interface UseLiveKit {
   shareSlotTaken: boolean;
 }
 
-type BrowserPermissionName = 'camera' | 'microphone';
-
-const permissionState = async (name: BrowserPermissionName): Promise<PermissionState | null> => {
-  try {
-    const permissions = (navigator as Navigator & { permissions?: Permissions }).permissions;
-    if (!permissions?.query) return null;
-    const status = await permissions.query({ name: name as PermissionName });
-    return status.state;
-  } catch {
-    return null;
-  }
-};
-
-const needsPermissionIntro = async (names: BrowserPermissionName[]): Promise<boolean> => {
-  const states = await Promise.all(names.map(permissionState));
-  return states.some((state) => state !== 'granted');
-};
-
 /**
  * Owns a single LiveKitService connection for one meeting room and exposes the
  * React state a control bar needs. Auto-joins video-enabled rooms on mount and
@@ -68,7 +52,14 @@ const needsPermissionIntro = async (names: BrowserPermissionName[]): Promise<boo
  * A host is allowed to take the shared-picture slot from whoever holds it; for
  * everyone else it stays first-come, first-served.
  */
-export function useLiveKit(room: MeetingRoom, name: string, password: string, isHost = false, ownUserId: string | null = null): UseLiveKit {
+export function useLiveKit(
+  room: MeetingRoom,
+  name: string,
+  password: string,
+  isHost = false,
+  ownUserId: string | null = null,
+  media: JoinMedia = { camOn: true, micOn: true },
+): UseLiveKit {
   const { t } = useLocalization();
   const serviceRef = useRef<LiveKitService | null>(null);
   const joiningRef = useRef(false);
@@ -114,11 +105,6 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
     setConnecting(true);
     setError('');
     try {
-      if (await needsPermissionIntro(['microphone', 'camera'])) {
-        const allowed = await confirmPermission('meeting.mediaPermissionMessage');
-        if (!allowed) return;
-      }
-
       // Capture before any network call. Safari on iOS grants the camera only
       // while the tap that got us here still counts, and the token fetch plus
       // the WebRTC connect below would spend that window. A failure here is
@@ -138,7 +124,7 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
         onError: (e) => setError(e instanceof Error ? e.message : String(e)),
       });
       serviceRef.current = service;
-      await service.connect({ roomId: room.id, name, password, stream, isHost });
+      await service.connect({ roomId: room.id, name, password, stream, isHost, media });
       setJoined(true);
       setMicOn(service.localParticipant?.isMicrophoneEnabled ?? false);
       setCamOn(service.localParticipant?.isCameraEnabled ?? false);
@@ -150,6 +136,9 @@ export function useLiveKit(room: MeetingRoom, name: string, password: string, is
       joiningRef.current = false;
       setConnecting(false);
     }
+    // media is read once, at the join it belongs to; a later change to the
+    // boxes on the picker must not reach back into a meeting already running.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.hasVideo, room.id, name, password, isHost, confirmPermission, t]);
 
   const retryLocalMedia = useCallback(async () => {
