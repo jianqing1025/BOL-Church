@@ -201,6 +201,7 @@ export const translations = {
     disconnected: { en: 'Disconnected. Return to entry.', zh: '連接已斷開，請重新進入。' },
     back: { en: 'Back', zh: '返回' },
     chat: { en: 'Chat', zh: '聊天' },
+    react: { en: 'Add a reaction', zh: '加上表情' },
     close: { en: 'Close', zh: '關閉' },
     screenShare: { en: 'Share screen', zh: '分享螢幕' },
     camera: { en: 'Camera', zh: '視訊' },

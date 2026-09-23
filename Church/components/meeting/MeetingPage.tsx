@@ -11,6 +11,7 @@ import {
 } from './meetingAuth';
 import { MeetingSocket } from '../../services/meetingSocket';
 import type { BibleMessage, HostMessage, PresenceUser, RoomVideoMessage, ServerMessage } from '../../meeting/chatProtocol';
+import { applyReactionToMessages } from '../../meeting/reactions';
 import { useBibleSync } from '../../hooks/useBibleSync';
 import { useRoomVideo } from '../../hooks/useRoomVideo';
 import type { DisplayMessage } from './MessageList';
@@ -216,6 +217,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
           applyBibleRef.current(msg);
         } else if (msg.type === 'video') {
           applyRoomVideoRef.current(msg);
+        } else if (msg.type === 'reaction') {
+          setMessages((prev) => applyReactionToMessages(prev, msg));
         } else if (msg.type === 'host') {
           setHostCommand((prev) => ({ message: msg, seq: (prev?.seq ?? 0) + 1 }));
         }
@@ -230,6 +233,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
 
   const leaveRoom = () => { closeSocket(); setRoom(null); setStage('pick'); };
   const send = (text: string) => socketRef.current?.send(text);
+  const react = (messageId: string, emoji: string) =>
+    socketRef.current?.sendReaction({ type: 'reaction', messageId, emoji });
 
   // Nothing but a quiet page while the remembered password is checked: showing
   // the form first would make it flash up and vanish a moment later.
@@ -342,6 +347,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         hostCommand={hostCommand}
         onHostCommand={sendHostCommand}
         onSend={send}
+        onReact={react}
         onLeave={leaveRoom}
       />
     </div>

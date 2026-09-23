@@ -2,6 +2,7 @@
 // Pure + isomorphic (no server APIs) so both sides import the same source.
 
 import { BIBLE_BOOKS } from '../constants/bibleBooks';
+import { isReactionEmoji, type Reactions } from './reactions';
 
 export const MAX_TEXT = 1000;
 export const MAX_NAME = 30;
@@ -14,6 +15,24 @@ export interface ChatMessage {
   name: string;
   text: string;
   createdAt: number;
+  /** Emoji given to this message, by user id. Absent until somebody reacts. */
+  reactions?: Reactions;
+}
+
+/**
+ * Pressing an emoji on a message.
+ *
+ * A client sends this without `users` — it is a request to toggle. The room
+ * object works out who now holds that emoji and broadcasts the same shape with
+ * `users` filled in, which is the new state rather than a request. Taking the
+ * client's word for `users` would let anyone invent a unanimous amen, so the
+ * sanitizer drops it.
+ */
+export interface RoomReaction {
+  type: 'reaction';
+  messageId: string;
+  emoji: string;
+  users?: string[];
 }
 export type SystemMessage = {
   type: 'system';
@@ -112,13 +131,14 @@ export interface WelcomeMessage {
   userId: string;
   messages: ChatMessage[];
 }
-export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage | BibleMessage | HostMessage | RoomVideoMessage;
+export type ServerMessage = ChatMessage | SystemMessage | PresenceMessage | WelcomeMessage | BibleMessage | HostMessage | RoomVideoMessage | RoomReaction;
 
 export type ClientMessage =
   | { type: 'message'; text: string }
   | BibleMessage
   | HostMessage
-  | RoomVideoMessage;
+  | RoomVideoMessage
+  | RoomReaction;
 
 /**
  * Validates a Bible navigation message from a client. The Durable Object
@@ -193,6 +213,25 @@ export function sanitizeRoomVideoMessage(input: unknown): RoomVideoMessage | nul
   }
 
   return null;
+}
+
+/** Ids are uuids; this is a sanity bound, not a format check. */
+const MAX_ID_LENGTH = 100;
+
+/**
+ * Validates a reaction from a client.
+ *
+ * Only the emoji and which message it lands on come from outside. Who holds it
+ * is decided by the room object from what it already has.
+ */
+export function sanitizeRoomReaction(input: unknown): RoomReaction | null {
+  if (!input || typeof input !== 'object') return null;
+  const msg = input as { type?: unknown; messageId?: unknown; emoji?: unknown };
+  if (msg.type !== 'reaction') return null;
+  if (!isReactionEmoji(msg.emoji)) return null;
+  const messageId = msg.messageId;
+  if (typeof messageId !== 'string' || !messageId || messageId.length > MAX_ID_LENGTH) return null;
+  return { type: 'reaction', messageId, emoji: msg.emoji };
 }
 
 /**

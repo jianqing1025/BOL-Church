@@ -1,4 +1,4 @@
-import type { BibleMessage, HostMessage, RoomVideoMessage, ServerMessage } from '../meeting/chatProtocol';
+import type { BibleMessage, HostMessage, RoomReaction, RoomVideoMessage, ServerMessage } from '../meeting/chatProtocol';
 
 export interface MeetingSocketHandlers {
   onMessage: (message: ServerMessage) => void;
@@ -87,6 +87,11 @@ export class MeetingSocket {
       if (message.action !== 'scroll') this.pendingBible = message;
       return;
     }
+    this.post(message);
+  }
+
+  /** Give or take back an emoji on somebody's message. */
+  sendReaction(message: RoomReaction): void {
     this.post(message);
   }
 

@@ -8,6 +8,7 @@ interface ChatPanelProps {
   messages: DisplayMessage[];
   ownUserId: string | null;
   onSend: (text: string) => void;
+  onReact: (messageId: string, emoji: string) => void;
   onClose: () => void;
 }
 
@@ -15,7 +16,7 @@ interface ChatPanelProps {
  * Chat surface. On mobile it is a bottom sheet covering the lower half of the
  * screen; on sm+ screens it becomes a static right-hand side panel.
  */
-export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, ownUserId, onSend, onClose }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, ownUserId, onSend, onReact, onClose }) => {
   const { t } = useLocalization();
   return (
     <div
@@ -34,7 +35,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, ownUserId, onSen
         </button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <MessageList messages={messages} ownUserId={ownUserId} />
+        <MessageList messages={messages} ownUserId={ownUserId} onReact={onReact} />
         <ChatInput onSend={onSend} />
       </div>
     </div>

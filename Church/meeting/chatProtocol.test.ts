@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  sanitizeRoomReaction,
   sanitizeRoomVideoMessage,
   sanitizeText,
   sanitizeName,
@@ -234,5 +235,37 @@ describe('sanitizeHostMessage mute controls', () => {
   it('still refuses a targeted command with no target', () => {
     expect(sanitizeHostMessage({ type: 'host', action: 'unmute' })).toBeNull();
     expect(sanitizeHostMessage({ type: 'host', action: 'mute' })).toBeNull();
+  });
+});
+
+describe('sanitizeRoomReaction', () => {
+  it('accepts a reaction to a message', () => {
+    expect(sanitizeRoomReaction({ type: 'reaction', messageId: 'm1', emoji: '🙏' }))
+      .toEqual({ type: 'reaction', messageId: 'm1', emoji: '🙏' });
+  });
+
+  it('drops a holder list supplied by the client', () => {
+    // Who has reacted is worked out by the room object from what it already
+    // holds; taking the client's word for it would let anyone invent a
+    // unanimous amen.
+    expect(sanitizeRoomReaction({ type: 'reaction', messageId: 'm1', emoji: '👍', users: ['a', 'b'] }))
+      .toEqual({ type: 'reaction', messageId: 'm1', emoji: '👍' });
+  });
+
+  it('refuses an emoji that is not on offer', () => {
+    for (const emoji of ['😠', '💩', 'x', '', 1, null]) {
+      expect(sanitizeRoomReaction({ type: 'reaction', messageId: 'm1', emoji })).toBeNull();
+    }
+  });
+
+  it('refuses a missing or unreasonable message id', () => {
+    expect(sanitizeRoomReaction({ type: 'reaction', emoji: '👍' })).toBeNull();
+    expect(sanitizeRoomReaction({ type: 'reaction', messageId: '', emoji: '👍' })).toBeNull();
+    expect(sanitizeRoomReaction({ type: 'reaction', messageId: 'x'.repeat(200), emoji: '👍' })).toBeNull();
+  });
+
+  it('refuses other message types', () => {
+    expect(sanitizeRoomReaction({ type: 'message', text: 'hi' })).toBeNull();
+    expect(sanitizeRoomReaction(null)).toBeNull();
   });
 });

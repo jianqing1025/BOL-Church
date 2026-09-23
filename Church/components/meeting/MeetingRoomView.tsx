@@ -40,6 +40,7 @@ interface MeetingRoomViewProps {
   hostCommand: { message: HostMessage; seq: number } | null;
   onHostCommand: (message: HostMessage) => void;
   onSend: (text: string) => void;
+  onReact: (messageId: string, emoji: string) => void;
   onLeave: () => void;
 }
 
@@ -53,7 +54,7 @@ const formatElapsed = (seconds: number): string => {
 
 export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   room, name, password, messages, members, ownUserId, isHost, joinMedia,
-  bible, roomVideo, hostCommand, onHostCommand, onSend, onLeave,
+  bible, roomVideo, hostCommand, onHostCommand, onSend, onReact, onLeave,
 }) => {
   const { language, t } = useLocalization();
   const lk = useLiveKit(room, name, password, isHost, ownUserId, joinMedia);
@@ -275,7 +276,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             />
           ) : (
             <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-gray-900">
-              <MessageList messages={messages} ownUserId={ownUserId} />
+              <MessageList messages={messages} ownUserId={ownUserId} onReact={onReact} />
               <ChatInput onSend={onSend} />
             </div>
           )}
@@ -286,6 +287,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             messages={messages}
             ownUserId={ownUserId}
             onSend={onSend}
+            onReact={onReact}
             onClose={() => setChatOpen(false)}
           />
         )}

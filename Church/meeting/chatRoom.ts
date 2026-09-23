@@ -3,6 +3,7 @@ import type { BibleMessage } from './chatProtocol';
 import {
   sanitizeBibleMessage,
   sanitizeHostMessage,
+  sanitizeRoomReaction,
   sanitizeRoomVideoMessage,
   sanitizeText,
   trimHistory,
@@ -11,6 +12,7 @@ import {
   type ServerMessage,
 } from './chatProtocol';
 import { isLiveKitProjectKey, stickyProject, type StickyProject } from './livekitProject';
+import { toggleReaction } from './reactions';
 
 interface Session { id: string; name: string; isHost: boolean; }
 
@@ -184,6 +186,19 @@ export class ChatRoom {
           this.roomVideo = null;
           this.broadcast({ type: 'video', action: 'close' });
         }
+        return;
+      }
+
+      if (kind === 'reaction') {
+        const reaction = sanitizeRoomReaction(parsed);
+        if (!reaction) return;
+        // Only against a message still in the room's history: an id that is
+        // not there is either stale or invented, and either way there is
+        // nothing to attach it to.
+        const target = this.messages.find((m) => m.id === reaction.messageId);
+        if (!target) return;
+        target.reactions = toggleReaction(target.reactions ?? {}, reaction.emoji, id);
+        this.broadcast({ ...reaction, users: target.reactions[reaction.emoji] ?? [] });
         return;
       }
 
