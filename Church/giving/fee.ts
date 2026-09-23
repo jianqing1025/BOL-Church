@@ -17,18 +17,31 @@ export const DEFAULT_FEE_CONFIG: FeeConfig = { percentBp: 220, fixedCents: 30 };
 
 const BP_DENOMINATOR = 10000;
 
-/** 從 Worker 環境變數（字串）解析費率設定，任何無法解析的值都回退到預設。 */
+/**
+ * 從 Worker 環境變數（字串）解析費率設定，任何無法解析的值都回退到預設。
+ * 此函式永遠不會丟出例外 —— 解析失敗一律回退到預設值。
+ */
 export function parseFeeConfig(env: { percent?: string; fixedCents?: string }): FeeConfig {
-  // 空字串會被 Number() 轉成 0，必須排除，否則無法區分「缺值」與「填 0」
-  const percent = env.percent ? Number(env.percent) : NaN;
-  const fixed = env.fixedCents ? Number(env.fixedCents) : NaN;
-  const percentBp = Number.isFinite(percent) && percent >= 0 && percent < 100
-    ? Math.round(percent * 100)
-    : DEFAULT_FEE_CONFIG.percentBp;
-  const fixedCents = Number.isInteger(fixed) && fixed >= 0
-    ? fixed
-    : DEFAULT_FEE_CONFIG.fixedCents;
-  return { percentBp, fixedCents };
+  // 空字串或空白字串都會被 Number() 轉成 0，必須先 trim 再檢查是否為空，
+  // 否則無法區分「缺值/空白」與「使用者真的填了 0」。
+  const rawPercent = env.percent?.trim();
+  const percent = rawPercent ? Number(rawPercent) : NaN;
+  // 驗證要用「四捨五入後」的基點值，而不是四捨五入前的百分比 —— 例如 99.999%
+  // 用 `percent < 100` 檢查會通過，但四捨五入後會變成 10000 基點，
+  // 導致 computeGiving 除以零。基點值必須落在 [0, 10000) 才是合法費率。
+  const percentBp = Number.isFinite(percent) && percent >= 0 ? Math.round(percent * 100) : NaN;
+
+  const rawFixed = env.fixedCents?.trim();
+  const fixed = rawFixed ? Number(rawFixed) : NaN;
+
+  return {
+    percentBp: Number.isInteger(percentBp) && percentBp >= 0 && percentBp < BP_DENOMINATOR
+      ? percentBp
+      : DEFAULT_FEE_CONFIG.percentBp,
+    fixedCents: Number.isInteger(fixed) && fixed >= 0
+      ? fixed
+      : DEFAULT_FEE_CONFIG.fixedCents,
+  };
 }
 
 export type GivingAmounts = {
@@ -49,13 +62,20 @@ export type GivingAmounts = {
  *
  * 不是 amount × (1 + rate) —— 那會少收，因為手續費是對「總額」而非本金收取的。
  * 除法向上取整，寧可多收一分也不讓教會短收。
+ *
+ * `config` 不透過 parseFeeConfig 也可能被手動建構，因此這裡仍需防禦：
+ * percentBp >= 10000 會讓分母歸零或變負，寧可丟出例外，也不要讓一個付款金額
+ * 悄悄變成 Infinity 或負數送進 Stripe。
  */
 export function computeGiving(amountCents: number, coverFee: boolean, config: FeeConfig): GivingAmounts {
   if (!coverFee) {
     return { amountCents, coveredFeeCents: 0, grossCents: amountCents };
   }
-  const numerator = (amountCents + config.fixedCents) * BP_DENOMINATOR;
   const denominator = BP_DENOMINATOR - config.percentBp;
+  if (denominator <= 0) {
+    throw new Error(`Invalid FeeConfig: percentBp (${config.percentBp}) must be less than ${BP_DENOMINATOR}`);
+  }
+  const numerator = (amountCents + config.fixedCents) * BP_DENOMINATOR;
   const grossCents = Math.ceil(numerator / denominator);
   return { amountCents, coveredFeeCents: grossCents - amountCents, grossCents };
 }
