@@ -190,3 +190,18 @@ describe('sanitizeRoomVideoMessage', () => {
     expect(sanitizeRoomVideoMessage({ type: 'video', action: 'state', playing: 'yes', seconds: 1 })).toBeNull();
   });
 });
+
+describe('sanitizeBibleMessage close', () => {
+  it('accepts closing the Bible for the room', () => {
+    // A leader putting the Bible away has to reach everyone: opening was
+    // always broadcast, so closing being private left members stranded on a
+    // passage the room had moved on from.
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'close' }))
+      .toEqual({ type: 'bible', action: 'close' });
+  });
+
+  it('needs no book or chapter to close', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'close', bookId: 999 }))
+      .toEqual({ type: 'bible', action: 'close' });
+  });
+});

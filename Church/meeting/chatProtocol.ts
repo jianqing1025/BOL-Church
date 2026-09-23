@@ -33,6 +33,12 @@ export type SystemMessage = {
  */
 export type BibleMessage =
   | { type: 'bible'; action: 'contents' }
+  /**
+   * The leader puts the Bible away and the room closes with them. Opening was
+   * always shared; without this, closing was not, and members were left on a
+   * passage the group had finished with.
+   */
+  | { type: 'bible'; action: 'close' }
   | { type: 'bible'; action: 'book'; bookId: number }
   | { type: 'bible'; action: 'passage'; bookId: number; chapter: number }
   /**
@@ -110,6 +116,7 @@ export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
   const msg = input as { type?: unknown; action?: unknown; bookId?: unknown; chapter?: unknown; expanded?: unknown };
   if (msg.type !== 'bible') return null;
   if (msg.action === 'contents') return { type: 'bible', action: 'contents' };
+  if (msg.action === 'close') return { type: 'bible', action: 'close' };
   if (msg.action === 'expand') return { type: 'bible', action: 'expand', expanded: msg.expanded === true };
 
   const book = BIBLE_BOOKS.find((b) => b.id === msg.bookId);

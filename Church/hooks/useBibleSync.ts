@@ -48,6 +48,9 @@ export interface BibleSync {
  * Full-screen reading travels with the room — when the leader enlarges the
  * text everyone gets it enlarged — while text size stays personal, because one
  * is about what the group is looking at and the other is about eyesight.
+ *
+ * Closing follows the same rule as opening: the leader's close reaches the
+ * room, a member's closes only their own panel.
  */
 export function useBibleSync(send: (message: BibleMessage) => void, canLead: boolean): BibleSync {
   const initial = useMemo(loadReadingState, []);
@@ -59,6 +62,13 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   const [expanded, setExpanded] = useState(false);
 
   const apply = useCallback((message: BibleMessage) => {
+    // Before the open below: a close must not be answered by opening.
+    if (message.action === 'close') {
+      setOpen(false);
+      // Leaving full screen behind would reopen the Bible covering everything.
+      setExpanded(false);
+      return;
+    }
     // A scroll only moves readers who already have the Bible open — it should
     // not pop the panel up in front of someone who closed it.
     if (message.action === 'scroll') {
@@ -116,17 +126,13 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
     [lead, expanded],
   );
 
-  const close = useCallback(() => {
-    setOpen(false);
-    // Leaving full screen behind would reopen the Bible covering everything.
-    setExpanded(false);
-  }, []);
+  const close = useCallback(() => lead({ type: 'bible', action: 'close' }), [lead]);
   const toggle = useCallback(() => {
-    // Opening starts the room at the table of contents; closing is private.
-    // showContents opens the panel as a side effect of applying its own message.
-    if (open) setOpen(false);
+    // Opening starts the room at the table of contents; showContents opens the
+    // panel as a side effect of applying its own message.
+    if (open) close();
     else showContents();
-  }, [open, showContents]);
+  }, [open, close, showContents]);
 
   return {
     open, view, bookId, chapter, hostScroll, canLead, reportScroll,

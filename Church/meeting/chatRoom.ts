@@ -128,6 +128,9 @@ export class ChatRoom {
         // Scrolling is a position within the passage, not the passage itself —
         // replaying it to a newcomer would scroll them before they have text.
         if (bible.action === 'expand') this.bibleExpanded = bible.expanded;
+        // Closing ends the room's reading: a newcomer should arrive to the
+        // meeting, not to a Bible the group has already put away.
+        else if (bible.action === 'close') { this.biblePosition = null; this.bibleExpanded = false; }
         else if (bible.action !== 'scroll') this.biblePosition = bible;
         this.broadcast(bible);
         return;
