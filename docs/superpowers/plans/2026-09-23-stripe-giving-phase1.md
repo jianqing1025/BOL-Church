@@ -2550,6 +2550,16 @@ async function handleDonationsCsvExport(request: Request, env: Env): Promise<Res
     }
 ```
 
+- [ ] **Step 5.5: 修掉三個一致性問題**
+
+審查在後台找到三處，都在本 Task 的範圍內：
+
+1. **「Transactions」統計卡與「Total Donations」統計卡描述不同母體。** 金額卡只算 `completed`，但筆數卡是 `donations.length`，把 `pending`／`failed`／`refunded` 也算進去。兩張卡並排卻講不同的事。筆數改用 `donationStats.totalCount`（Step 1.5 加的伺服器彙總），或若要與金額卡一致就一併只算 `completed` —— 擇一，但兩張卡要描述同一件事。
+
+2. **列與統計卡的金額格式不一致。** 統計卡用 `toLocaleString('en-US', { minimumFractionDigits: 2 })`（有千分位），表格列用 `.toFixed(2)`（沒有）。同一頁上 $1,234.56 會出現兩種寫法。Step 5 的替換已經統一用 `formatDonationAmount`，確認沒有漏網的 `.toFixed(2)`。
+
+3. **狀態標籤原本寫死綠底。** 舊 schema 只有 `completed` 所以看不出問題，但真實資料進來後，失敗與退款的奉獻會頂著「成功綠」顯示。Step 5 的替換已用 `DONATION_STATUS_CLASS` 解決，確認舊的 `bg-green-100` 沒有殘留。
+
 - [ ] **Step 6: 型別檢查**
 
 ```bash
