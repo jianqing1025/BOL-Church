@@ -21,7 +21,13 @@ export type RateLimitDecision = {
 };
 
 export function evaluateRateLimit(record: RateLimitRecord | null, nowMs: number): RateLimitDecision {
-  const expired = !record || nowMs - record.windowStartMs > RATE_LIMIT_WINDOW_MS;
+  // 時間倒退時一律當作過期重來。window_start_ms 是上一次服務請求的 Cloudflare colo
+  // 寫進 D1 的，各 colo 時鐘不保證彼此單調；若只判斷 `elapsed > 視窗長度`，
+  // 負的 elapsed 永遠不會超過視窗，已達上限的記錄就永遠不會過期 —— 正常奉獻者
+  // 會被無限期鎖死。寧可漏掉幾次限制也不能擋住真的要奉獻的人；擋卡號測試的
+  // 最後一道防線是 Stripe Radar，不是這裡。
+  const elapsed = record ? nowMs - record.windowStartMs : 0;
+  const expired = !record || elapsed < 0 || elapsed > RATE_LIMIT_WINDOW_MS;
   if (expired) {
     return { allowed: true, nextWindowStartMs: nowMs, nextCount: 1 };
   }
