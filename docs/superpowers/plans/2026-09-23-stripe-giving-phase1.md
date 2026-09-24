@@ -1788,11 +1788,22 @@ async function handleGivingIntent(request: Request, env: Env): Promise<Response>
   const amounts = computeGiving(input.amountCents, input.coverFee, givingFeeConfig(env));
 
   const donationId = crypto.randomUUID();
+
+  // Idempotency key 用「前端在表單掛載時產生、整輪填寫共用」的那一把，不是這裡現生的 donationId。
+  // 現生的 UUID 每次請求都不同，Stripe 會當成兩筆各自建立 PaymentIntent —— 等於沒有防呆。
+  // 這不會重複扣款（沒 confirm 就不扣），但會在 D1 留下永遠停在 pending 的孤兒記錄，
+  // 後台看起來就是一堆「處理中」的假奉獻。
+  // 前端沒帶或格式不對時退回 donationId，行為與現況相同，不會壞掉。
+  const clientKey = typeof (payload as Record<string, unknown> | null)?.idempotencyKey === 'string'
+    ? String((payload as Record<string, unknown>).idempotencyKey)
+    : '';
+  const idempotencyKey = /^[0-9a-f-]{36}$/i.test(clientKey) ? clientKey : donationId;
+
   const intent = await createPaymentIntent(env.STRIPE_SECRET_KEY, {
     grossCents: amounts.grossCents,
     currency: 'usd',
     receiptEmail: input.donorEmail,
-    idempotencyKey: donationId,
+    idempotencyKey,
     metadata: {
       donation_id: donationId,
       category: input.category,
@@ -3118,10 +3129,14 @@ const GivingFormInner: React.FC<{ config: GivingConfig }> = ({ config }) => {
   const [creating, setCreating] = useState(false);
 
   const stripePromise = useMemo(() => loadStripe(config.publishableKey), [config.publishableKey]);
+  // 每個表單實例一把，重試時沿用同一把；reset() 之後才換新的（見下方 reset）
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const amountCents = dollarsToCents(amount);
   const grossCents = estimateGross(amountCents, coverFee, config);
 
   const reset = () => {
+    // 換一把 key：這是「再奉獻一次」，是真的另一筆，不該被 Stripe 當成重複請求擋掉
+    setIdempotencyKey(crypto.randomUUID());
     setIntent(null);
     setResult(null);
     setResultMessage('');
@@ -3136,8 +3151,10 @@ const GivingFormInner: React.FC<{ config: GivingConfig }> = ({ config }) => {
       const response = await fetch('/api/giving/intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // 刻意不送總額或手續費 —— 那些由伺服器算
-        body: JSON.stringify({ amountCents, category, donorName, donorEmail, coverFee, note }),
+        // 刻意不送總額或手續費 —— 那些由伺服器算。
+        // idempotencyKey 在元件掛載時產生一次，整輪填寫共用：若使用者連按兩次送出，
+        // 兩個請求帶同一把 key，Stripe 會回同一個 PaymentIntent 而不是多建一個。
+        body: JSON.stringify({ amountCents, category, donorName, donorEmail, coverFee, note, idempotencyKey }),
       });
       const data = await response.json() as IntentResponse & { error?: string };
       if (!response.ok) {
