@@ -3675,9 +3675,39 @@ STRIPE_PUBLISHABLE_KEY = "pk_live_51UIxtnRrRVwtjfXrP2Wqd4und9tHI3chBN0rOCeMbUPQD
 
 - [ ] **Step 5: 套用正式資料庫 migration**
 
+**套用前先做兩件事，缺一不可。**
+
+`CAST(ROUND(amount * 100) AS INTEGER)` 對所有合法的兩位小數金額都精確（已窮舉 $0.01–$1000 共 10 萬個值驗證，零誤差），但對第三位小數剛好落在半分的值會少 1 分 —— `1.005` → 100、`8.165` → 816、`9.995` → 999。而舊的 `POST /api/donations` 是 `Number(payload.amount)`，從未驗證過小數位數，所以不能假設正式資料都是整分。
+
+先掃出有問題的列：
+
+```bash
+npx wrangler d1 execute bol-church --remote --command "SELECT id, date, amount FROM donations WHERE ROUND(amount * 1000, 0) % 10 != 0;"
+```
+
+預期：**零列**。若有列出來，停下來逐筆判斷該進位到哪一分，不要直接套用。
+
+再記下套用前的總計，作為事後比對的基準：
+
+```bash
+npx wrangler d1 execute bol-church --remote --command "SELECT COUNT(*) AS n, SUM(amount) AS total_dollars FROM donations;"
+```
+
+把這兩個數字抄下來。然後套用：
+
 ```bash
 npx wrangler d1 migrations apply bol-church --remote
 ```
+
+套用後比對：
+
+```bash
+npx wrangler d1 execute bol-church --remote --command "SELECT COUNT(*) AS n, SUM(amount_cents) AS total_cents FROM donations WHERE source = 'legacy';"
+```
+
+`n` 必須等於套用前的筆數，`total_cents` 必須等於套用前 `total_dollars × 100`（四捨五入到整數）。對不上就代表有列轉換錯了。
+
+> **不要用 `amount_cents + covered_fee_cents != gross_cents` 當作轉換正確性的檢查。** 對 legacy 列它是恆真的 —— `covered_fee_cents` 寫死 0，而 `amount_cents` 與 `gross_cents` 是用同一個運算式算出來的，所以它永遠不會失敗。它只驗內部一致性，不驗轉換對不對。上面的筆數與總額比對才是真的檢查。
 
 - [ ] **Step 6: 部署**
 
