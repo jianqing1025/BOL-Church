@@ -784,7 +784,12 @@ export type StripeSignatureParts = {
   signatures: string[];
 };
 
-export function parseStripeSignatureHeader(header: string): StripeSignatureParts | null {
+/**
+ * 型別要寫 `string | null`：呼叫端拿到的是 `request.headers.get(...)`，本來就可能是 null。
+ * 專案沒開 strict，宣告成 `string` 也編得過，但型別就騙人了 —— 日後若有人單獨拿
+ * 這個函式來用（繞過 verifyStripeSignature 的守衛），會照著錯的型別假設寫。
+ */
+export function parseStripeSignatureHeader(header: string | null): StripeSignatureParts | null {
   if (!header) return null;
   let timestamp: number | null = null;
   const signatures: string[] = [];
@@ -2005,6 +2010,15 @@ async function handleGivingWebhook(request: Request, env: Env, ctx: ExecutionCon
     secret: env.STRIPE_WEBHOOK_SECRET,
   });
   if (!verified) {
+    // 分開記錄「沒帶簽章」與「帶了但驗不過」。驗簽函式只回 boolean，
+    // 所以設定錯了金鑰跟真的有人偽造，對外症狀一模一樣；日誌若不分，
+    // 上線後對著 Stripe 後台查問題會完全無從下手。
+    // 注意只寫進日誌，不要回給客戶端 —— 那等於告訴攻擊者他卡在哪一關。
+    console.error(
+      request.headers.get('Stripe-Signature')
+        ? 'Stripe webhook signature present but invalid (check STRIPE_WEBHOOK_SECRET matches the endpoint)'
+        : 'Stripe webhook missing Stripe-Signature header',
+    );
     return json({ error: 'Invalid signature' }, 400);
   }
 
