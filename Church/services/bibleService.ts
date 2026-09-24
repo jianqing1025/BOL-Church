@@ -77,17 +77,15 @@ export function stepChapter(bookId: number, chapter: number, delta: 1 | -1): { b
 export const BIBLE_FONT_STEPS = [0.95, 1.1, 1.3, 1.55, 1.85, 2.2] as const;
 
 /**
- * Where the text starts: large enough to read across a room without anyone
- * reaching for the plus button, with one step further for eyes that need it.
+ * Where the text starts on a computer: two steps up from the smallest. The
+ * larger size it used to start at filled the column with a few verses; the
+ * plus button is there for eyes that need more.
  */
-export const DEFAULT_FONT_STEP = 4;
+export const DEFAULT_FONT_STEP = 2;
 
 /**
- * Two steps down on a phone.
- *
- * There the passage is a sheet over the bottom of the screen, not the quarter
- * of a window it gets on a computer — the size that reads well in a column
- * leaves barely a line and a half in a sheet.
+ * The same on a phone, where the passage is a sheet over the bottom of the
+ * screen — anything larger leaves barely a line and a half in it.
  */
 export const NARROW_DEFAULT_FONT_STEP = 2;
 
@@ -102,7 +100,7 @@ export function defaultFontStep(narrow: boolean): number {
  * on disk — changing that default would otherwise reach nobody. On an older
  * entry the passage is kept and only the size is reconsidered.
  */
-export const READING_STATE_VERSION = 2;
+export const READING_STATE_VERSION = 3;
 
 export interface BibleReadingState {
   bookId: number;

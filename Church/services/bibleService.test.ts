@@ -128,6 +128,11 @@ describe('reading position', () => {
     expect(loadReadingState()).toEqual({ bookId: 19, chapter: 23, fontStep: DEFAULT_FONT_STEP });
   });
 
+  it('moves everyone off the old, larger computer default', () => {
+    store.set('bolccop.bible.reading', JSON.stringify({ bookId: 43, chapter: 3, fontStep: 4, v: 2 }));
+    expect(loadReadingState()).toEqual({ bookId: 43, chapter: 3, fontStep: 2 });
+  });
+
   it('falls back on an unknown book and on corrupt JSON', () => {
     store.set('bolccop.bible.reading', JSON.stringify({ bookId: 99, chapter: 1 }));
     expect(loadReadingState()).toEqual(DEFAULT_READING_STATE);
@@ -147,8 +152,9 @@ describe('reading position', () => {
   });
 
   it('starts two steps smaller on a phone, where the passage is a sheet not a column', () => {
-    expect(defaultFontStep(true)).toBe(DEFAULT_FONT_STEP - 2);
-    expect(defaultFontStep(false)).toBe(DEFAULT_FONT_STEP);
+    expect(defaultFontStep(true)).toBe(2);
+    expect(defaultFontStep(false)).toBe(2);
+    expect(BIBLE_FONT_STEPS[DEFAULT_FONT_STEP]).toBe(1.3);
   });
 
   it('uses the narrow default for a phone reader with nothing stored', () => {
