@@ -31,7 +31,6 @@ interface AdminContextType {
   donations: Donation[];
   submitMessage: (data: Omit<Message, 'id' | 'date' | 'read'>) => Promise<void>;
   submitPrayerRequest: (data: Omit<PrayerRequest, 'id' | 'date' | 'status'>) => Promise<void>;
-  submitDonation: (data: Omit<Donation, 'id' | 'date' | 'status'>) => Promise<void>;
   markMessageRead: (id: string) => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
   markPrayerPrayed: (id: string) => Promise<void>;
@@ -211,11 +210,6 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setPrayerRequests(current => [created, ...current]);
   };
 
-  const submitDonation = async (data: Omit<Donation, 'id' | 'date' | 'status'>) => {
-    const created = await api.submitDonation(data);
-    setDonations(current => [created, ...current]);
-  };
-
   const markMessageRead = async (id: string) => {
     const updated = await api.markMessageRead(id);
     setMessages(current => current.map(item => (item.id === id ? updated : item)));
@@ -324,7 +318,6 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         donations,
         submitMessage,
         submitPrayerRequest,
-        submitDonation,
         markMessageRead,
         deleteMessage,
         markPrayerPrayed,

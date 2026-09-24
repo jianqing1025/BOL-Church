@@ -5016,21 +5016,6 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       return json({ ok: true });
     }
 
-    if (url.pathname === '/api/donations' && request.method === 'POST') {
-      const payload = await readJson<any>(request);
-      const row = {
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        amount: Number(payload.amount),
-        type: payload.type,
-        status: 'completed' as const,
-      };
-      await env.DB.prepare(
-        'INSERT INTO donations (id, date, amount, type, status) VALUES (?, ?, ?, ?, ?)'
-      ).bind(row.id, row.date, row.amount, row.type, row.status).run();
-      return json(mapDonation(row as DonationRow), 201);
-    }
-
     if (url.pathname === '/api/live-stream' && request.method === 'GET') {
       return handleLiveStreamPublic(env);
     }

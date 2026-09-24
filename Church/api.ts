@@ -200,8 +200,6 @@ export const api = {
     request<MailboxSettings>('/api/mailbox/settings'),
   saveMailboxSettings: (payload: MailboxSettings) =>
     request<MailboxSettings>('/api/mailbox/settings', { method: 'PUT', body: JSON.stringify(payload) }),
-  submitDonation: (payload: Omit<Donation, 'id' | 'date' | 'status'>) =>
-    request<Donation>('/api/donations', { method: 'POST', body: JSON.stringify(payload) }),
   analyticsSummary: () =>
     request<AnalyticsSummary>('/api/analytics/summary'),
   webAnalytics: (range: WebAnalyticsRange, excludeBots = true) =>

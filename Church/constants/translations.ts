@@ -480,6 +480,7 @@ export const translations = {
     amount: { en: 'Amount', zh: '金額' },
     giveNow: { en: 'Give Now', zh: '立即奉獻' },
     securityNote: { en: 'All transactions are secure and encrypted.', zh: '所有交易均經過安全加密。' },
+    onlineComingSoon: { en: 'Online card giving is coming soon. In the meantime you can give by Zelle, PayPal, check, or bank transfer, or contact the church office.', zh: '線上刷卡奉獻即將推出。在此之前，您可以透過 Zelle、PayPal、支票或匯款奉獻，也歡迎直接與教會辦公室聯絡。' },
   },
   givingPage: {
     pageTitle: { en: 'GIVING', zh: '奉獻' },

@@ -258,7 +258,9 @@ const AdminDashboard: React.FC = () => {
 
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
-  const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
+  const totalGivenCents = donations
+    .filter(donation => donation.status === 'completed')
+    .reduce((sum, donation) => sum + donation.grossCents, 0);
   const sermonCount = sermons.length;
   const mannaCount = dailyManna.length;
   const dateLocale = language === Language.ZH ? 'zh-TW' : 'en-US';
@@ -406,7 +408,7 @@ const AdminDashboard: React.FC = () => {
         </div>
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="text-sm font-medium text-gray-500">{t('admin.recordedDonations')}</div>
-          <div className="mt-2 text-3xl font-bold text-gray-900">${totalGiven.toLocaleString()}</div>
+          <div className="mt-2 text-3xl font-bold text-gray-900">${(totalGivenCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>
 
@@ -757,7 +759,7 @@ const AdminDashboard: React.FC = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <h4 className="text-sm font-semibold uppercase text-gray-500">{t('admin.totalDonations')}</h4>
-          <div className="mt-2 text-3xl font-bold text-gray-900">${totalGiven.toLocaleString()}</div>
+          <div className="mt-2 text-3xl font-bold text-gray-900">${(totalGivenCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <h4 className="text-sm font-semibold uppercase text-gray-500">{t('admin.transactions')}</h4>
@@ -785,8 +787,8 @@ const AdminDashboard: React.FC = () => {
               <tbody className="divide-y divide-gray-200">
                 {donations.map(donation => (
                   <tr key={donation.id}>
-                    <td className="px-6 py-4 text-sm text-gray-600">{formatDate(donation.date, dateLocale)}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-gray-900">${donation.amount}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{formatDate(donation.createdAt, dateLocale)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900">${(donation.grossCents / 100).toFixed(2)}</td>
                     <td className="px-6 py-4 text-sm capitalize text-gray-600">{donation.type}</td>
                     <td className="px-6 py-4 text-sm">
                       <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">{donation.status}</span>
