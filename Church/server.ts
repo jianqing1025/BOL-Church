@@ -1959,6 +1959,61 @@ const DESKTOP_DOWNLOAD_PREFIX = '/api/downloads/meeting-desktop/';
  * `latest.json` 描述目前版本（頁面讀它決定按鈕連到哪個檔），其餘是有版本號的
  * exe 或 zip。支援 Range，讓一百多 MB 的下載斷線後能續傳。
  */
+// 桌面版 BOLCCOP Meeting Client 下載次數，後台總覽顯示。只記正式站的完整下載：
+// Dev 與正式站共用同一個 D1，Dev 的測試下載不算；續傳（Range 不從 0 開始）也不重複算。
+let desktopDownloadSchemaEnsured = false;
+
+async function ensureDesktopDownloadTable(env: Env): Promise<void> {
+  if (desktopDownloadSchemaEnsured) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS desktop_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    file TEXT NOT NULL,
+    version TEXT,
+    kind TEXT NOT NULL,
+    country TEXT
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_desktop_downloads_created ON desktop_downloads(created_at)').run();
+  desktopDownloadSchemaEnsured = true;
+}
+
+async function recordDesktopDownload(env: Env, request: Request, name: string): Promise<void> {
+  try {
+    await ensureDesktopDownloadTable(env);
+    const version = name.match(/-(\d+\.\d+\.\d+)-/)?.[1] ?? null;
+    const kind = /-Setup-/i.test(name) ? 'setup' : 'portable';
+    const country = ((request as any).cf?.country as string | undefined) ?? null;
+    await env.DB.prepare('INSERT INTO desktop_downloads (file, version, kind, country) VALUES (?, ?, ?, ?)')
+      .bind(name, version, kind, country).run();
+  } catch (error) {
+    console.error('desktop download count failed', error);
+  }
+}
+
+async function handleDesktopDownloadStats(env: Env): Promise<Response> {
+  await ensureDesktopDownloadTable(env);
+  const totals = await env.DB.prepare(`SELECT
+      COUNT(*) AS total,
+      SUM(kind = 'setup') AS setup,
+      SUM(kind = 'portable') AS portable,
+      SUM(created_at >= datetime('now', '-7 days')) AS last7,
+      SUM(created_at >= datetime('now', '-30 days')) AS last30,
+      MAX(created_at) AS lastAt
+    FROM desktop_downloads`).first<Record<string, number | string | null>>();
+  const versions = await env.DB.prepare(`SELECT COALESCE(version, '?') AS version,
+      SUM(kind = 'setup') AS setup, SUM(kind = 'portable') AS portable, MAX(created_at) AS lastAt
+    FROM desktop_downloads GROUP BY COALESCE(version, '?') ORDER BY lastAt DESC LIMIT 10`).all<Record<string, number | string>>();
+  const countries = await env.DB.prepare(`SELECT COALESCE(country, '?') AS country, COUNT(*) AS count
+    FROM desktop_downloads GROUP BY COALESCE(country, '?') ORDER BY count DESC LIMIT 5`).all<Record<string, number | string>>();
+  const n = (v: unknown) => Number(v ?? 0);
+  return json({
+    total: n(totals?.total), setup: n(totals?.setup), portable: n(totals?.portable),
+    last7: n(totals?.last7), last30: n(totals?.last30), lastAt: (totals?.lastAt as string | null) ?? null,
+    versions: (versions.results ?? []).map((r) => ({ version: String(r.version), setup: n(r.setup), portable: n(r.portable) })),
+    countries: (countries.results ?? []).map((r) => ({ country: String(r.country), count: n(r.count) })),
+  });
+}
+
 async function handleDesktopDownload(env: Env, request: Request, name: string): Promise<Response> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return notFound('Download not found');
   // Dev 與正式站共用同一個 bucket；Dev 的測試版放在 dev/ 底下，正式站看不到。
@@ -1992,6 +2047,8 @@ async function handleDesktopDownload(env: Env, request: Request, name: string): 
     headers.set('Content-Length', String(object.size));
   }
   const body = request.method === 'HEAD' || !('body' in object) ? null : (object as R2ObjectBody).body;
+  const fromStart = status === 200 || ((range?.offset ?? 0) === 0 && range?.suffix === undefined);
+  if (body && !isManifest && !folder && fromStart) await recordDesktopDownload(env, request, name);
   return new Response(body, { status, headers });
 }
 
@@ -4644,6 +4701,12 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       if (photoMatch && request.method === 'DELETE') {
         return handlePhotoDelete(request, env, decodeURIComponent(photoMatch[1]));
       }
+    }
+
+    if (url.pathname === '/api/admin/desktop-downloads' && request.method === 'GET') {
+      const auth = await requireUser(request, env, 'contributor');
+      if (auth instanceof Response) return auth;
+      return handleDesktopDownloadStats(env);
     }
 
     if (url.pathname === '/api/analytics/summary' && request.method === 'GET') {

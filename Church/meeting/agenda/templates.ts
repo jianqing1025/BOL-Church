@@ -128,6 +128,7 @@ export function buildRoomTemplate(roomId: string, now: Date, random: () => numbe
     ...newAgenda(now, `${room.name} ${meeting.getMonth() + 1}/${meeting.getDate()}`),
     date: localDateString(meeting),
     note: room.name,
+    roomId,
     items: [
       { id: newId(), kind: 'text', align: 'center', title: room.name,
         body: `${chineseDate(meeting)}　晚上 7:00\n\n信望愛靈糧堂 · 線上聚會\n歡迎大家！` },

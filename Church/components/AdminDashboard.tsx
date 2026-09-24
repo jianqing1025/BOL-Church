@@ -3,7 +3,7 @@ import { useAdmin } from '../hooks/useAdmin';
 import AdminLogin from './AdminLogin';
 import { Mailbox } from './admin/Mailbox';
 import MailboxSettingsModal from './admin/MailboxSettingsModal';
-import { Settings } from 'lucide-react';
+import { MonitorDown, Settings } from 'lucide-react';
 import AccountManager from './AccountManager';
 import HeroImageManager from './HeroImageManager';
 import RichTextEditor from './RichTextEditor';
@@ -13,7 +13,7 @@ import LiveStreamManager from './LiveStreamManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
 import { api } from '../api';
-import type { AnalyticsSummary, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
+import type { AnalyticsSummary, DesktopDownloadStats, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import { navigateTo } from '../utils/routes';
@@ -255,6 +255,7 @@ const AdminDashboard: React.FC = () => {
   const [countryPage, setCountryPage] = useState(0);
   const [sourceItemCount, setSourceItemCount] = useState<5 | 10 | 15>(5);
   const [showMailSettings, setShowMailSettings] = useState(false);
+  const [desktopDownloads, setDesktopDownloads] = useState<DesktopDownloadStats | null>(null);
 
   const unreadMessages = messages.filter(message => !message.read).length;
   const newPrayerRequests = prayerRequests.filter(item => item.status === 'new').length;
@@ -316,6 +317,15 @@ const AdminDashboard: React.FC = () => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 8);
   }, [dailyManna, messages, prayerRequests, sermons, t]);
+
+  useEffect(() => {
+    if (!isAdminMode) return;
+    let cancelled = false;
+    api.desktopDownloads()
+      .then(result => { if (!cancelled) setDesktopDownloads(result); })
+      .catch(() => { /* the card just stays hidden */ });
+    return () => { cancelled = true; };
+  }, [isAdminMode]);
 
   useEffect(() => {
     if (!isAdminMode) {
@@ -411,6 +421,63 @@ const AdminDashboard: React.FC = () => {
           <div className="mt-2 text-3xl font-bold text-gray-900">${(totalGivenCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>
+
+      {desktopDownloads && (
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><MonitorDown size={20} /></div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">{t('admin.desktopDownloads')}</h2>
+                <p className="text-sm text-gray-500">{t('admin.desktopDownloadsSubtitle')}</p>
+              </div>
+            </div>
+            <div className="text-xs text-gray-400">
+              {desktopDownloads.lastAt ? `${t('admin.desktopDownloadsLast')} ${formatDate(`${desktopDownloads.lastAt.replace(' ', 'T')}Z`, dateLocale)}` : ''}
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-5">
+            {([
+              ['admin.desktopDownloadsTotal', desktopDownloads.total],
+              ['admin.desktopDownloadsSetup', desktopDownloads.setup],
+              ['admin.desktopDownloadsPortable', desktopDownloads.portable],
+              ['admin.desktopDownloads7', desktopDownloads.last7],
+              ['admin.desktopDownloads30', desktopDownloads.last30],
+            ] as const).map(([key, value]) => (
+              <div key={key} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="text-xs font-semibold text-gray-500">{t(key)}</div>
+                <div className="mt-2 text-2xl font-bold text-gray-900">{value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+          {desktopDownloads.versions.length > 0 && (
+            <div className="mt-5 grid gap-6 md:grid-cols-2">
+              <div>
+                <div className="mb-2 text-sm font-semibold text-gray-900">{t('admin.desktopDownloadsByVersion')}</div>
+                <div className="space-y-2">
+                  {desktopDownloads.versions.map(v => (
+                    <div key={v.version} className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-2 text-sm">
+                      <span className="font-semibold text-gray-900">v{v.version}</span>
+                      <span className="text-gray-500">{t('admin.desktopDownloadsSetup')} {v.setup} · {t('admin.desktopDownloadsPortable')} {v.portable}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-semibold text-gray-900">{t('admin.desktopDownloadsByCountry')}</div>
+                <div className="space-y-2">
+                  {desktopDownloads.countries.map(c => (
+                    <div key={c.country} className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-2 text-sm">
+                      <span className="font-semibold text-gray-900">{c.country}</span>
+                      <span className="text-gray-500">{c.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-lg bg-white p-6 shadow-sm">

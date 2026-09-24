@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   dayDistance, duplicateAgenda, itemLabel, localDateString, moveItem, nearestAgenda, neighbourItem,
-  fromTemplate, newAgenda, nextWeekday, referencedFileIds, saveAsTemplate, scriptureLabel, scriptureSlide, shortTitle, sortAgendas,
+  fromTemplate, newAgenda, nextWeekday, referencedFileIds, saveAsTemplate, scriptureLabel, scriptureSlide, shortTitle, slideFooter, sortAgendas,
 } from './agendaModel';
 import type { Agenda, AgendaItem } from './types';
 import { Language } from '../../types';
@@ -148,5 +148,24 @@ describe('templates of your own', () => {
     expect(made.date).toBe('2026-10-06');
     expect(made.id).not.toBe(tpl.id);
     expect(made.items[1]).toMatchObject({ kind: 'text', title: '開場' });
+  });
+});
+
+describe('slideFooter', () => {
+  const base = newAgenda(new Date(2026, 8, 24), 'x');
+  it('is the church alone for an agenda of no room', () => {
+    expect(slideFooter(base, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂');
+    expect(slideFooter(null, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂');
+  });
+  it('adds the room after a middle dot', () => {
+    expect(slideFooter({ ...base, roomId: 'prayer' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 禱告會');
+    expect(slideFooter({ ...base, roomId: 'prayer' }, 'Bread of Life Christian Church', Language.EN)).toBe('Bread of Life Christian Church · Prayer Meeting');
+  });
+  it('knows an older template copy by its note', () => {
+    expect(slideFooter({ ...base, note: '姐妹小組查經' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 姐妹小組查經');
+  });
+  it('keeps the room through copies and templates', () => {
+    const room = { ...base, roomId: 'bible-study-2' };
+    expect(fromTemplate(saveAsTemplate(room, new Date()), new Date()).roomId).toBe('bible-study-2');
   });
 });

@@ -5,6 +5,7 @@ describe('buildRoomTemplate', () => {
   it('lays out seven slides in the agreed order for every room', () => {
     for (const roomId of TEMPLATE_ROOM_IDS) {
       const { agenda, images } = buildRoomTemplate(roomId, new Date(2026, 8, 24));
+      expect(agenda.roomId).toBe(roomId);
       expect(agenda.items.map((i) => i.kind)).toEqual(['text', 'scripture', 'youtube', 'youtube', 'image', 'text', 'text']);
       expect(images).toHaveLength(1);
       expect(images[0].itemId).toBe(agenda.items[4].id);

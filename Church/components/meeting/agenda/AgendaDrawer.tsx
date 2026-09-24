@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Play, Square } from 'lucide-react';
 import { useLocalization } from '../../../hooks/useLocalization';
 import type { AgendaStore } from '../../../meeting/agenda/agendaStore';
-import { itemLabel, localDateString, nearestAgenda } from '../../../meeting/agenda/agendaModel';
+import { itemLabel, localDateString, nearestAgenda, slideFooter } from '../../../meeting/agenda/agendaModel';
 import type { Agenda, AgendaItem } from '../../../meeting/agenda/types';
 import type { AgendaPresenter } from '../../../hooks/useAgendaPresenter';
 import { AgendaItemList, KIND_ICON, useItemFallbacks } from './AgendaItemList';
@@ -37,6 +37,7 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
 
   const agenda = agendas.find((a) => a.id === selectedId) ?? null;
   const items: AgendaItem[] = agenda?.items ?? [];
+  const footer = slideFooter(agenda, t('header.logo'), language);
   const activeIndex = items.findIndex((i) => i.id === presenter.activeId);
   const replace = (next: Agenda) => setAgendas((list) => list.map((a) => (a.id === next.id ? next : a)));
 
@@ -94,7 +95,7 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
               message={message} onMessage={setMessage}
               onItemEdited={(item) => {
                 // The slide on screen follows its text as it is typed.
-                if (item.id === presenter.activeId && (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture')) void presenter.share(item);
+                if (item.id === presenter.activeId && (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture')) void presenter.share(item, footer);
               }}
               onBeforeRemove={async (itemId) => { if (itemId === presenter.activeId) await presenter.stop(); }} />
           </div>
@@ -116,7 +117,7 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
                   <Square size={11} fill="currentColor" />{t('meeting.agendaStop')}
                 </button>
               ) : (
-                <button type="button" onClick={() => void presenter.share(item)} aria-label={t('meeting.agendaShare')}
+                <button type="button" onClick={() => void presenter.share(item, footer)} aria-label={t('meeting.agendaShare')}
                   className="flex shrink-0 items-center rounded-md px-2 py-1 text-blue-300 hover:bg-white/10 hover:text-white">
                   <Play size={15} fill="currentColor" />
                 </button>
@@ -128,11 +129,11 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
 
       {!editing && items.length > 0 && (
         <div className="flex shrink-0 gap-2 border-t border-white/10 p-3">
-          <button type="button" disabled={activeIndex <= 0} onClick={() => void presenter.step(items, -1)}
+          <button type="button" disabled={activeIndex <= 0} onClick={() => void presenter.step(items, -1, footer)}
             className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/15 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-30">
             <ChevronLeft size={16} />{t('meeting.agendaPrev')}
           </button>
-          <button type="button" disabled={activeIndex >= items.length - 1 && activeIndex !== -1} onClick={() => void presenter.step(items, 1)}
+          <button type="button" disabled={activeIndex >= items.length - 1 && activeIndex !== -1} onClick={() => void presenter.step(items, 1, footer)}
             className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/15 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-30">
             {t('meeting.agendaNext')}<ChevronRight size={16} />
           </button>

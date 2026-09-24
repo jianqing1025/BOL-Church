@@ -20,7 +20,7 @@ interface PresenterDeps {
   videoFile: VideoSource | null;
   setVideoFile: (file: VideoSource | null) => void;
   onHostCommand: (message: HostMessage) => void;
-  /** Bottom-right text on every slide. */
+  /** Bottom-right text on a slide, unless share() is given the agenda's own. */
   footer: string;
   /** Receives a translation key. */
   onError: (key: string) => void;
@@ -29,9 +29,10 @@ interface PresenterDeps {
 export interface AgendaPresenter {
   /** The item on everyone's screen right now, or null. */
   activeId: string | null;
-  share: (item: AgendaItem) => Promise<void>;
+  /** `footer` names the agenda's room in the slide's corner (see slideFooter). */
+  share: (item: AgendaItem, footer?: string) => Promise<void>;
   stop: () => Promise<void>;
-  step: (items: readonly AgendaItem[], delta: 1 | -1) => Promise<void>;
+  step: (items: readonly AgendaItem[], delta: 1 | -1, footer?: string) => Promise<void>;
 }
 
 /**
@@ -43,7 +44,7 @@ export interface AgendaPresenter {
  * slot can never leave a row marked as sharing when it is not.
  */
 export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
-  const { lk, roomVideo, language, store, videoFile, setVideoFile, onHostCommand, footer, onError } = deps;
+  const { lk, roomVideo, language, store, videoFile, setVideoFile, onHostCommand, footer: defaultFooter, onError } = deps;
   const [current, setCurrent] = useState<AgendaItem | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvas = () => (canvasRef.current ??= createSlideCanvas());
@@ -71,7 +72,7 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
     if (roomVideo.videoId !== null && roomVideo.canLead) roomVideo.close();
   }, [lk, videoFile, setVideoFile, roomVideo]);
 
-  const share = useCallback(async (item: AgendaItem) => {
+  const share = useCallback(async (item: AgendaItem, footer = defaultFooter) => {
     try {
       if (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture') {
         await clearSlot('slide');
@@ -118,16 +119,16 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
     }
     // canvas() reads a ref and is stable in effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSlot, footer, language, lk, onError, onHostCommand, roomVideo, setVideoFile, store]);
+  }, [clearSlot, defaultFooter, language, lk, onError, onHostCommand, roomVideo, setVideoFile, store]);
 
   const stop = useCallback(async () => {
     await clearSlot(null);
     setCurrent(null);
   }, [clearSlot]);
 
-  const step = useCallback(async (items: readonly AgendaItem[], delta: 1 | -1) => {
+  const step = useCallback(async (items: readonly AgendaItem[], delta: 1 | -1, footer?: string) => {
     const next = neighbourItem(items, activeId ?? current?.id ?? null, delta);
-    if (next) await share(next);
+    if (next) await share(next, footer);
   }, [activeId, current, share]);
 
   return { activeId, share, stop, step };

@@ -25,8 +25,10 @@ export interface Agenda {
   note: string;
   items: AgendaItem[];
   updatedAt: number;
-  /** A host's own template (保存為範本): listed under 新增一份, not with the agendas. */
+  /** A host's own template (保存為範本): listed under 新增, not with the agendas. */
   template?: boolean;
+  /** The room whose template it came from: named in the slides' corner. */
+  roomId?: string;
 }
 
 /** An image or video body, stored apart so opening a list never loads a film. */

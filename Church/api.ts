@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, DesktopDownloadStats, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage, LiveChatReactions } from './types';
 
 export interface LiveStreamSavePayload {
@@ -200,6 +200,8 @@ export const api = {
     request<MailboxSettings>('/api/mailbox/settings'),
   saveMailboxSettings: (payload: MailboxSettings) =>
     request<MailboxSettings>('/api/mailbox/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+  desktopDownloads: () =>
+    request<DesktopDownloadStats>('/api/admin/desktop-downloads'),
   analyticsSummary: () =>
     request<AnalyticsSummary>('/api/analytics/summary'),
   webAnalytics: (range: WebAnalyticsRange, excludeBots = true) =>

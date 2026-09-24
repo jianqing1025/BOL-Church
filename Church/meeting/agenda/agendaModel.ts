@@ -1,4 +1,5 @@
 import { findBibleBook, localizeBookName } from '../../constants/bibleBooks';
+import { findMeetingRoom, localizeMeetingRoomText, MEETING_ROOMS } from '../../constants/meetingRooms';
 import type { Language } from '../../types';
 import type { Agenda, AgendaItem, ScriptureItem } from './types';
 
@@ -75,6 +76,18 @@ export function saveAsTemplate(source: Agenda, now: Date): Agenda {
 export function fromTemplate(template: Agenda, now: Date): Agenda {
   const { template: _template, ...copy } = duplicateAgenda(template, now, '');
   return { ...copy, date: localDateString(now) };
+}
+
+/**
+ * The corner of every slide: the church, then the room the agenda was made for
+ * (「信望愛靈糧堂 · 禱告會」). Copies made from a room template before the room
+ * was recorded are known by their note, which the template sets to the room's name.
+ */
+export function slideFooter(agenda: Agenda | null, church: string, language: Language): string {
+  if (!agenda) return church;
+  const note = agenda.note.trim();
+  const room = findMeetingRoom(agenda.roomId) ?? MEETING_ROOMS.find((r) => note === r.name.zh || note === r.name.en);
+  return room ? `${church} · ${localizeMeetingRoomText(room.name, language)}` : church;
 }
 
 export function scriptureLabel(item: ScriptureItem, language: Language): string {

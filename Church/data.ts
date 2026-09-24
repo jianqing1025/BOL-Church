@@ -152,6 +152,19 @@ export interface AnalyticsTimeseriesPoint {
   visitors: number;
 }
 
+/** BOLCCOP Meeting Client downloads on the church site (後台總覽). */
+export interface DesktopDownloadStats {
+  total: number;
+  setup: number;
+  portable: number;
+  last7: number;
+  last30: number;
+  /** UTC 'YYYY-MM-DD HH:MM:SS', or null before the first download. */
+  lastAt: string | null;
+  versions: { version: string; setup: number; portable: number }[];
+  countries: { country: string; count: number }[];
+}
+
 export interface AnalyticsSummary {
   configured: boolean;
   source: 'cloudflare';
