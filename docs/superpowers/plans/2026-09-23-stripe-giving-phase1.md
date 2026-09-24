@@ -1360,34 +1360,23 @@ git commit -m "feat(church): 奉獻資料型別與 Stripe 環境設定"
 
 ---
 
-## Task 8: 移除假的奉獻路由
+## Task 8: 拆除假奉獻表單（止血）
+
+正式站上那個假表單會讓奉獻者以為自己已經完成奉獻，這個 Task 的唯一目的就是讓它停止誤導人。因此它必須把**前端到後端整條路徑**一起拆掉 —— 只拔後端而讓頁面繼續顯示表單，等於沒止到血。
+
+這個 Task 結束時 `npm run typecheck` 必須完全乾淨。`submitDonation` 一旦移除，`GivingPage.tsx` 與 `AdminDashboard.tsx` 就會編不過，所以它們的最小修正屬於本 Task，不能推到 Task 21／22 —— 否則中間十幾個 commit 都是壞的。Task 21 會用真正的 Stripe 表單取代這裡的過渡畫面，Task 22 會把後台列表做完整；本 Task 只做讓樹保持綠色所需的最小改動。
 
 **Files:**
 - Modify: `Church/server.ts`
 - Modify: `Church/api.ts`
 - Modify: `Church/context/AdminContext.tsx`
+- Modify: `Church/components/GivingPage.tsx`
+- Modify: `Church/components/AdminDashboard.tsx`
 - Delete: `Church/components/Giving.tsx`
 
 - [ ] **Step 1: 移除假路由**
 
-在 `Church/server.ts` 刪除整段 `POST /api/donations` handler（約第 4980–4993 行）：
-
-```ts
-    if (url.pathname === '/api/donations' && request.method === 'POST') {
-      const payload = await readJson<any>(request);
-      const row = {
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        amount: Number(payload.amount),
-        type: payload.type,
-        status: 'completed' as const,
-      };
-      await env.DB.prepare(
-        'INSERT INTO donations (id, date, amount, type, status) VALUES (?, ?, ?, ?, ?)'
-      ).bind(row.id, row.date, row.amount, row.type, row.status).run();
-      return json(mapDonation(row as DonationRow), 201);
-    }
-```
+在 `Church/server.ts` 刪除整段 `POST /api/donations` handler。它以 `if (url.pathname === '/api/donations' && request.method === 'POST') {` 開頭，內容是產生一個 UUID、寫一筆 `status: 'completed'` 進 `donations`、回傳 `mapDonation(row as DonationRow)`。整個 `if` 區塊刪除。
 
 - [ ] **Step 2: 移除 api.ts 的 submitDonation**
 
@@ -1400,54 +1389,127 @@ git commit -m "feat(church): 奉獻資料型別與 Stripe 環境設定"
 
 - [ ] **Step 3: 移除 AdminContext 的 submitDonation**
 
-在 `Church/context/AdminContext.tsx` 刪除函式定義：
+在 `Church/context/AdminContext.tsx` 刪除三處：介面宣告中的 `submitDonation: (data: Omit<Donation, 'id' | 'date' | 'status'>) => Promise<void>;`、函式定義本體、以及 provider value 中的 `submitDonation,`。
 
-```ts
-  const submitDonation = async (data: Omit<Donation, 'id' | 'date' | 'status'>) => {
-    const created = await api.submitDonation(data);
-    setDonations(current => [created, ...current]);
-  };
+- [ ] **Step 4: 從奉獻頁拆掉假表單**
+
+在 `Church/components/GivingPage.tsx` 刪除整個 `GivingForm` 元件（從註解 `// This is the form from Giving.tsx` 到該元件結束），並把 `useAdmin`、`LockIcon`、`churchAlert` 的 import 一併移除（它們只被這個元件用到）。
+
+新增一個過渡元件，放在同一個檔案裡 —— Task 21 會把它換成真正的 Stripe 表單：
+
+```tsx
+/**
+ * 線上刷卡奉獻的過渡畫面。Task 21 會換成真正的 Stripe 表單。
+ *
+ * 在那之前寧可誠實說「還沒好」，也不要留一個按了會顯示「感謝奉獻」
+ * 卻根本沒收到錢的假表單 —— 那比沒有功能糟糕得多。
+ */
+const OnlineGivingComingSoon: React.FC = () => {
+  const { t } = useLocalization();
+  return (
+    <div className="mx-auto mt-8 max-w-lg rounded-xl bg-white p-8 text-center shadow-lg">
+      <p className="mb-6 text-gray-700">{t('giving.onlineComingSoon')}</p>
+      <a
+        href="/giving/other-ways-to-give"
+        onClick={event => { event.preventDefault(); navigateToRoute('/giving/other-ways-to-give'); }}
+        className="inline-block rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
+      >
+        {t('givingPage.navOtherWaysToGive')}
+      </a>
+      <div className="mt-6 space-y-1 text-sm">
+        <p><a href="tel:4258987650" className="font-semibold text-blue-700 hover:text-blue-800">(425) 898-7650</a></p>
+        <p><a href="mailto:bolccop@gmail.com" className="font-semibold text-blue-700 hover:text-blue-800">bolccop@gmail.com</a></p>
+      </div>
+    </div>
+  );
+};
 ```
 
-刪除介面宣告中的這行（約第 34 行）：
+把檔案末尾的 `{activeTab === 'ways-to-give' && <GivingForm />}` 改為 `{activeTab === 'ways-to-give' && <OnlineGivingComingSoon />}`。
+
+- [ ] **Step 5: 加上過渡文案**
+
+在 `Church/constants/translations.ts` 的 `giving` 區塊加入：
 
 ```ts
-  submitDonation: (data: Omit<Donation, 'id' | 'date' | 'status'>) => Promise<void>;
+    onlineComingSoon: { en: 'Online card giving is coming soon. In the meantime you can give by Zelle, PayPal, check, or bank transfer, or contact the church office.', zh: '線上刷卡奉獻即將推出。在此之前，您可以透過 Zelle、PayPal、支票或匯款奉獻，也歡迎直接與教會辦公室聯絡。' },
 ```
 
-刪除 provider value 中的這行（約第 327 行）：
+- [ ] **Step 6: 修正後台三處欄位引用**
 
-```ts
-        submitDonation,
+`AdminDashboard.tsx` 仍在讀舊 schema 的欄位。做**最小**修正讓它編得過即可，完整改版是 Task 22。
+
+第 261 行附近：
+
+```tsx
+  const totalGiven = donations.reduce((sum, donation) => sum + donation.amount, 0);
 ```
 
-- [ ] **Step 4: 刪除已無用途的 Giving.tsx**
+改為（順帶修掉一個真的錯誤：失敗與退款的奉獻不該計入總額）：
+
+```tsx
+  const totalGivenCents = donations
+    .filter(donation => donation.status === 'completed')
+    .reduce((sum, donation) => sum + donation.grossCents, 0);
+```
+
+兩處顯示 `${totalGiven.toLocaleString()}` 改為 `${(totalGivenCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`。
+
+表格列中：
+
+```tsx
+                    <td className="px-6 py-4 text-sm text-gray-600">{formatDate(donation.date, dateLocale)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900">${donation.amount}</td>
+```
+
+改為：
+
+```tsx
+                    <td className="px-6 py-4 text-sm text-gray-600">{formatDate(donation.createdAt, dateLocale)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-gray-900">${(donation.grossCents / 100).toFixed(2)}</td>
+```
+
+- [ ] **Step 7: 刪除已無用途的 Giving.tsx**
 
 先確認沒有其他地方 import 它：
 
 ```bash
-grep -rn "from './Giving'\|from '../components/Giving'\|components/Giving'" Church --include="*.tsx" --include="*.ts" | grep -v node_modules | grep -v GivingPage
+grep -rn "from './Giving'" Church --include="*.tsx" --include="*.ts" | grep -v node_modules | grep -v GivingPage
 ```
 
-預期：無輸出（只有 Giving.tsx 自己用到 submitDonation）
+預期：無輸出。
 
 ```bash
 git rm Church/components/Giving.tsx
 ```
 
-- [ ] **Step 5: 型別檢查**
+- [ ] **Step 8: 型別檢查必須完全乾淨**
 
 ```bash
 npm run typecheck
 ```
 
-預期：PASS，無錯誤
-
-- [ ] **Step 6: Commit**
+預期：**PASS，零錯誤**。這是本 Task 的驗收條件之一 —— 若還有錯誤，代表上面某一步沒做完，不可帶著錯誤進 Task 9。
 
 ```bash
-git add Church/server.ts Church/api.ts Church/context/AdminContext.tsx
-git commit -m "fix(church): 移除會誤導奉獻者的假奉獻表單路由"
+npm run test
+```
+
+預期：38 files / 453 tests 全綠。
+
+- [ ] **Step 9: 在瀏覽器確認假表單真的不見了**
+
+```bash
+npm run dev
+```
+
+開 http://localhost:5173/giving/ways-to-give ，確認看到的是「即將推出」與其他奉獻方式的連結，**沒有任何金額輸入框或奉獻按鈕**。這是本 Task 的重點，用眼睛確認過再往下走。
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add Church/server.ts Church/api.ts Church/context/AdminContext.tsx Church/components/GivingPage.tsx Church/components/AdminDashboard.tsx Church/constants/translations.ts
+git commit -m "fix(church): 拆除會誤導奉獻者的假奉獻表單"
 ```
 
 ---
