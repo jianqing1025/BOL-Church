@@ -3,3 +3,5 @@ release/
 artifacts/
 # The app icon lives here; the repo-wide build/ ignore is for build output.
 !build/
+# Content saved while running from source (electron .)
+BOLCCOP/

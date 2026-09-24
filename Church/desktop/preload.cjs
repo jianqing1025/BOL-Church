@@ -20,6 +20,20 @@ if (process.isMainFrame) {
     quit: () => ipcRenderer.send('meeting:quit'),
     onCompact: callback => subscribe('meeting:compact-state', callback),
     onWindowState: callback => subscribe('meeting:window-state', callback),
+    // 聚會內容 kept in the BOLCCOP folder beside the exe.
+    agenda: {
+      describe: () => ipcRenderer.invoke('agenda:describe'),
+      list: () => ipcRenderer.invoke('agenda:list'),
+      save: agenda => ipcRenderer.invoke('agenda:save', agenda),
+      remove: id => ipcRenderer.invoke('agenda:remove', id),
+      prune: () => ipcRenderer.invoke('agenda:prune'),
+      putFile: (bytes, type) => ipcRenderer.invoke('agenda:putFile', bytes, type),
+      getFile: id => ipcRenderer.invoke('agenda:getFile', id),
+      deleteFile: id => ipcRenderer.invoke('agenda:deleteFile', id),
+      pickVideo: () => ipcRenderer.invoke('agenda:pickVideo'),
+      videoExists: file => ipcRenderer.invoke('agenda:videoExists', file),
+      videoUrl: file => `meeting-file://video/?p=${encodeURIComponent(file)}`,
+    },
     onCloseRequest: callback => {
       closeHandlers++;
       const off = subscribe('meeting:close-request', () => callback());

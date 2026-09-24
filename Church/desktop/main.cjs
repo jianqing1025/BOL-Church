@@ -1,8 +1,17 @@
-const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell } = require('electron');
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, protocol, screen, session, shell } = require('electron');
+const fs = require('node:fs');
+const { Readable } = require('node:stream');
+const { AgendaFolder, resolveContentDir, sameFile } = require('./agendaFolder.cjs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { MEETING_URL, trustedMeeting, externalUrl, windowBounds } = require('./policy.cjs');
 app.setName('BOLCCOP Meeting Dev');
+// Local videos reach the page through this scheme: standard + secure so a
+// https page may load it, CORS so the <video> can be captured for broadcast.
+protocol.registerSchemesAsPrivileged([{ scheme: 'meeting-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
+let agendaFolder = null;
+/** Videos picked in the file dialog this session, before an agenda refers to them. */
+const pickedVideos = new Set();
 let mainWindow, pickerWindow, pendingCapture, captureType = null;
 let stage = 'auth', compact = false, sharing = false, quitting = false, normalBounds, normalMaximized = false;
 const smoke = process.env.MEETING_SMOKE === '1';
@@ -78,8 +87,41 @@ function finishCapture(selection) {
   pending.callback({ video: source, ...(selection.audio && pending.audioRequested ? { audio: 'loopback' } : {}) });
 }
 
+function contentFolder() {
+  if (!agendaFolder) {
+    const override = process.defaultApp && process.env.MEETING_CONTENT_DIR;
+    agendaFolder = new AgendaFolder(override || resolveContentDir({
+      portableDir: process.env.PORTABLE_EXECUTABLE_DIR || '',
+      exePath: app.getPath('exe'),
+      isPackaged: app.isPackaged,
+      devDir: __dirname,
+      documentsDir: app.getPath('documents'),
+    }));
+  }
+  return agendaFolder;
+}
+function servableVideo(file) {
+  return typeof file === 'string' && ([...pickedVideos].some((p) => sameFile(p, file)) || contentFolder().videoPaths().some((p) => sameFile(p, file)));
+}
+/** Serves a picked video, honouring Range so the player can seek. */
+async function serveVideo(request) {
+  const file = new URL(request.url).searchParams.get('p');
+  if (!servableVideo(file) || !fs.existsSync(file)) return new Response('Not found', { status: 404 });
+  const { size } = fs.statSync(file);
+  const type = /\.webm$/i.test(file) ? 'video/webm' : /\.mov$/i.test(file) ? 'video/quicktime' : 'video/mp4';
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
+  const range = /bytes=(\d*)-(\d*)/.exec(request.headers.get('range') || '');
+  if (!range) return new Response(Readable.toWeb(fs.createReadStream(file)), { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
+  const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+  return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), {
+    status: 206, headers: { ...headers, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}` },
+  });
+}
+
 app.whenReady().then(() => {
   const ses = session.fromPartition('persist:meeting-dev');
+  ses.protocol.handle('meeting-file', serveVideo);
   const allowed = ['media', 'display-capture', 'fullscreen', 'clipboard-sanitized-write', 'speaker-selection'];
   ses.setPermissionCheckHandler((contents, permission, _origin, details) => {
     if (contents !== mainWindow?.webContents || !trustedMeeting(details.requestingUrl || '')) return false;
@@ -187,5 +229,32 @@ ipcMain.handle('capture:list', event => {
     })),
   };
 });
+// 聚會內容 on disk. Each channel checks the sender is the meeting page; paths
+// never come from the page except ones it was given by the file dialog.
+const agendaIpc = (channel, handler) => ipcMain.handle(channel, (event, ...args) => {
+  if (!trustedSender(event)) throw new Error('Not allowed');
+  return handler(...args);
+});
+agendaIpc('agenda:describe', () => ({ dir: contentFolder().dir, bytes: contentFolder().usage() }));
+agendaIpc('agenda:list', () => contentFolder().list());
+agendaIpc('agenda:save', (agenda) => { contentFolder().save(agenda); });
+agendaIpc('agenda:remove', (id) => { contentFolder().remove(id); });
+agendaIpc('agenda:prune', () => { contentFolder().prune(); });
+agendaIpc('agenda:putFile', (bytes, type) => contentFolder().putFile(new Uint8Array(bytes), String(type || '')));
+agendaIpc('agenda:getFile', (id) => contentFolder().getFile(id));
+agendaIpc('agenda:deleteFile', (id) => { contentFolder().deleteFile(id); });
+agendaIpc('agenda:pickVideo', async () => {
+  // Tests only: running from source, a preset path stands in for the dialog.
+  const preset = process.defaultApp && process.env.MEETING_PICK_VIDEO;
+  const result = preset ? { canceled: false, filePaths: [preset] } : await dialog.showOpenDialog(mainWindow, {
+    title: '選擇影片', properties: ['openFile'],
+    filters: [{ name: '影片', extensions: ['mp4', 'm4v', 'webm', 'mov'] }],
+  });
+  const file = result.filePaths[0];
+  if (result.canceled || !file) return null;
+  pickedVideos.add(file);
+  return { path: file, name: require('node:path').basename(file), size: fs.statSync(file).size };
+});
+agendaIpc('agenda:videoExists', (file) => servableVideo(file) && fs.existsSync(file));
 ipcMain.on('capture:choose', (event, selection) => { if (event.sender === pickerWindow?.webContents && event.senderFrame.url === pickerUrl) finishCapture(selection); });
 app.on('window-all-closed', () => app.quit());

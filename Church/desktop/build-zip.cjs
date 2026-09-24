@@ -15,13 +15,37 @@ fs.rmSync(out, { recursive: true, force: true });
 const builder = path.join(__dirname, 'node_modules', '.bin', process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
 fs.mkdirSync(path.join(__dirname, 'release'), { recursive: true });
 
-// `--exe`: a single portable .exe instead of the zip. Smaller to download
-// (7z inside), but it unpacks itself to a temp folder on every launch.
-if (process.argv.includes('--exe')) {
-  execFileSync(builder, ['--win', 'portable', '--x64', `-c.directories.output=${out}`, `-c.artifactName=BOLCCOP-Meeting-${version}-x64.exe`], { stdio: 'inherit', shell: true });
-  const exe = path.join(__dirname, 'release', `BOLCCOP-Meeting-${version}-x64.exe`);
-  fs.copyFileSync(path.join(out, `BOLCCOP-Meeting-${version}-x64.exe`), exe);
-  console.log(`${exe}  ${(fs.statSync(exe).size / 1024 / 1024).toFixed(1)} MB`);
+/** Zips one file into release/ next to it — how both installers are offered for download. */
+function zipOne(file) {
+  const zip = file.replace(/\.exe$/, '.zip');
+  fs.rmSync(zip, { force: true });
+  // Windows' own tar writes zips and, unlike Compress-Archive, fails loudly
+  // (Compress-Archive printed an error for a file the virus scanner still held
+  // and exited 0, leaving no zip behind).
+  // A freshly written exe is held by the virus scanner for a few seconds.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      execFileSync('tar.exe', ['-a', '-c', '-f', path.basename(zip), path.basename(file)], { cwd: path.dirname(file), stdio: 'pipe' });
+      break;
+    } catch (error) {
+      fs.rmSync(zip, { force: true });
+      if (attempt >= 10) throw error;
+      execFileSync('powershell', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 3']);
+    }
+  }
+  for (const f of [file, zip]) console.log(`${f}  ${(fs.statSync(f).size / 1024 / 1024).toFixed(1)} MB`);
+}
+
+// `--exe`: a single portable .exe (plus its zip). Smaller to download (7z
+// inside), but it unpacks itself to a temp folder on every launch.
+// `--setup`: an installer (plus its zip) — per-user, no admin rights, with
+// desktop and Start menu shortcuts.
+for (const [flag, target, name] of [['--exe', 'portable', `BOLCCOP-Meeting-${version}-x64.exe`], ['--setup', 'nsis', `BOLCCOP-Meeting-Setup-${version}-x64.exe`]]) {
+  if (!process.argv.includes(flag)) continue;
+  execFileSync(builder, ['--win', target, '--x64', `-c.directories.output=${out}`, `-c.artifactName=${name}`], { stdio: 'inherit', shell: true });
+  const exe = path.join(__dirname, 'release', name);
+  fs.copyFileSync(path.join(out, name), exe);
+  zipOne(exe);
   process.exit(0);
 }
 execFileSync(builder, ['--win', 'dir', '--x64', `-c.directories.output=${out}`], { stdio: 'inherit', shell: true });
