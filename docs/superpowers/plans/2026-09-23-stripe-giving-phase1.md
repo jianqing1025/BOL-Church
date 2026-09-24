@@ -3308,7 +3308,7 @@ git commit -m "feat(church): Stripe Payment Element 奉獻表單"
 
 - [ ] **Step 1: 移除舊的內嵌表單**
 
-在 `Church/components/GivingPage.tsx` 刪除整個 `GivingForm` 元件（從 `// This is the form from Giving.tsx` 到該元件的 `};` 為止，約第 14–108 行）。
+在 `Church/components/GivingPage.tsx` 刪除 Task 8 放進去的 `OnlineGivingComingSoon` 過渡元件，連同它的註解一起。（假的 `GivingForm` 已在 Task 8 移除，這裡要換掉的是那個過渡畫面。）Task 8 加的 `giving.onlineComingSoon` 文案也可以一併從 `translations.ts` 移除，因為不再有人用它。
 
 - [ ] **Step 2: 更新 import**
 
@@ -3434,7 +3434,15 @@ function formatDonationAmount(cents: number): string {
 }
 ```
 
-- [ ] **Step 2: 修正 totalGiven 計算**
+- [ ] **Step 2: 確認 totalGivenCents 已就緒**
+
+Task 8 已經把 `totalGiven` 改成 `totalGivenCents`（只計 `completed`，單位為分）並修好兩處顯示。先確認現況：
+
+```bash
+grep -n "totalGiven" Church/components/AdminDashboard.tsx
+```
+
+若已經是 `totalGivenCents` 的版本就跳過這一步。若不是（代表 Task 8 沒做完），照下面補上。
 
 找到第 261 行附近：
 
