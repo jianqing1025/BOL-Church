@@ -20,13 +20,12 @@ import type { HostMessage, PresenceUser } from '../../meeting/chatProtocol';
 import { BiblePanel } from './BiblePanel';
 import { churchAlert, churchConfirm } from '../ChurchDialog';
 import { YouTubePromptDialog } from './YouTubePromptDialog';
-import { VideoBroadcastBar } from './VideoBroadcastBar';
+import { VideoBroadcastBar, type VideoSource } from './VideoBroadcastBar';
 import { DESKTOP_CONTROLS_WIDTH, useDesktopWindow } from './DesktopShell';
 import { DesktopShareBar, type RaisedHand } from './DesktopShareBar';
 import { useAgendaPresenter } from '../../hooks/useAgendaPresenter';
-import { openAgendaStore } from '../../meeting/agenda/agendaStore';
+import { openMeetingAgendaStore } from '../../meeting/agenda/desktopStore';
 import { AgendaDrawer } from './agenda/AgendaDrawer';
-import { AgendaEditor } from './agenda/AgendaEditor';
 
 interface MeetingRoomViewProps {
   room: MeetingRoom;
@@ -98,13 +97,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const videoDisabled = slotHeldByOther && !isHost;
   const [chatOpen, setChatOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<VideoSource | null>(null);
   const [youtubeOpen, setYoutubeOpen] = useState(false);
-  const [agendaOpen, setAgendaOpen] = useState(false);
-  const [agendaEditorOpen, setAgendaEditorOpen] = useState(false);
-  /** Bumped when the editor closes, so the drawer re-reads what was just changed. */
-  const [agendaReload, setAgendaReload] = useState(0);
-  const agendaStore = useMemo(() => openAgendaStore(), []);
+  // A host arrives with their 聚會內容 list already open, ready to present.
+  const [agendaOpen, setAgendaOpen] = useState(isHost);
+  const agendaStore = useMemo(() => openMeetingAgendaStore(), []);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
   const [elapsed, setElapsed] = useState(0);
@@ -234,8 +231,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   }, [videoFile, stopVideoFile, roomVideo]);
 
   const agenda = useAgendaPresenter({
-    lk, roomVideo, bible, store: agendaStore, videoFile, setVideoFile, onHostCommand,
-    footer: `${t('header.logo')} · ${localizeMeetingRoomText(room.name, language)}`,
+    lk, roomVideo, language, store: agendaStore, videoFile, setVideoFile, onHostCommand,
+    // The church's name only: an agenda prepared for one group is often shown in
+    // another group's room, and the room's name on it read as a mistake.
+    footer: t('header.logo'),
     onError: (key) => void churchAlert(t(key)),
   });
 
@@ -449,17 +448,12 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         )}
 
         {isHost && agendaOpen && (
-          <AgendaDrawer store={agendaStore} presenter={agenda} reloadKey={agendaReload}
-            onOpenEditor={() => setAgendaEditorOpen(true)} />
+          <AgendaDrawer store={agendaStore} presenter={agenda} />
         )}
       </div>
 
       {youtubeOpen && (
         <YouTubePromptDialog onCancel={() => setYoutubeOpen(false)} onPlay={playYouTubeVideo} />
-      )}
-
-      {agendaEditorOpen && (
-        <AgendaEditor store={agendaStore} onClose={() => { setAgendaEditorOpen(false); setAgendaReload((n) => n + 1); }} />
       )}
 
       {videoFile && (

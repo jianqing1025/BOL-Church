@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   dayDistance, duplicateAgenda, itemLabel, localDateString, moveItem, nearestAgenda, neighbourItem,
-  newAgenda, referencedFileIds, scriptureLabel, sortAgendas,
+  fromTemplate, newAgenda, nextWeekday, referencedFileIds, saveAsTemplate, scriptureLabel, scriptureSlide, shortTitle, sortAgendas,
 } from './agendaModel';
 import type { Agenda, AgendaItem } from './types';
 import { Language } from '../../types';
@@ -97,5 +97,56 @@ describe('neighbourItem', () => {
   it('starts from the first item when nothing is being shared', () => {
     expect(neighbourItem(items, null, 1)?.id).toBe('a');
     expect(neighbourItem(items, null, -1)).toBeNull();
+  });
+});
+
+describe('shortTitle', () => {
+  it('keeps short titles and cuts long ones at 20 characters with an ellipsis', () => {
+    expect(shortTitle('平安 Peace')).toBe('平安 Peace');
+    expect(shortTitle('【何等恩典 How Could It Be】官方歌詞版MV (Official Lyrics MV)')).toBe('【何等恩典 How Could It B...');
+    expect(shortTitle('一二三四五六七八九十一二三四五六七八九十')).toBe('一二三四五六七八九十一二三四五六七八九十');
+  });
+});
+
+describe('nextWeekday', () => {
+  it('finds the coming meeting day, today included', () => {
+    // 2026-09-24 is a Thursday.
+    expect(localDateString(nextWeekday(new Date(2026, 8, 24, 21), 2))).toBe('2026-09-29');
+    expect(localDateString(nextWeekday(new Date(2026, 8, 24, 9), 4))).toBe('2026-09-24');
+  });
+});
+
+describe('scriptureSlide', () => {
+  it('titles the slide with the reference and numbers each verse', () => {
+    const chapter = ['一', '二', '三', '四'];
+    const slide = scriptureSlide({ id: 's', kind: 'scripture', bookId: 43, chapter: 3, fromVerse: 2, toVerse: 3 }, chapter, Language.ZH);
+    expect(slide).toEqual({ title: '約翰福音 3:2–3', body: '2　二\n3　三' });
+  });
+
+  it('stops at the end of the chapter it was given', () => {
+    const slide = scriptureSlide({ id: 's', kind: 'scripture', bookId: 43, chapter: 3, fromVerse: 3, toVerse: 9 }, ['一', '二', '三'], Language.ZH);
+    expect(slide.body).toBe('3　三');
+  });
+});
+
+describe('templates of your own', () => {
+  const source = agenda('a', '2026-09-29', [image('1', 'f1'), text('2', '開場')]);
+
+  it('saves an agenda as a template with fresh ids and the same files', () => {
+    const tpl = saveAsTemplate(source, new Date(2026, 8, 30));
+    expect(tpl.template).toBe(true);
+    expect(tpl.title).toBe('a');
+    expect(tpl.id).not.toBe('a');
+    expect(tpl.items.map((i) => i.id)).not.toContain('1');
+    expect(tpl.items[0]).toMatchObject({ kind: 'image', fileId: 'f1' });
+  });
+
+  it('starts a new agenda from a template, dated today and no longer a template', () => {
+    const tpl = saveAsTemplate(source, new Date(2026, 8, 30));
+    const made = fromTemplate(tpl, new Date(2026, 9, 6));
+    expect(made.template).toBeUndefined();
+    expect(made.date).toBe('2026-10-06');
+    expect(made.id).not.toBe(tpl.id);
+    expect(made.items[1]).toMatchObject({ kind: 'text', title: '開場' });
   });
 });

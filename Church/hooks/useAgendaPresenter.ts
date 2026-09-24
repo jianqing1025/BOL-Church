@@ -1,21 +1,24 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { UseLiveKit } from './useLiveKit';
 import type { RoomVideo } from './useRoomVideo';
-import type { BibleSync } from './useBibleSync';
+import type { Language } from '../types';
+import { BibleService } from '../services/bibleService';
 import type { HostMessage } from '../meeting/chatProtocol';
 import type { AgendaItem } from '../meeting/agenda/types';
 import type { AgendaStore } from '../meeting/agenda/agendaStore';
-import { neighbourItem } from '../meeting/agenda/agendaModel';
+import { neighbourItem, scriptureSlide } from '../meeting/agenda/agendaModel';
 import { createSlideCanvas, drawImageSlide, drawTextSlide } from '../meeting/agenda/slideRenderer';
+import type { VideoSource } from '../components/meeting/VideoBroadcastBar';
 
 interface PresenterDeps {
   lk: UseLiveKit;
   roomVideo: RoomVideo;
-  bible: BibleSync;
+  /** For the passage reference on a scripture slide. */
+  language: Language;
   store: AgendaStore;
   /** The room's local-video broadcast, owned by MeetingRoomView. */
-  videoFile: File | null;
-  setVideoFile: (file: File | null) => void;
+  videoFile: VideoSource | null;
+  setVideoFile: (file: VideoSource | null) => void;
   onHostCommand: (message: HostMessage) => void;
   /** Bottom-right text on every slide. */
   footer: string;
@@ -40,7 +43,7 @@ export interface AgendaPresenter {
  * slot can never leave a row marked as sharing when it is not.
  */
 export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
-  const { lk, roomVideo, bible, store, videoFile, setVideoFile, onHostCommand, footer, onError } = deps;
+  const { lk, roomVideo, language, store, videoFile, setVideoFile, onHostCommand, footer, onError } = deps;
   const [current, setCurrent] = useState<AgendaItem | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvas = () => (canvasRef.current ??= createSlideCanvas());
@@ -50,18 +53,16 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
     switch (current.kind) {
       case 'text':
       case 'image':
+      case 'scripture':
         return lk.slideOn ? current.id : null;
       case 'localVideo':
         return videoFile ? current.id : null;
       case 'youtube':
         return roomVideo.videoId === current.videoId ? current.id : null;
-      case 'scripture':
-        return bible.open && bible.highlight?.bookId === current.bookId && bible.highlight.chapter === current.chapter
-          && bible.highlight.from === current.fromVerse ? current.id : null;
       default:
         return null;
     }
-  }, [current, lk.slideOn, videoFile, roomVideo.videoId, bible.open, bible.highlight]);
+  }, [current, lk.slideOn, videoFile, roomVideo.videoId]);
 
   /** Clears the shared-picture slot of whatever this host put there. */
   const clearSlot = useCallback(async (keep: 'slide' | null) => {
@@ -72,13 +73,15 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
 
   const share = useCallback(async (item: AgendaItem) => {
     try {
-      if (item.kind === 'scripture') {
-        await clearSlot(null);
-        bible.selectChapter(item.bookId, item.chapter, { from: item.fromVerse, to: item.toVerse });
-      } else if (item.kind === 'text' || item.kind === 'image') {
+      if (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture') {
         await clearSlot('slide');
-        if (item.kind === 'text') {
-          drawTextSlide(canvas(), { title: item.title, body: item.body, footer });
+        // A passage is a slide like any other: on the main screen for everyone,
+        // leaving each person's own Bible panel alone.
+        if (item.kind === 'scripture') {
+          const verses = await BibleService.loadChapter(item.bookId, item.chapter);
+          drawTextSlide(canvas(), { ...scriptureSlide(item, verses, language), footer });
+        } else if (item.kind === 'text') {
+          drawTextSlide(canvas(), { title: item.title, body: item.body, footer, align: item.align });
         } else {
           const file = await store.getFile(item.fileId);
           if (!file) throw new Error('missing');
@@ -96,10 +99,18 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
         roomVideo.open(item.videoId, item.startSeconds);
       } else if (item.kind === 'localVideo') {
         await clearSlot(null);
-        const file = await store.getFile(item.fileId);
-        if (!file) throw new Error('missing');
-        onHostCommand({ type: 'host', action: 'claimShare' });
-        setVideoFile(new File([file.blob], item.fileName, { type: file.type }));
+        const bridge = window.meetingDesktop?.agenda;
+        if (item.path && bridge) {
+          // Kept by path, so it can have been moved or renamed since.
+          if (!(await bridge.videoExists(item.path))) { onError('meeting.agendaVideoMissing'); return; }
+          onHostCommand({ type: 'host', action: 'claimShare' });
+          setVideoFile({ name: item.fileName, url: bridge.videoUrl(item.path) });
+        } else {
+          const file = await store.getFile(item.fileId);
+          if (!file) throw new Error('missing');
+          onHostCommand({ type: 'host', action: 'claimShare' });
+          setVideoFile(new File([file.blob], item.fileName, { type: file.type }));
+        }
       }
       setCurrent(item);
     } catch {
@@ -107,13 +118,12 @@ export function useAgendaPresenter(deps: PresenterDeps): AgendaPresenter {
     }
     // canvas() reads a ref and is stable in effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bible, clearSlot, footer, lk, onError, onHostCommand, roomVideo, setVideoFile, store]);
+  }, [clearSlot, footer, language, lk, onError, onHostCommand, roomVideo, setVideoFile, store]);
 
   const stop = useCallback(async () => {
-    if (current?.kind === 'scripture') bible.close();
     await clearSlot(null);
     setCurrent(null);
-  }, [bible, clearSlot, current]);
+  }, [clearSlot]);
 
   const step = useCallback(async (items: readonly AgendaItem[], delta: 1 | -1) => {
     const next = neighbourItem(items, activeId ?? current?.id ?? null, delta);

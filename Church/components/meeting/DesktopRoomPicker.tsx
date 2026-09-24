@@ -28,8 +28,8 @@ export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, nam
       <header className="desktop-drag flex h-12 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white pl-5" style={{ paddingRight: DESKTOP_CONTROLS_WIDTH + 8 }}>
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white"><LogoIcon className="h-4 w-4" /></span>
-          <span className="text-sm font-semibold text-gray-800">{t('meeting.desktopAppTitle')}</span>
-          <span className="text-xs text-gray-400">{t('header.logo')}</span>
+          <span className="text-sm font-semibold text-gray-800">{t('header.logo')}</span>
+          <span className="text-xs text-gray-400">{t('meeting.desktopAppTitle')}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{name.trim().slice(0, 1).toUpperCase()}</span>

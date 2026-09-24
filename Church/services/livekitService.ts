@@ -51,6 +51,24 @@ const START_FAILURES = new Set(['NotReadableError', 'TrackStartError', 'AbortErr
 const isStartFailure = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && START_FAILURES.has((error as { name?: string }).name ?? '');
 
+/**
+ * Calls `tick` every `ms`, from a worker when possible: a background tab
+ * throttles its own timers to once a minute, which would starve a slide of
+ * frames the moment the host looks at another window.
+ */
+function startTicker(ms: number, tick: () => void): () => void {
+  try {
+    const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms});`], { type: 'text/javascript' }));
+    const worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    worker.onmessage = tick;
+    return () => worker.terminate();
+  } catch {
+    const id = setInterval(tick, ms);
+    return () => clearInterval(id);
+  }
+}
+
 /** Disconnects that a new join must not undo. */
 const FINAL_DISCONNECTS = new Set<DisconnectReason | undefined>([
   DisconnectReason.CLIENT_INITIATED,
@@ -79,6 +97,7 @@ export class LiveKitService {
   private connected = false;
   private videoFileTracks: MediaStreamTrack[] = [];
   private slideTrack: MediaStreamTrack | null = null;
+  private stopSlideTicker: (() => void) | null = null;
   constructor(private handlers: LiveKitHandlers) {}
 
   get localParticipant(): LocalParticipant | undefined {
@@ -582,12 +601,23 @@ export class LiveKitService {
   async publishSlide(canvas: HTMLCanvasElement): Promise<void> {
     const p = this.room?.localParticipant;
     if (!p || this.slideTrack) return;
-    // One frame a second is plenty for a still picture, and keeps a late
-    // joiner from waiting on a black tile.
-    const [track] = canvas.captureStream(1).getVideoTracks();
+    // A canvas stream only yields a frame when the canvas is drawn on — and a
+    // slide, once drawn, never is again. With nothing new to encode, a viewer
+    // who joins late, or whose stream paused and needs a fresh keyframe, sees
+    // nothing at all. requestFrame() alone does not help: Chromium still waits
+    // for a draw. So twice a second one corner pixel is read and written back
+    // unchanged — invisible, but a draw — and the frame is requested.
+    const [track] = canvas.captureStream(0).getVideoTracks();
     if (!track) throw new Error('This browser cannot present slides');
     track.contentHint = 'detail';
+    const ctx = canvas.getContext('2d');
+    const pushFrame = () => {
+      if (ctx) ctx.putImageData(ctx.getImageData(0, 0, 1, 1), 0, 0);
+      (track as MediaStreamTrack & { requestFrame?: () => void }).requestFrame?.();
+    };
     this.slideTrack = track;
+    pushFrame();
+    this.stopSlideTicker = startTicker(500, pushFrame);
     await p.publishTrack(track, {
       source: Track.Source.ScreenShare,
       name: SLIDE_TRACK_NAME,
@@ -602,6 +632,8 @@ export class LiveKitService {
     const p = this.room?.localParticipant;
     const track = this.slideTrack;
     this.slideTrack = null;
+    this.stopSlideTicker?.();
+    this.stopSlideTicker = null;
     if (!p || !track) return;
     try { await p.unpublishTrack(track, true); } catch { /* already gone */ }
     this.emit();
@@ -628,6 +660,8 @@ export class LiveKitService {
     this.closed = true;
     this.videoFileTracks = [];
     this.slideTrack = null;
+    this.stopSlideTicker?.();
+    this.stopSlideTicker = null;
     try { this.room?.disconnect(); } catch { /* ignore */ }
     this.room = null;
   }

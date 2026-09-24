@@ -6,7 +6,7 @@ import type { ScriptureItem } from '../../../meeting/agenda/types';
 
 type Range = Pick<ScriptureItem, 'bookId' | 'chapter' | 'fromVerse' | 'toVerse'>;
 
-const select = 'rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none';
+const select = 'rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none';
 
 /** 書卷 ▾ 第 N 章 ▾ 起 ▾ 至 迄 ▾, with the verses previewed as they are chosen. */
 export const ScripturePicker: React.FC<{ value: Range; onChange: (next: Range) => void }> = ({ value, onChange }) => {

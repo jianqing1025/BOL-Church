@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { Track, type Participant } from 'livekit-client';
 import { LiveKitService, VIDEO_FILE_TRACK_NAME, SLIDE_TRACK_NAME } from './livekitService';
 
@@ -259,5 +259,40 @@ describe('LiveKitService.publishLocalMedia', () => {
 
     expect(fake.unpublished).toEqual([oldMic, oldCam]);
     expect(fake.published.map((p) => p.source)).toEqual([Track.Source.Microphone, Track.Source.Camera]);
+  });
+});
+
+describe('LiveKitService.publishSlide', () => {
+  it('keeps a still slide sending frames, and stops when unpublished', async () => {
+    vi.useFakeTimers();
+    try {
+      const requestFrame = vi.fn();
+      const track = { kind: 'video', contentHint: '', requestFrame, stop: vi.fn() };
+      const putImageData = vi.fn();
+      const ctx = { getImageData: vi.fn(() => ({})), putImageData };
+      const canvas = { captureStream: vi.fn(() => ({ getVideoTracks: () => [track] })), getContext: () => ctx } as unknown as HTMLCanvasElement;
+      const participant = { publishTrack: vi.fn(async () => undefined), unpublishTrack: vi.fn(async () => undefined) };
+      const service = new LiveKitService({ onParticipantsChanged: () => undefined });
+      (service as unknown as { room: unknown }).room = { localParticipant: participant, remoteParticipants: new Map() };
+      (service as unknown as { connected: boolean }).connected = true;
+
+      await service.publishSlide(canvas);
+      // A canvas only yields frames when asked: a still slide must be asked repeatedly,
+      // or a late joiner (or a viewer needing a keyframe) gets nothing at all.
+      expect(canvas.captureStream).toHaveBeenCalledWith(0);
+      const afterPublish = requestFrame.mock.calls.length;
+      expect(afterPublish).toBeGreaterThanOrEqual(1);
+      vi.advanceTimersByTime(2000);
+      expect(requestFrame.mock.calls.length).toBeGreaterThanOrEqual(afterPublish + 3);
+      // requestFrame alone yields nothing in Chromium; each tick must also draw.
+      expect(putImageData.mock.calls.length).toBe(requestFrame.mock.calls.length);
+
+      await service.unpublishSlide();
+      const afterStop = requestFrame.mock.calls.length;
+      vi.advanceTimersByTime(2000);
+      expect(requestFrame.mock.calls.length).toBe(afterStop);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

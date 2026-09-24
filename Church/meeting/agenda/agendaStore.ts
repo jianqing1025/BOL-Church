@@ -41,6 +41,13 @@ export interface AgendaStore {
    */
   addFileItem(agenda: Agenda, blob: Blob, build: (fileId: string) => AgendaItem): Promise<Agenda>;
   getFile(fileId: string): Promise<StoredFile | undefined>;
+  /**
+   * Stores a file on its own and returns its id. The caller must save an
+   * agenda that refers to it — an unreferenced file is swept by the next delete.
+   */
+  putFile(blob: Blob): Promise<string>;
+  /** Where the content lives and how much it takes, when the store can say. */
+  describe?(): Promise<{ dir?: string; bytes?: number }>;
 }
 
 export function openAgendaStore(factory: IDBFactory = indexedDB): AgendaStore {
@@ -88,6 +95,16 @@ export function openAgendaStore(factory: IDBFactory = indexedDB): AgendaStore {
     if (unused.length) await deleteFiles(unused);
   };
 
+  const putFile = async (blob: Blob): Promise<string> => {
+    const fileId = newId();
+    try {
+      const tx = (await db()).transaction(FILES, 'readwrite');
+      tx.objectStore(FILES).put({ id: fileId, blob, type: blob.type, size: blob.size } satisfies StoredFile);
+      await finished(tx);
+    } catch (error) { throw wrap(error); }
+    return fileId;
+  };
+
   return {
     list,
     save,
@@ -102,13 +119,9 @@ export function openAgendaStore(factory: IDBFactory = indexedDB): AgendaStore {
       await prune();
       return saved;
     },
+    putFile,
     async addFileItem(agenda, blob, build) {
-      const fileId = newId();
-      try {
-        const tx = (await db()).transaction(FILES, 'readwrite');
-        tx.objectStore(FILES).put({ id: fileId, blob, type: blob.type, size: blob.size } satisfies StoredFile);
-        await finished(tx);
-      } catch (error) { throw wrap(error); }
+      const fileId = await putFile(blob);
       try {
         return await save({ ...agenda, items: [...agenda.items, build(fileId)] });
       } catch (error) {

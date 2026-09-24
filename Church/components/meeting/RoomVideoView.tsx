@@ -90,6 +90,8 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   const playerRef = useRef<YouTubePlayer | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** YouTube's own refusal (removed, not embeddable…), which otherwise leaves a silent black box. */
+  const [videoError, setVideoError] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
   /**
@@ -122,6 +124,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
     let player: YouTubePlayer | null = null;
     setReady(false);
     setFailed(false);
+    setVideoError(false);
     setBlocked(false);
 
     void loadYouTubeApi().then((YT) => {
@@ -133,6 +136,9 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
         playerVars: { autoplay: 1, mute: soundNeedsTap ? 1 : 0, playsinline: 1, rel: 0, modestbranding: 1, start: Math.round(startRef.current) },
         events: {
           onReady: () => { if (!cancelled) { setReady(true); setMuted(soundNeedsTap); } },
+          // 2 bad id, 5 HTML5 error, 100 removed or private, 101/150 embedding
+          // not allowed, 153 player configuration refused.
+          onError: () => { if (!cancelled) setVideoError(true); },
           onStateChange: (event: { data: number }) => {
             // Only the leader speaks; everyone else's player is an echo, and
             // reporting from all of them would fight over the room's position.
@@ -188,14 +194,27 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
   // leader needs this as much as anyone: their own player is just as likely to
   // be refused, and without it they go hunting for YouTube's own play button —
   // which starts playback outside the room's knowledge entirely.
+  // The leader's own player has no one ahead of it to follow, so the check
+  // above never runs for them: a start that was refused left the host alone
+  // with a black box. Once, right after the player is ready, look for real.
   useEffect(() => {
+    if (!ready || !canLead) return;
+    const id = window.setTimeout(() => {
+      const state = playerRef.current?.getPlayerState();
+      if (state !== PLAYING && state !== BUFFERING && state !== PAUSED && state !== ENDED) setBlocked(true);
+    }, 2500);
+    return () => window.clearTimeout(id);
+  }, [ready, canLead]);
+
+  useEffect(() => {
+    if (canLead) return;
     if (!ready || !leaderPlaying) { setBlocked(false); return; }
     const id = window.setTimeout(() => {
       const state = playerRef.current?.getPlayerState();
       setBlocked(state !== PLAYING && state !== BUFFERING);
     }, 1200);
     return () => window.clearTimeout(id);
-  }, [ready, leaderSeq, leaderPlaying]);
+  }, [ready, leaderSeq, leaderPlaying, canLead]);
 
   const turnSoundOn = () => {
     const player = playerRef.current;
@@ -222,13 +241,19 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
           </p>
         )}
 
-        {failed && (
-          <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-            <p className="text-sm text-red-200">{t('meeting.youtubeUnavailable')}</p>
+        {(failed || videoError) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black p-6 text-center">
+            <p className="text-sm text-red-200">{t(videoError ? 'meeting.youtubeVideoError' : 'meeting.youtubeUnavailable')}</p>
+            {videoError && (
+              <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer"
+                className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-gray-100 hover:bg-white/20">
+                {t('meeting.youtubeOpenOnSite')}
+              </a>
+            )}
           </div>
         )}
 
-        {blocked && (
+        {blocked && !failed && !videoError && (
           <button
             type="button"
             onClick={() => {
@@ -252,7 +277,7 @@ export const RoomVideoView: React.FC<RoomVideoViewProps> = ({
 
         {/* The sound control. Prominent while silent, because a muted video is
             the normal way this starts and nobody should have to guess why. */}
-        {!failed && !blocked && (
+        {!failed && !videoError && !blocked && (
           <div className="absolute right-3 top-3 flex items-center gap-2">
             {soundNeedsTap && (
               <button

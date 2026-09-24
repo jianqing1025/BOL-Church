@@ -42,7 +42,7 @@ export function referencedFileIds(list: readonly Agenda[]): Set<string> {
   const ids = new Set<string>();
   for (const agenda of list) {
     for (const item of agenda.items) {
-      if (item.kind === 'image' || item.kind === 'localVideo') ids.add(item.fileId);
+      if ((item.kind === 'image' || item.kind === 'localVideo') && item.fileId) ids.add(item.fileId);
     }
   }
   return ids;
@@ -66,6 +66,17 @@ export function duplicateAgenda(source: Agenda, now: Date, suffix: string): Agen
   };
 }
 
+/** The host's own template made from an agenda: its own ids, the same stored files. */
+export function saveAsTemplate(source: Agenda, now: Date): Agenda {
+  return { ...duplicateAgenda(source, now, ''), template: true };
+}
+
+/** A fresh agenda from a template, dated today. */
+export function fromTemplate(template: Agenda, now: Date): Agenda {
+  const { template: _template, ...copy } = duplicateAgenda(template, now, '');
+  return { ...copy, date: localDateString(now) };
+}
+
 export function scriptureLabel(item: ScriptureItem, language: Language): string {
   const book = findBibleBook(item.bookId);
   const name = book ? localizeBookName(book, language) : String(item.bookId);
@@ -83,6 +94,29 @@ export function itemLabel(item: AgendaItem, language: Language, fallbacks: ItemF
     return item.title.trim() || firstLine?.slice(0, 40) || fallbacks.text;
   }
   return item.title.trim() || fallbacks[item.kind];
+}
+
+/**
+ * A passage as a slide: its reference on top, then each verse on its own
+ * line led by its number. `verses` is the whole chapter (index 0 = verse 1).
+ */
+export function scriptureSlide(item: ScriptureItem, verses: readonly string[], language: Language): { title: string; body: string } {
+  const lines: string[] = [];
+  for (let n = item.fromVerse; n <= Math.min(item.toVerse, verses.length); n++) lines.push(`${n}　${verses[n - 1]}`);
+  return { title: scriptureLabel(item, language), body: lines.join('\n') };
+}
+
+/** A title cut to `max` characters, with "..." when anything was cut. Counts characters, not UTF-16 units. */
+export function shortTitle(title: string, max = 20): string {
+  const chars = Array.from(title.trim());
+  return chars.length > max ? `${chars.slice(0, max).join('')}...` : chars.join('');
+}
+
+/** The next date (today included) that falls on `weekday` (0 = Sunday). */
+export function nextWeekday(now: Date, weekday: number): Date {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  next.setDate(next.getDate() + ((weekday - next.getDay() + 7) % 7));
+  return next;
 }
 
 /** The item before or after `currentId`; with nothing current, "next" is the first. */

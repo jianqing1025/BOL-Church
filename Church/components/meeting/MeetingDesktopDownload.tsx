@@ -12,7 +12,11 @@ interface DesktopRelease {
   size: number;
   /** The program inside the zip, as Windows names it when it is opened. */
   exe?: string;
+  /** The installer, when one is published: offered first. */
+  setup?: { file: string; size: number; exe: string };
 }
+
+const mb = (bytes: number) => Math.round(bytes / 1024 / 1024);
 
 const isWindows = () => typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) && !/Windows Phone/i.test(navigator.userAgent);
 
@@ -100,7 +104,7 @@ export const MeetingDesktopDownload: React.FC = () => {
   const features = ['meeting.dlFeatureShare', 'meeting.dlFeatureToolbar', 'meeting.dlFeaturePrompts', 'meeting.dlFeatureSignIn'];
   const steps: [string, React.ReactNode][] = [
     ['meeting.dlStepKeep', <BrowserKeepShot file={release.file} />],
-    ['meeting.dlStepRunAnyway', <SmartScreenShot file={release.exe ?? release.file} />],
+    ['meeting.dlStepRunAnyway', <SmartScreenShot file={release.setup?.exe ?? release.exe ?? release.file} />],
     ['meeting.dlStepOnce', <AppShot />],
   ];
 
@@ -113,36 +117,53 @@ export const MeetingDesktopDownload: React.FC = () => {
           </span>
           <h3 className="text-lg font-bold text-gray-900 sm:text-xl">{t('meeting.dlTitle')}</h3>
         </div>
-        <span className="text-sm text-gray-400">v{release.version} · {t('meeting.dlAbout')} {Math.round(release.size / 1024 / 1024)}MB</span>
+        <span className="text-sm text-gray-400">v{release.version}</span>
       </div>
 
-      <p className="mt-5 font-semibold text-gray-800">{t('meeting.dlSubtitle')}</p>
-      <ul className="mt-3 space-y-2">
-        {features.map((key) => (
-          <li key={key} className="flex items-start gap-2.5 text-sm text-gray-700">
-            <Check size={17} strokeWidth={2.5} className="mt-0.5 shrink-0 text-emerald-600" />
-            {t(key)}
-          </li>
-        ))}
-      </ul>
+      <div className="mt-5 flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <p className="font-semibold text-gray-800">{t('meeting.dlSubtitle')}</p>
+          <ul className="mt-3 space-y-2">
+            {features.map((key) => (
+              <li key={key} className="flex items-start gap-2.5 text-sm text-gray-700">
+                <Check size={17} strokeWidth={2.5} className="mt-0.5 shrink-0 text-emerald-600" />
+                {t(key)}
+              </li>
+            ))}
+          </ul>
+        </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-        {windows ? (
-          <a
-            href={`${BASE}${encodeURIComponent(release.file)}`}
-            download
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 text-sm font-bold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700"
-          >
-            <Download size={18} />
-            {t('meeting.dlButton')}
-          </a>
-        ) : (
-          <div className="flex items-start gap-2 rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-600">
-            <Monitor size={18} className="mt-px shrink-0" />
-            {t('meeting.dlWindowsOnly')}
-          </div>
-        )}
-        <span className="text-sm text-gray-500">{t('meeting.dlRequirement')}</span>
+        {/* To the right of the description: the installer first, the no-install copy beside it. */}
+        <div className="flex shrink-0 flex-col gap-2.5 md:w-64">
+          {windows ? (
+            <>
+              {release.setup && (
+                <a href={`${BASE}${encodeURIComponent(release.setup.file)}`} download
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700">
+                  <Download size={18} />
+                  {t('meeting.dlButtonSetup')}
+                </a>
+              )}
+              {release.setup && <p className="-mt-1 text-center text-xs text-gray-400">{t('meeting.dlSetupHint')} · {t('meeting.dlAbout')} {mb(release.setup.size)}MB</p>}
+              <a href={`${BASE}${encodeURIComponent(release.file)}`} download
+                className={release.setup
+                  ? 'flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-6 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50'
+                  : 'flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700'}>
+                <Download size={release.setup ? 16 : 18} />
+                {t(release.setup ? 'meeting.dlButtonPortable' : 'meeting.dlButton')}
+              </a>
+              <p className="-mt-1 text-center text-xs text-gray-400">
+                {release.setup ? `${t('meeting.dlPortableHint')} · ` : ''}{t('meeting.dlAbout')} {mb(release.size)}MB
+              </p>
+            </>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-600">
+              <Monitor size={18} className="mt-px shrink-0" />
+              {t('meeting.dlWindowsOnly')}
+            </div>
+          )}
+          <p className="text-center text-xs text-gray-500">{t('meeting.dlRequirement')}</p>
+        </div>
       </div>
 
       {windows && (

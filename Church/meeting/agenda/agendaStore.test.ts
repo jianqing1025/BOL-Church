@@ -49,4 +49,14 @@ describe('agendaStore', () => {
       .rejects.toBeInstanceOf(AgendaStoreError);
     expect(await store.getFile(fileId)).toBeUndefined();
   });
+
+  it('stores a lone file for an agenda saved just after, and sweeps it if none ever is', async () => {
+    const store = fresh();
+    const kept = await store.putFile(blob('kept'));
+    const orphan = await store.putFile(blob('orphan'));
+    const a = await store.save({ ...newAgenda(new Date(), 'A'), items: [{ id: 'i', kind: 'image', title: 'p', fileId: kept }] });
+    await store.removeItem({ ...a, items: [...a.items, { id: 'x', kind: 'text', title: '', body: '' }] }, 'x');
+    expect(await (await store.getFile(kept))?.blob.text()).toBe('kept');
+    expect(await store.getFile(orphan)).toBeUndefined();
+  });
 });

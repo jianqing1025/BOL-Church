@@ -26,7 +26,7 @@ function paintFooter(ctx: CanvasRenderingContext2D, footer: string) {
 }
 
 /** Deep blue, like a sanctuary screen. Returns the layout so a caller can warn on overflow. */
-export function drawTextSlide(canvas: HTMLCanvasElement, slide: { title: string; body: string; footer: string }): TextSlideLayout {
+export function drawTextSlide(canvas: HTMLCanvasElement, slide: { title: string; body: string; footer: string; align?: 'center' }): TextSlideLayout {
   const ctx = canvas.getContext('2d')!;
   const gradient = ctx.createLinearGradient(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
   gradient.addColorStop(0, '#0f2a5c');
@@ -41,10 +41,13 @@ export function drawTextSlide(canvas: HTMLCanvasElement, slide: { title: string;
   // Short slides sit in the middle; full ones start at the top margin.
   let y = MARGIN_Y + Math.max(0, (area - titleHeight - bodyHeight) / 2);
   ctx.textBaseline = 'top';
+  const centered = slide.align === 'center';
+  const x = centered ? SLIDE_WIDTH / 2 : MARGIN_X;
+  ctx.textAlign = centered ? 'center' : 'left';
 
   ctx.font = `700 ${TITLE_PX}px ${SLIDE_FONT}`;
   ctx.fillStyle = '#fde68a';
-  for (const line of layout.titleLines) { ctx.fillText(line, MARGIN_X, y); y += TITLE_PX * 1.3; }
+  for (const line of layout.titleLines) { ctx.fillText(line, x, y); y += TITLE_PX * 1.3; }
   if (layout.titleLines.length) y += TITLE_GAP;
 
   ctx.font = `400 ${layout.bodyPx}px ${SLIDE_FONT}`;
@@ -52,9 +55,10 @@ export function drawTextSlide(canvas: HTMLCanvasElement, slide: { title: string;
   const lineStep = layout.bodyPx * LINE_HEIGHT;
   for (const line of layout.bodyLines) {
     if (y + lineStep > SLIDE_HEIGHT - MARGIN_Y) break;
-    ctx.fillText(line, MARGIN_X, y + (lineStep - layout.bodyPx) / 2);
+    ctx.fillText(line, x, y + (lineStep - layout.bodyPx) / 2);
     y += lineStep;
   }
+  ctx.textAlign = 'left';
   paintFooter(ctx, slide.footer);
   return layout;
 }

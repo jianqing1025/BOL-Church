@@ -20,7 +20,7 @@ import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
 import { MeetingJoinDialog } from './MeetingJoinDialog';
 import { DesktopRoomPicker } from './DesktopRoomPicker';
-import { openAgendaStore } from '../../meeting/agenda/agendaStore';
+import { openMeetingAgendaStore } from '../../meeting/agenda/desktopStore';
 import { AgendaEditor } from './agenda/AgendaEditor';
 import { MeetingDesktopDownload } from './MeetingDesktopDownload';
 import { defaultJoinMedia, type JoinMedia } from '../../meeting/joinDefaults';
@@ -77,7 +77,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const [joinMedia, setJoinMedia] = useState<JoinMedia>(() => defaultJoinMedia(0));
   const socketRef = useRef<MeetingSocket | null>(null);
   const [agendaEditorOpen, setAgendaEditorOpen] = useState(false);
-  const agendaStore = useMemo(() => openAgendaStore(), []);
+  const agendaStore = useMemo(() => openMeetingAgendaStore(), []);
 
   const sendBible = useCallback((message: BibleMessage) => socketRef.current?.sendBible(message), []);
   // A host leads the room through the text; with no host present, anyone may.

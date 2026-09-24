@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 
+/** A video to broadcast: a picked File, or (desktop app) a file on disk served by URL. */
+export type VideoSource = File | { name: string; url: string };
+
 interface VideoBroadcastBarProps {
-  file: File;
+  file: VideoSource;
   /** Publish the element once it is playing. Returning false means it was blocked. */
   onReady: (element: HTMLVideoElement) => Promise<boolean>;
   onStop: () => void;
@@ -22,6 +25,7 @@ export const VideoBroadcastBar: React.FC<VideoBroadcastBarProps> = ({ file, onRe
   const [url, setUrl] = useState('');
 
   useEffect(() => {
+    if (!(file instanceof File)) { setUrl(file.url); return undefined; }
     const objectUrl = URL.createObjectURL(file);
     setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
@@ -72,6 +76,9 @@ export const VideoBroadcastBar: React.FC<VideoBroadcastBarProps> = ({ file, onRe
       <video
         ref={videoRef}
         src={url || undefined}
+        // The desktop app's video scheme answers with CORS, which is what lets a
+        // file on disk be captured for the room.
+        crossOrigin={file instanceof File ? undefined : 'anonymous'}
         controls
         playsInline
         className="h-20 w-36 shrink-0 rounded-lg bg-black object-contain sm:h-24 sm:w-44"
