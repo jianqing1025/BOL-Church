@@ -930,8 +930,8 @@ describe('evaluateRateLimit', () => {
     expect(result.allowed).toBe(false);
   });
 
-  it('上限為每分鐘 5 次', () => {
-    expect(RATE_LIMIT_MAX).toBe(5);
+  it('上限為每分鐘 15 次', () => {
+    expect(RATE_LIMIT_MAX).toBe(15);
     expect(RATE_LIMIT_WINDOW_MS).toBe(60_000);
   });
 });
@@ -958,7 +958,17 @@ npx vitest run giving/rateLimit.test.ts
  * Stripe Radar 會擋一部分，但不該讓教會的端點成為第一道免費關卡。
  */
 
-export const RATE_LIMIT_MAX = 5;
+/**
+ * 每分鐘上限刻意放寬到 15。
+ *
+ * 這是小教會，主日崇拜後常有一群人在共用的教會 wifi 或電信 CGNAT 後面同時奉獻，
+ * 對外看起來是同一個 IP。上限訂 5 的話，第六個要奉獻的人就被擋死且毫無出路 ——
+ * 那是主日的常態流量，不是邊緣案例。
+ *
+ * 卡號測試要有價值得試上幾十到幾百次，15/分鐘仍然擋得住，而擋它的最後一道
+ * 防線本來就是 Stripe Radar，不是這裡。寧可漏幾次也不能擋住真的要奉獻的人。
+ */
+export const RATE_LIMIT_MAX = 15;
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 
 export type RateLimitRecord = {
@@ -1094,6 +1104,8 @@ PRAGMA foreign_keys = ON;
 ```
 
 - [ ] **Step 3: 在本地資料庫套用並驗證**
+
+> **順序警告：** 若要驗證舊資料的金額轉換（Step 5），**必須先塞測資再套用**。一旦套用，舊的 `date` / `amount` 欄位就不存在了，照舊 schema 寫入只會直接報錯。正確順序是：塞測資 → 套用 → 驗證 → 清除測資。
 
 ```bash
 npx wrangler d1 migrations apply bol-church --local
@@ -1653,6 +1665,12 @@ async function givingRateLimited(env: Env, ip: string): Promise<boolean> {
     now,
   );
 
+  // 這裡是 read-then-write，兩個併發請求可能讀到同一個 count 各自 +1，漏算一次。
+  // 考慮過改成單一 atomic upsert（count = count + 1）來消除競態，但視窗過期與
+  // 時鐘倒退的判斷得跟著搬進 SQL 的 CASE，等於把 Task 5 的演算法與常數複製第二份。
+  // 漏算的代價是每個視窗多放行一兩次，跟固定視窗本來就允許的跨界突發同一個量級；
+  // 為了這個去複製演算法並不划算。維持純函式在 TS、儲存在 SQL 的分工。
+  //
   // 被擋下時 decision 內容與 row 完全相同，寫回去是個無效寫入。
   // 而被擋的正是連發請求，不跳過的話最吵的流量反而製造最多 D1 寫入。
   // 參見 docs/superpowers/plans/2026-09-22-d1-usage-minimization-phase1.md
