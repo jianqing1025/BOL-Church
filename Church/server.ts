@@ -1952,6 +1952,49 @@ async function handleImageObject(env: Env, key: string): Promise<Response> {
   return new Response(object.body, { headers });
 }
 
+const DESKTOP_DOWNLOAD_PREFIX = '/api/downloads/meeting-desktop/';
+
+/**
+ * 桌面版會議 App 的下載檔，放在 R2 `downloads/meeting-desktop/`（Dev 在其下的 `dev/`）。
+ * `latest.json` 描述目前版本（頁面讀它決定按鈕連到哪個檔），其餘是有版本號的
+ * exe 或 zip。支援 Range，讓一百多 MB 的下載斷線後能續傳。
+ */
+async function handleDesktopDownload(env: Env, request: Request, name: string): Promise<Response> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return notFound('Download not found');
+  // Dev 與正式站共用同一個 bucket；Dev 的測試版放在 dev/ 底下，正式站看不到。
+  const folder = new URL(request.url).hostname.startsWith('dev.') ? 'dev/' : '';
+  const key = `downloads/meeting-desktop/${folder}${name}`;
+  const isManifest = name === 'latest.json';
+  const object = await env.MEDIA_BUCKET.get(key, isManifest ? undefined : { range: request.headers });
+  if (!object) return notFound('Download not found');
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Accept-Ranges', 'bytes');
+  if (isManifest) {
+    headers.set('Content-Type', 'application/json; charset=utf-8');
+    headers.set('Cache-Control', 'no-cache');
+  } else {
+    headers.set('Content-Type', name.endsWith('.exe') ? 'application/vnd.microsoft.portable-executable' : 'application/zip');
+    headers.set('Content-Disposition', `attachment; filename="${name}"`);
+    // 檔名帶版本號，內容不會變。
+    headers.set('Cache-Control', 'public, max-age=86400');
+  }
+  let status = 200;
+  const range = 'range' in object ? object.range as { offset?: number; length?: number; suffix?: number } | undefined : undefined;
+  if (range && request.headers.has('range')) {
+    const offset = range.suffix !== undefined ? object.size - range.suffix : range.offset ?? 0;
+    const length = range.suffix !== undefined ? range.suffix : range.length ?? object.size - offset;
+    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
+    headers.set('Content-Length', String(length));
+    status = 206;
+  } else {
+    headers.set('Content-Length', String(object.size));
+  }
+  const body = request.method === 'HEAD' || !('body' in object) ? null : (object as R2ObjectBody).body;
+  return new Response(body, { status, headers });
+}
+
 // 每个 isolate 只跑一次完整 DDL,避免每个读请求都做 ~20 次 ALTER 往返(热路径减负)。
 let photoSchemaEnsured = false;
 
@@ -4680,6 +4723,10 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       images[imageKey] = `/api/images/${objectKey}`;
       await putSetting(env, 'images', images);
       return json({ key: imageKey, url: images[imageKey] });
+    }
+
+    if (url.pathname.startsWith(DESKTOP_DOWNLOAD_PREFIX) && (request.method === 'GET' || request.method === 'HEAD')) {
+      return handleDesktopDownload(env, request, decodeURIComponent(url.pathname.slice(DESKTOP_DOWNLOAD_PREFIX.length)));
     }
 
     if (url.pathname.startsWith('/api/images/') && request.method === 'GET') {

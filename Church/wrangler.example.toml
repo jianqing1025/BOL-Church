@@ -10,6 +10,8 @@ enabled = true
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+# Browser navigations (e.g. clicking a download link) would otherwise get index.html.
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"

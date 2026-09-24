@@ -19,6 +19,7 @@ import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
 import { MeetingJoinDialog } from './MeetingJoinDialog';
 import { DesktopRoomPicker } from './DesktopRoomPicker';
+import { MeetingDesktopDownload } from './MeetingDesktopDownload';
 import { defaultJoinMedia, type JoinMedia } from '../../meeting/joinDefaults';
 import PageHeader from '../PageHeader';
 import MinistrySecondaryNav from '../MinistrySecondaryNav';
@@ -342,6 +343,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
               </div>
             ))}
           </div>
+          <MeetingDesktopDownload />
         </div>
 
         {joinDialog}
