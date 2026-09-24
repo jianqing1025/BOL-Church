@@ -95,6 +95,26 @@ describe('verifyStripeSignature', () => {
     const multi = `t=${now},v1=deadbeef,v1=${hex}`;
     expect(await verifyStripeSignature({ payload, header: multi, secret: SECRET, nowSec: now })).toBe(true);
   });
+
+  it('大寫十六進位簽章也算正確（Stripe 只送小寫，但驗證不應區分大小寫）', async () => {
+    const header = await sign(payload, now);
+    const hex = header.split('v1=')[1];
+    const upperHeader = `t=${now},v1=${hex.toUpperCase()}`;
+    expect(await verifyStripeSignature({ payload, header: upperHeader, secret: SECRET, nowSec: now })).toBe(true);
+  });
+
+  it('標頭出現兩個 t= 時以最後一個為準', async () => {
+    // 刻意讓「取第一個」與「取最後一個」得到不同結果：staleTimestamp 遠超容忍度，
+    // 若解析誤用第一個 t=，會直接被容忍度擋下而回傳 false；只有取最後一個（now，
+    // 且與簽章實際簽的時間戳一致）才會通過。
+    const staleTimestamp = now - 1000;
+    const header = await sign(payload, now);
+    const hex = header.split('v1=')[1];
+    const duplicateTimestampHeader = `t=${staleTimestamp},t=${now},v1=${hex}`;
+    expect(
+      await verifyStripeSignature({ payload, header: duplicateTimestampHeader, secret: SECRET, nowSec: now }),
+    ).toBe(true);
+  });
 });
 
 describe('verifyStripeSignature 全長比對（防止簽章比對被截斷成只比對開頭幾碼）', () => {

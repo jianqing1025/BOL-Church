@@ -20,7 +20,11 @@ export type StripeSignatureParts = {
 // `${timestamp}.${payload}` 字串跟 Stripe 實際簽的原文不一致。
 const TIMESTAMP_RE = /^\d+$/;
 
-export function parseStripeSignatureHeader(header: string): StripeSignatureParts | null {
+// header 的型別必須保留 string | null：真正的來源是
+// request.headers.get('Stripe-Signature')，本來就可能是 null；
+// 若把型別寫死成 string，日後有人繞過 verifyStripeSignature 的守門、
+// 單獨呼叫這個函式時，就會誤以為呼叫端已經排除了 null。
+export function parseStripeSignatureHeader(header: string | null): StripeSignatureParts | null {
   if (!header) return null;
   let timestamp: number | null = null;
   const signatures: string[] = [];
@@ -41,7 +45,14 @@ export function parseStripeSignatureHeader(header: string): StripeSignatureParts
   return { timestamp, signatures };
 }
 
-/** 定時比較，避免以回應時間推測正確簽章。 */
+/**
+ * 定時比較，避免以回應時間推測正確簽章。
+ *
+ * 迴圈必須讀完每一個字元、用 OR 把差異累加起來，絕對不能「簡化」成一發現
+ * 不同就 return false 的提早返回寫法。提早返回在輸入輸出的層次看不出差異
+ * （回傳值一樣是 true/false，單元測試也測不出來），卻會依實際比對到第幾個
+ * 字元而耗時不同，重新引入可被外部量測的 timing side channel。
+ */
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
