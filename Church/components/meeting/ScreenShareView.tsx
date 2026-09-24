@@ -3,6 +3,7 @@ import { MonitorUp } from 'lucide-react';
 import type { Participant } from 'livekit-client';
 import { useLocalization } from '../../hooks/useLocalization';
 import { ParticipantTile } from './ParticipantTile';
+import { LiveKitService } from '../../services/livekitService';
 
 interface ScreenShareViewProps {
   sharer: Participant;
@@ -37,7 +38,12 @@ export const ScreenShareView: React.FC<ScreenShareViewProps> = ({ sharer, others
               onLowerHand={onLowerHand && (() => onLowerHand(pinned.identity))}
               large
             />
-          : <ParticipantTile participant={sharer} fit="contain" zoomable large />}
+          : window.meetingDesktop && sharer.isLocal && !LiveKitService.isPlayingVideoFile(sharer)
+            ? <div className="flex h-full flex-col items-center justify-center gap-4 rounded-2xl bg-gray-900 text-gray-300">
+                <MonitorUp size={40} />
+                <p>{t('meeting.desktopSharing')}</p>
+              </div>
+            : <ParticipantTile participant={sharer} fit="contain" zoomable large />}
       </div>
 
       <div className="flex shrink-0 gap-2 overflow-x-auto md:w-44 md:flex-col md:overflow-x-visible md:overflow-y-auto">

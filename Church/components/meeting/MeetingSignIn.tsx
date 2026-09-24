@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { LogoIcon } from '../icons/Icons';
 import { useAdmin } from '../../hooks/useAdmin';
 import { useLocalization } from '../../hooks/useLocalization';
 import { buildMediaSlots } from '../../media';
@@ -21,7 +22,73 @@ interface MeetingSignInProps {
  * Meeting sign-in screen. Mirrors the photo gate: the Hero images cross-fade as
  * a full-bleed background (behind the transparent header) with a floating card.
  */
-export const MeetingSignIn: React.FC<MeetingSignInProps> = ({
+export const MeetingSignIn: React.FC<MeetingSignInProps> = (props) =>
+  window.meetingDesktop ? <DesktopSignIn {...props} /> : <WebSignIn {...props} />;
+
+const desktopInput = 'h-11 w-full rounded-xl border border-gray-200 bg-gray-50/80 px-4 text-sm text-gray-900 placeholder:text-gray-400 transition focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100';
+
+/**
+ * The desktop app's sign-in: the window is the card — no photo backdrop, no
+ * page around it. Anywhere but the fields drags the window.
+ */
+const DesktopSignIn: React.FC<MeetingSignInProps> = ({
+  name, password, error, verifying, remember, onNameChange, onPasswordChange, onRememberChange, onSubmit,
+}) => {
+  const { t } = useLocalization();
+  return (
+    <form
+      className="desktop-drag flex h-screen flex-col bg-gradient-to-b from-sky-50 via-white to-white px-9 pb-8 pt-12"
+      onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+    >
+      <div className="flex flex-col items-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25">
+          <LogoIcon className="h-8 w-8" />
+        </div>
+        <h1 className="mt-5 text-xl font-bold tracking-wide text-gray-900">{t('meeting.desktopAppTitle')}</h1>
+        <p className="mt-1 text-sm text-gray-500">{t('header.logo')}</p>
+      </div>
+
+      <div className="mt-8 space-y-3">
+        <input
+          type="text" value={name} maxLength={30} autoFocus={!name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder={t('meeting.authName')}
+          aria-label={t('meeting.authName')}
+          className={desktopInput}
+        />
+        <input
+          type="password" value={password} autoFocus={Boolean(name)}
+          onChange={(e) => onPasswordChange(e.target.value)}
+          placeholder={t('meeting.authPassword')}
+          aria-label={t('meeting.authPassword')}
+          className={desktopInput}
+        />
+        <label className="flex w-fit cursor-pointer items-center gap-2 pt-0.5 text-[13px] text-gray-500">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => onRememberChange(e.target.checked)}
+            className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+          />
+          {t('meeting.rememberMe')}
+        </label>
+      </div>
+
+      <div className="mt-auto">
+        <p className="mb-2 min-h-5 text-center text-[13px] font-medium text-red-600" role="alert">{error}</p>
+        <button
+          type="submit" disabled={verifying}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-sm font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-700 active:scale-[.99] disabled:opacity-60"
+        >
+          {verifying && <Loader2 size={16} className="animate-spin" />}
+          {t('meeting.desktopSignIn')}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+const WebSignIn: React.FC<MeetingSignInProps> = ({
   name, password, error, verifying, remember, onNameChange, onPasswordChange, onRememberChange, onSubmit,
 }) => {
   const { t } = useLocalization();

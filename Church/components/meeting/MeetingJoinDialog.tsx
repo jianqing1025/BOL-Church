@@ -45,12 +45,13 @@ const Toggle: React.FC<{
  */
 export const MeetingJoinDialog: React.FC<MeetingJoinDialogProps> = ({ roomName, activeCount, onCancel, onJoin }) => {
   const { t } = useLocalization();
-  const [media, setMedia] = useState<JoinMedia>(() => defaultJoinMedia(activeCount));
+  const [media, setMedia] = useState<JoinMedia>(() => window.meetingDesktop ? { camOn: false, micOn: false } : defaultJoinMedia(activeCount));
   const [explainPermission, setExplainPermission] = useState(false);
 
   const crowded = !defaultJoinMedia(activeCount).micOn;
 
   useEffect(() => {
+    if (window.meetingDesktop) return;
     let cancelled = false;
     void needsPermissionIntro(['microphone', 'camera']).then((needed) => {
       if (!cancelled) setExplainPermission(needed);

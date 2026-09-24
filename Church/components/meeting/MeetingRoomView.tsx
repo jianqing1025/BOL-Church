@@ -4,7 +4,7 @@ import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meeti
 import { useLiveKit } from '../../hooks/useLiveKit';
 import { useLocalization } from '../../hooks/useLocalization';
 import { LiveKitService } from '../../services/livekitService';
-import { raisedHandCount } from '../../meeting/raisedHands';
+import { handOrders, raisedHandCount } from '../../meeting/raisedHands';
 import { microphoneStates } from '../../meeting/participantFlags';
 import { troubleByUserId } from '../../meeting/connectionQuality';
 import { VideoStage, type ViewMode } from './VideoStage';
@@ -21,6 +21,8 @@ import { BiblePanel } from './BiblePanel';
 import { churchAlert, churchConfirm } from '../ChurchDialog';
 import { YouTubePromptDialog } from './YouTubePromptDialog';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
+import { DESKTOP_CONTROLS_WIDTH, useDesktopWindow } from './DesktopShell';
+import { DesktopShareBar, type RaisedHand } from './DesktopShareBar';
 
 interface MeetingRoomViewProps {
   room: MeetingRoom;
@@ -58,6 +60,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   bible, roomVideo, hostCommand, onHostCommand, onSend, onReact, onLeave,
 }) => {
   const { language, t } = useLocalization();
+  const desktop = Boolean(window.meetingDesktop);
+  const desktopCompact = useDesktopWindow().compact;
   const lk = useLiveKit(room, name, password, isHost, ownUserId, joinMedia);
   const screenActive = lk.participants.some((p) => LiveKitService.isScreenSharing(p));
   const raisedHands = raisedHandCount(lk.participants);
@@ -118,25 +122,23 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   // Hanging up always asks first. For a host that question is much heavier —
   // it ends the study for everyone — so it is worded and labelled differently
   // rather than sharing one vague "are you sure".
-  const leaveRoom = useCallback(async () => {
-    if (!isHost) {
-      const confirmed = await churchConfirm(t('meeting.leaveConfirm'), {
-        title: t('meeting.leaveTitle'),
-        confirmLabel: t('meeting.leaveAction'),
-        cancelLabel: t('meeting.cancel'),
-      });
-      if (confirmed) onLeave();
-      return;
-    }
-    const confirmed = await churchConfirm(t('meeting.endMeetingConfirm'), {
-      title: t('meeting.endMeetingTitle'),
-      confirmLabel: t('meeting.endMeetingAction'),
+  // `quitApp` is the desktop window's close button: the same question, then the
+  // app closes instead of returning to the room list.
+  const leaveRoom = useCallback(async (quitApp = false) => {
+    window.meetingDesktop?.expand();
+    const confirmed = await churchConfirm(t(isHost ? 'meeting.endMeetingConfirm' : 'meeting.leaveConfirm'), {
+      title: t(isHost ? 'meeting.endMeetingTitle' : 'meeting.leaveTitle'),
+      confirmLabel: t(isHost ? 'meeting.endMeetingAction' : 'meeting.leaveAction'),
       cancelLabel: t('meeting.cancel'),
     });
     if (!confirmed) return;
-    onHostCommand({ type: 'host', action: 'endMeeting' });
+    if (isHost) onHostCommand({ type: 'host', action: 'endMeeting' });
+    if (quitApp) window.meetingDesktop?.quit?.();
     onLeave();
   }, [isHost, onHostCommand, onLeave, t]);
+  const leaveRoomRef = useRef(leaveRoom);
+  leaveRoomRef.current = leaveRoom;
+  useEffect(() => window.meetingDesktop?.onCloseRequest?.(() => void leaveRoomRef.current(true)), []);
 
   /**
    * Removing somebody is one tap next to a mute button, on a row that shifts
@@ -239,8 +241,42 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
 
+  // The share bar replaces the view without unmounting it: the stage also
+  // plays the room's audio, and the presenter must keep hearing everyone.
+  const handQueue = (): RaisedHand[] => {
+    const orders = handOrders(lk.participants);
+    return lk.participants
+      .filter((p) => orders.has(p.identity))
+      .map((p) => ({ identity: p.identity, name: p.name || p.identity, order: orders.get(p.identity)!, isLocal: p.isLocal }))
+      .sort((a, b) => a.order - b.order);
+  };
+  const shareBar = desktopCompact && (
+    <DesktopShareBar
+      elapsed={formatElapsed(elapsed)}
+      micOn={lk.micOn}
+      camOn={lk.camOn}
+      chatBadge={unread}
+      memberCount={members.length}
+      bibleOpen={bible.open}
+      handRaised={lk.handRaised}
+      raisedHands={handQueue()}
+      isHost={isHost}
+      onToggleMic={() => void lk.toggleMic()}
+      onToggleCamera={() => void lk.toggleCamera()}
+      onOpenChat={() => { setChatOpen(true); window.meetingDesktop?.expand(); }}
+      onOpenMembers={() => { setMembersOpen(true); window.meetingDesktop?.expand(); }}
+      onOpenBible={() => { if (!bible.open) bible.toggle(); window.meetingDesktop?.expand(); }}
+      onToggleHand={() => void lk.toggleHand()}
+      onLowerHand={(identity) => void lk.lowerHandOf(identity)}
+      onLowerAllHands={() => void lk.lowerAllHands()}
+      onStopShare={() => void lk.toggleScreenShare()}
+    />
+  );
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-950 text-gray-100">
+    <>
+    {shareBar}
+    <div className={`${desktopCompact ? 'hidden' : 'flex'} h-full min-h-0 flex-col bg-gray-950 text-gray-100`}>
       {/* Top bar */}
       {/*
         Two groups, not three: everything that describes the room on the left,
@@ -250,7 +286,10 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         left is what someone in a meeting actually needs: which room, how long,
         and the way to the chat and the member list.
       */}
-      <header className="relative flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-gray-900/80 px-3 py-3 sm:gap-3 sm:px-4">
+      <header
+        className={`relative flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-gray-900/80 px-3 sm:gap-3 sm:px-4 ${desktop ? 'desktop-drag h-12' : 'py-3'}`}
+        style={desktop ? { paddingRight: DESKTOP_CONTROLS_WIDTH + 8 } : undefined}
+      >
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -271,6 +310,12 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {desktop && localSharing && (
+            <button type="button" className="rounded-full bg-white/10 px-3 py-1 text-xs text-gray-200 transition-colors hover:bg-white/20"
+              onClick={() => window.meetingDesktop?.compact()}>
+              {t('meeting.desktopCompact')}
+            </button>
+          )}
           {sharing && (
             <button
               type="button"
@@ -444,6 +489,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onLeave={() => void leaveRoom()}
       />
     </div>
+    </>
   );
 };
 

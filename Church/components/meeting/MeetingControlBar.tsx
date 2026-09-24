@@ -223,7 +223,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   const menuRef = useDismissable(menuOpen, closeMenu);
   const videoMenuRef = useDismissable(videoMenuOpen, closeVideoMenu);
 
-  const keys = overflowKeys({ hasVideo, showViewToggle, isHost, raisedHands });
+  const keys = overflowKeys({ hasVideo, showViewToggle, isHost, raisedHands }).filter(key => !window.meetingDesktop || key !== 'screenShare');
 
   // A badge hidden inside the menu would never be seen, so the menu button
   // carries whatever its contents are trying to say.
@@ -302,6 +302,13 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
           </CircleButton>
         </div>
       )}
+
+      {window.meetingDesktop && hasVideo && <CircleButton
+        label={t(screenOn ? 'meeting.stopShare' : 'meeting.screenShare')}
+        caption={t(screenOn ? 'meeting.tagStop' : 'meeting.desktopShareTag')}
+        active={screenOn} onClick={onToggleScreenShare}>
+        <ScreenShare {...ICON} />
+      </CircleButton>}
 
       <div ref={menuRef} className="relative flex shrink-0">
         {menuOpen && (

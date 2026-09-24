@@ -4,6 +4,7 @@ import { BIBLE_BOOKS, booksOfTestament, findBibleBook, localizeBookName, type Bi
 import { useLocalization } from '../../hooks/useLocalization';
 import type { BibleScrollPosition, BibleView } from '../../hooks/useBibleSync';
 import { useTimedNotice } from '../../hooks/useTimedNotice';
+import { DESKTOP_CONTROLS_WIDTH } from './DesktopShell';
 import {
   BibleService,
   BIBLE_FONT_STEPS,
@@ -180,6 +181,8 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
       ? localizeBookName(book, language)
       : `${localizeBookName(book, language)} ${chapter}`;
 
+  const desktopTitleBar = expanded && Boolean(window.meetingDesktop);
+
   return (
     <div
       className={
@@ -193,8 +196,13 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
              sm:static sm:z-auto sm:h-auto sm:w-1/4 sm:min-w-[24rem] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none`
       }
     >
-      {/* Header: contents / title / text size / expand / close */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-2 py-2.5">
+      {/* Header: contents / title / text size / expand / close. Expanded in the
+          desktop app it covers the window's title bar, so it becomes one: it
+          leaves the window buttons their corner and drags the window. */}
+      <div
+        className={`flex shrink-0 items-center gap-1 border-b border-white/10 px-2 ${desktopTitleBar ? 'desktop-drag h-12' : 'py-2.5'}`}
+        style={desktopTitleBar ? { paddingRight: DESKTOP_CONTROLS_WIDTH + 8 } : undefined}
+      >
         {view !== 'books' ? (
           <button
             type="button"

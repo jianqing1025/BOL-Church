@@ -77,8 +77,8 @@ export function useLiveKit(
   const setError = useCallback((text: string) => {
     setErrorState((prev) => ({ text, seq: prev.seq + 1 }));
   }, []);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
+  const [micOn, setMicOn] = useState(window.meetingDesktop ? media.micOn : true);
+  const [camOn, setCamOn] = useState(window.meetingDesktop ? media.camOn : true);
 
   const [videoFileOn, setVideoFileOn] = useState(false);
 
@@ -98,6 +98,9 @@ export function useLiveKit(
    * that stale value, would start a second share instead of ending one.
    */
   const screenOn = participants.some((p) => p.isLocal && LiveKitService.isScreenSharing(p));
+  const desktopSharing = screenOn && !participants.some((p) => p.isLocal && LiveKitService.isPlayingVideoFile(p));
+  useEffect(() => { window.meetingDesktop?.setSharing(desktopSharing); }, [desktopSharing]);
+  useEffect(() => () => { window.meetingDesktop?.setSharing(false); }, []);
 
   const confirmPermission = useCallback((messageKey: string) => churchPermissionConfirm(t(messageKey), {
     title: t('meeting.permissionTitle'),
@@ -120,7 +123,8 @@ export function useLiveKit(
       // reported but must not stop the join — joining muted beats not joining.
       let stream: MediaStream | null = null;
       try {
-        stream = await LiveKitService.captureLocalMedia();
+        stream = await LiveKitService.captureLocalMedia(window.meetingDesktop ? media : undefined);
+        if (window.meetingDesktop && media.micOn && stream && stream.getAudioTracks().length === 0) setError(t('meeting.microphoneNotFound'));
       } catch (e) {
         setError(t(classifyMediaError(e)));
         setMicOn(false);
@@ -156,7 +160,7 @@ export function useLiveKit(
     try {
       setError('');
       const stream = await LiveKitService.captureLocalMedia();
-      await svc.publishLocalMedia(stream);
+      if (stream) await svc.publishLocalMedia(stream);
       setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
       setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
     } catch (e) {
@@ -177,13 +181,13 @@ export function useLiveKit(
     if (!svc) return;
     try {
       setError('');
-      if (!svc.localParticipant?.isMicrophoneEnabled && await needsPermissionIntro(['microphone'])) {
+      if (!window.meetingDesktop && !svc.localParticipant?.isMicrophoneEnabled && await needsPermissionIntro(['microphone'])) {
         const allowed = await confirmPermission('meeting.microphonePermissionMessage');
         if (!allowed) return;
       }
       setMicOn(await svc.toggleMic());
     } catch (e) {
-      setError(t(classifyMediaError(e)));
+      setError(t(classifyMediaError(e) === 'meeting.mediaNotFound' ? 'meeting.microphoneNotFound' : classifyMediaError(e)));
       setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
     }
   }, [confirmPermission, t]);
@@ -193,7 +197,7 @@ export function useLiveKit(
     if (!svc) return;
     try {
       setError('');
-      if (!svc.localParticipant?.isCameraEnabled && await needsPermissionIntro(['camera'])) {
+      if (!window.meetingDesktop && !svc.localParticipant?.isCameraEnabled && await needsPermissionIntro(['camera'])) {
         const allowed = await confirmPermission('meeting.cameraPermissionMessage');
         if (!allowed) return;
       }
@@ -234,7 +238,7 @@ export function useLiveKit(
     }
     try {
       setError('');
-      if (!localSharing) {
+      if (!localSharing && !window.meetingDesktop) {
         const allowed = await confirmPermission('meeting.screenPermissionMessage');
         if (!allowed) return;
       }

@@ -69,15 +69,35 @@ export class LiveKitService {
    * Falls back to audio only when the camera is unavailable, so a device
    * without a working camera still joins with sound.
    */
-  static async captureLocalMedia(): Promise<MediaStream> {
+  /**
+   * A bare `video: true` gets 640×480 from Chrome, which is most of why faces
+   * looked soft next to Zoom. Ideal (not exact) values, so a camera that
+   * cannot do 720p still opens at whatever it can.
+   */
+  static readonly CAMERA_CONSTRAINTS: MediaTrackConstraints = {
+    width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 },
+  };
+
+  static async captureLocalMedia(media?: { micOn: boolean; camOn: boolean }): Promise<MediaStream | null> {
+    if (media && !media.micOn && !media.camOn) return null;
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     }
+    if (media && (!media.micOn || !media.camOn)) {
+      return navigator.mediaDevices.getUserMedia({ audio: media.micOn, video: media.camOn && LiveKitService.CAMERA_CONSTRAINTS });
+    }
     try {
-      return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: LiveKitService.CAMERA_CONSTRAINTS });
     } catch (error) {
       if (error instanceof DOMException && (error.name === 'NotFoundError' || error.name === 'OverconstrainedError')) {
-        return await navigator.mediaDevices.getUserMedia({ audio: true });
+        try {
+          return await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (audioError) {
+          if (typeof window !== 'undefined' && window.meetingDesktop && audioError instanceof DOMException && audioError.name === 'NotFoundError') {
+            return await navigator.mediaDevices.getUserMedia({ video: LiveKitService.CAMERA_CONSTRAINTS });
+          }
+          throw audioError;
+        }
       }
       throw error;
     }
@@ -153,7 +173,10 @@ export class LiveKitService {
     }
     const { url, token } = await res.json() as { url: string; token: string };
 
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    // pixelDensity 'screen': LiveKit otherwise sizes the stream it sends each
+    // viewer by CSS pixels, so on a laptop at 150% scaling a full-window share
+    // arrived at two thirds of the resolution the screen could show.
+    const room = new Room({ adaptiveStream: { pixelDensity: 'screen' }, dynacast: true });
     this.room = room;
     room
       .on(RoomEvent.ParticipantConnected, () => this.emit())
@@ -303,7 +326,32 @@ export class LiveKitService {
     // dialog belongs to the browser and a page may not touch it. Whether the
     // box appears at all is the browser's call: Chrome and Edge offer it for a
     // tab everywhere and for a whole screen on Windows, Safari not at all.
-    await p.setScreenShareEnabled(enabled, { audio: true });
+    //
+    // Tuned for what a Bible study shares — text and slides — the way Zoom
+    // does: full resolution always, and when the uplink is short it is the
+    // frame rate that drops, never the sharpness ("maintain-resolution").
+    // Capture goes up to 1440p so a high-DPI laptop's text is not shrunk to
+    // 1080p first, and there is a single layer: a lower simulcast layer is
+    // what LiveKit hands a viewer whose tile is "small enough", and for text
+    // that meant a blurry picture on an ordinary window.
+    await p.setScreenShareEnabled(
+      enabled,
+      {
+        audio: true,
+        contentHint: 'detail',
+        // Native size, capped: an "ideal" resolution (LiveKit's own option)
+        // would let Chrome scale a 1080p screen up. Width 0 = LiveKit leaves
+        // the constraints below alone. The SDK types `video` narrower than
+        // Chrome accepts, hence the cast.
+        resolution: { width: 0, height: 0 },
+        video: { width: { max: 2560 }, height: { max: 1440 }, frameRate: { ideal: 30, max: 30 } } as unknown as true,
+      },
+      {
+        screenShareEncoding: { maxBitrate: 5_000_000, maxFramerate: 30 },
+        simulcast: false,
+        degradationPreference: 'maintain-resolution',
+      },
+    );
     this.emit();
     return enabled;
   }

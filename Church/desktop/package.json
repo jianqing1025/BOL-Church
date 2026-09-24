@@ -1,0 +1,46 @@
+{
+  "name": "bolccop-meeting-desktop",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Bread of Life Church Windows meeting client",
+  "author": "BOLCCOP",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test policy.test.cjs",
+    "smoke": "node smoke.cjs",
+    "pack": "node build-zip.cjs",
+    "pack:exe": "node build-zip.cjs --exe"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "playwright": "^1.58.0"
+  },
+  "build": {
+    "appId": "org.bolccop.meeting.dev",
+    "productName": "BOLCCOP Meeting Dev",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "policy.cjs",
+      "picker.html",
+      "picker.cjs",
+      "picker-preload.cjs"
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "build/icon.png",
+      "signAndEditExecutable": true
+    },
+    "compression": "maximum",
+    "electronLanguages": [
+      "zh-TW",
+      "zh-CN",
+      "en-US"
+    ]
+  }
+}

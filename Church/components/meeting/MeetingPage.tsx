@@ -18,6 +18,7 @@ import type { DisplayMessage } from './MessageList';
 import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
 import { MeetingJoinDialog } from './MeetingJoinDialog';
+import { DesktopRoomPicker } from './DesktopRoomPicker';
 import { defaultJoinMedia, type JoinMedia } from '../../meeting/joinDefaults';
 import PageHeader from '../PageHeader';
 import MinistrySecondaryNav from '../MinistrySecondaryNav';
@@ -97,7 +98,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
 
   // Let the shell know which stage we are in (so it can hide header/footer for
   // the full-screen in-room view) and reset when the page unmounts.
-  useEffect(() => { onStageChange?.(stage); }, [stage, onStageChange]);
+  useEffect(() => { onStageChange?.(stage); window.meetingDesktop?.setStage(stage); }, [stage, onStageChange]);
   useEffect(() => () => onStageChange?.(null), [onStageChange]);
 
   useEffect(() => {
@@ -258,6 +259,31 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
     );
   }
 
+  const joinDialog = pendingRoom && (
+    <MeetingJoinDialog
+      roomName={localizeMeetingRoomText(pendingRoom.name, language)}
+      activeCount={pendingRoom.activeCount}
+      onCancel={() => setPendingRoom(null)}
+      onJoin={(media) => enterRoom(pendingRoom, media)}
+    />
+  );
+
+  if (stage === 'pick' && window.meetingDesktop) {
+    return (
+      <>
+        <DesktopRoomPicker
+          rooms={pickerRooms}
+          name={name}
+          hostFor={hostFor}
+          onHostForChange={setHostFor}
+          onJoin={(r) => (r.hasVideo ? setPendingRoom(r) : enterRoom(r, { camOn: false, micOn: false }))}
+          onSignOut={signOut}
+        />
+        {joinDialog}
+      </>
+    );
+  }
+
   if (stage === 'pick') {
     return (
       <div className="min-h-screen bg-white">
@@ -318,14 +344,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
           </div>
         </div>
 
-        {pendingRoom && (
-          <MeetingJoinDialog
-            roomName={localizeMeetingRoomText(pendingRoom.name, language)}
-            activeCount={pendingRoom.activeCount}
-            onCancel={() => setPendingRoom(null)}
-            onJoin={(media) => enterRoom(pendingRoom, media)}
-          />
-        )}
+        {joinDialog}
       </div>
     );
   }

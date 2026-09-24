@@ -1,4 +1,4 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, Donation, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage, LiveChatReactions } from './types';
 
 export interface LiveStreamSavePayload {

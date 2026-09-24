@@ -19,6 +19,7 @@ import AdminDashboard from './components/AdminDashboard';
 import PrayerRequestPage from './components/PrayerRequestPage';
 import PhotosPage from './components/photos/PhotosPage';
 import MeetingPage from './components/meeting/MeetingPage';
+import { DesktopShell } from './components/meeting/DesktopShell';
 import { ChurchDialogHost } from './components/ChurchDialog';
 import { SubPage, MinistrySubPage, SermonSubPage, GivingSubPage, ContactSubPage, PrayerRequestSubPage } from './types';
 import { APP_NAVIGATION_EVENT, currentRoute, redirectLegacyHashRoute } from './utils/routes';
@@ -88,6 +89,10 @@ function App() {
           <ChurchDialogHost />
         </>
       );
+  }
+
+  if (window.meetingDesktop) {
+    return <DesktopShell stage={meetingStage}><MeetingPage onStageChange={setMeetingStage} /><ChurchDialogHost /></DesktopShell>;
   }
 
   const renderPage = () => {

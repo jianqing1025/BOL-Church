@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
         port: 2101,
         host: '0.0.0.0',
         proxy: {
-          '/api': {
+          '^/api/': {
             target: apiProxyTarget,
             changeOrigin: true,
             ws: true,
