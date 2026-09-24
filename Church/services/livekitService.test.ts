@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Track, type Participant } from 'livekit-client';
-import { LiveKitService, VIDEO_FILE_TRACK_NAME } from './livekitService';
+import { LiveKitService, VIDEO_FILE_TRACK_NAME, SLIDE_TRACK_NAME } from './livekitService';
 
 type FakePub = { track: object | undefined; source: Track.Source; isMuted?: boolean; trackName?: string };
 
@@ -94,6 +94,13 @@ describe('LiveKitService.isPlayingVideoFile', () => {
     expect(LiveKitService.isPlayingVideoFile(p)).toBe(true);
     // It still counts as a screen share, so the one-at-a-time rule covers both.
     expect(LiveKitService.isScreenSharing(p)).toBe(true);
+  });
+
+  it('treats a presented slide like a broadcast video, not a screen', () => {
+    const p = participant({ video: [{ track: {}, source: Track.Source.ScreenShare, trackName: SLIDE_TRACK_NAME }] });
+    expect(LiveKitService.isPlayingVideoFile(p)).toBe(true);
+    expect(LiveKitService.isSharingSlide(p)).toBe(true);
+    expect(LiveKitService.isSharingSlide(participant({ video: [{ track: {}, source: Track.Source.ScreenShare, trackName: VIDEO_FILE_TRACK_NAME }] }))).toBe(false);
   });
 
   it('is false for a real screen share', () => {

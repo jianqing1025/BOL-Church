@@ -48,6 +48,18 @@ describe('trimHistory', () => {
 });
 
 describe('sanitizeBibleMessage', () => {
+  it('keeps a highlighted verse range on a passage', () => {
+    expect(sanitizeBibleMessage({ type: 'bible', action: 'passage', bookId: 43, chapter: 3, highlight: { from: 16, to: 17 } }))
+      .toEqual({ type: 'bible', action: 'passage', bookId: 43, chapter: 3, highlight: { from: 16, to: 17 } });
+  });
+
+  it('drops a highlight that is not a sane verse range, but keeps the passage', () => {
+    for (const highlight of [{ from: 0, to: 3 }, { from: 5, to: 4 }, { from: 1, to: 201 }, { from: '1', to: 2 }, 'x']) {
+      expect(sanitizeBibleMessage({ type: 'bible', action: 'passage', bookId: 43, chapter: 3, highlight }))
+        .toEqual({ type: 'bible', action: 'passage', bookId: 43, chapter: 3 });
+    }
+  });
+
   it('accepts the three navigation actions', () => {
     expect(sanitizeBibleMessage({ type: 'bible', action: 'contents' }))
       .toEqual({ type: 'bible', action: 'contents' });

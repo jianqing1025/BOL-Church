@@ -59,7 +59,11 @@ export type BibleMessage =
    */
   | { type: 'bible'; action: 'close' }
   | { type: 'bible'; action: 'book'; bookId: number }
-  | { type: 'bible'; action: 'passage'; bookId: number; chapter: number }
+  /**
+   * `highlight` marks the verses a host is presenting (聚會內容). Optional, so
+   * an older client simply opens the chapter and ignores it.
+   */
+  | { type: 'bible'; action: 'passage'; bookId: number; chapter: number; highlight?: { from: number; to: number } }
   /**
    * Where the leader is reading within a chapter, as the verse at the top of
    * their panel — not a pixel offset, which would land somewhere else on a
@@ -140,6 +144,15 @@ export type ClientMessage =
   | RoomVideoMessage
   | RoomReaction;
 
+/** A verse range, bounded like `scroll` below (詩篇 119 has 176 verses). */
+function sanitizeVerseRange(input: unknown): { from: number; to: number } | null {
+  if (!input || typeof input !== 'object') return null;
+  const { from, to } = input as { from?: unknown; to?: unknown };
+  const verse = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 200;
+  if (!verse(from) || !verse(to) || to < from) return null;
+  return { from, to };
+}
+
 /**
  * Validates a Bible navigation message from a client. The Durable Object
  * rebroadcasts to the whole room, so a bad book or chapter would push everyone
@@ -160,7 +173,12 @@ export function sanitizeBibleMessage(input: unknown): BibleMessage | null {
   if (msg.action === 'passage' || msg.action === 'scroll') {
     const chapter = msg.chapter;
     if (typeof chapter !== 'number' || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters) return null;
-    if (msg.action === 'passage') return { type: 'bible', action: 'passage', bookId: book.id, chapter };
+    if (msg.action === 'passage') {
+      const highlight = sanitizeVerseRange((msg as { highlight?: unknown }).highlight);
+      return highlight
+        ? { type: 'bible', action: 'passage', bookId: book.id, chapter, highlight }
+        : { type: 'bible', action: 'passage', bookId: book.id, chapter };
+    }
 
     // Verse counts are not part of the book table, so this is a sanity bound:
     // the longest chapter in the Bible (詩篇 119) has 176 verses.

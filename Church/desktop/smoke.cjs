@@ -100,6 +100,14 @@ const assert = require('node:assert/strict');
     assert.equal(await page.evaluate(() => window.smokeCompact), false);
     await page.evaluate(() => { window.smokeStream.getTracks().forEach(track => track.stop()); window.meetingDesktop.setSharing(false); });
     assert.equal(await app.evaluate(() => globalThis.smokePermissionPrompts), 0, 'Screen capture does not ask for microphone or camera permission');
+    // 聚會內容: prepare a text slide and a verse on the home page, then find them as host.
+    await page.getByRole('button', { name: '聚會內容' }).first().click();
+    await page.getByRole('button', { name: '新增一份' }).first().click();
+    await page.getByRole('button', { name: '文字', exact: true }).click();
+    await page.getByPlaceholder('要顯示的文字').fill('本週代禱事項');
+    await page.getByRole('button', { name: '經文', exact: true }).click();
+    await page.getByText('神愛世人').first().waitFor();
+    await page.locator('[role="dialog"] header button').click();
     await page.evaluate(() => {
       window.WebSocket = class extends EventTarget {
         static OPEN = 1;
@@ -118,9 +126,15 @@ const assert = require('node:assert/strict');
     });
     await page.route('**/api/meeting/livekit-token', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Offline UI test"}' }));
     await page.evaluate(() => { window.smokeDeviceRequests = 0; navigator.mediaDevices.getUserMedia = async () => { window.smokeDeviceRequests++; return new MediaStream(); }; document.getElementById('capture-smoke').remove(); });
+    await page.locator('input[type="checkbox"]').first().check();
     await page.getByRole('button', { name: '加入', exact: true }).first().click();
     await page.getByRole('button', { name: '加入', exact: true }).last().click();
     await page.getByRole('button', { name: '分享螢幕', exact: true }).waitFor();
+    // The host control bar offers 聚會內容; its drawer lists what was prepared.
+    await page.getByRole('button', { name: '聚會內容' }).click();
+    await page.getByText('本週代禱事項').waitFor();
+    await page.getByText('約翰福音 3:16').waitFor();
+    await page.getByRole('button', { name: '聚會內容' }).click();
     assert.equal(await page.evaluate(() => window.smokeDeviceRequests), 0, 'Default desktop join does not open devices');
     const labels = await page.locator('button[aria-label]').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
     assert.ok(labels.indexOf('分享螢幕') < labels.indexOf('更多'));

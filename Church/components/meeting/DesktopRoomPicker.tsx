@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Video } from 'lucide-react';
+import { ClipboardList, LogOut, Video } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
 import { LogoIcon } from '../icons/Icons';
@@ -14,13 +14,14 @@ interface DesktopRoomPickerProps {
   onHostForChange: (roomId: string | null) => void;
   onJoin: (room: RoomWithActivity) => void;
   onSignOut: () => void;
+  onOpenAgenda: () => void;
 }
 
 /**
  * The desktop app's home: a slim header that doubles as the title bar, and
  * the rooms laid out to fit the window without a scrollbar.
  */
-export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, name, hostFor, onHostForChange, onJoin, onSignOut }) => {
+export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, name, hostFor, onHostForChange, onJoin, onSignOut, onOpenAgenda }) => {
   const { language, t } = useLocalization();
   return (
     <div className="flex h-screen flex-col bg-[#f6f7fb]">
@@ -47,8 +48,16 @@ export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, nam
 
       <main className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 pb-8 pt-7">
         <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
-          <h2 className="text-xl font-bold text-gray-900">{t('meeting.pickPrompt')}</h2>
-          <p className="mt-1 text-sm text-gray-500">{t('meeting.desktopPickHint')}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{t('meeting.pickPrompt')}</h2>
+              <p className="mt-1 text-sm text-gray-500">{t('meeting.desktopPickHint')}</p>
+            </div>
+            <button type="button" onClick={onOpenAgenda}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50">
+              <ClipboardList size={16} />{t('meeting.agendaTitle')}
+            </button>
+          </div>
 
           {/* Rows share the window's height, so the cards grow with it instead of leaving a blank lower half. */}
           <div className="mt-5 grid flex-1 auto-rows-[minmax(13rem,1fr)] grid-cols-1 gap-4 min-[860px]:grid-cols-2">

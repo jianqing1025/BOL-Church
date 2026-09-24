@@ -12,6 +12,13 @@ export interface BibleScrollPosition {
   seq: number;
 }
 
+export interface BibleHighlight {
+  bookId: number;
+  chapter: number;
+  from: number;
+  to: number;
+}
+
 export interface BibleSync {
   open: boolean;
   view: BibleView;
@@ -31,7 +38,9 @@ export interface BibleSync {
   close: () => void;
   showContents: () => void;
   selectBook: (bookId: number) => void;
-  selectChapter: (bookId: number, chapter: number) => void;
+  /** Verses a host is presenting, for the passage named — cleared on any other move. */
+  highlight: BibleHighlight | null;
+  selectChapter: (bookId: number, chapter: number, highlight?: { from: number; to: number }) => void;
   /** Apply an update that arrived from the room. */
   apply: (message: BibleMessage) => void;
 }
@@ -60,6 +69,7 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   const [chapter, setChapter] = useState(initial.chapter);
   const [hostScroll, setHostScroll] = useState<BibleScrollPosition | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [highlight, setHighlight] = useState<BibleHighlight | null>(null);
 
   const apply = useCallback((message: BibleMessage) => {
     // Before the open below: a close must not be answered by opening.
@@ -67,6 +77,7 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
       setOpen(false);
       // Leaving full screen behind would reopen the Bible covering everything.
       setExpanded(false);
+      setHighlight(null);
       return;
     }
     // A scroll only moves readers who already have the Bible open — it should
@@ -88,15 +99,20 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
     setOpen(true);
     if (message.action === 'contents') {
       setView('books');
+      setHighlight(null);
       return;
     }
     setBookId(message.bookId);
     if (message.action === 'book') {
       setView('chapters');
+      setHighlight(null);
       return;
     }
     setChapter(message.chapter);
     setView('text');
+    setHighlight(message.action === 'passage' && message.highlight
+      ? { bookId: message.bookId, chapter: message.chapter, ...message.highlight }
+      : null);
   }, []);
 
   // Applied locally as well as sent: the reader should not wait on a round
@@ -110,7 +126,9 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   const showContents = useCallback(() => lead({ type: 'bible', action: 'contents' }), [lead]);
   const selectBook = useCallback((id: number) => lead({ type: 'bible', action: 'book', bookId: id }), [lead]);
   const selectChapter = useCallback(
-    (id: number, next: number) => lead({ type: 'bible', action: 'passage', bookId: id, chapter: next }),
+    (id: number, next: number, range?: { from: number; to: number }) => lead(range
+      ? { type: 'bible', action: 'passage', bookId: id, chapter: next, highlight: range }
+      : { type: 'bible', action: 'passage', bookId: id, chapter: next }),
     [lead],
   );
 
@@ -135,7 +153,7 @@ export function useBibleSync(send: (message: BibleMessage) => void, canLead: boo
   }, [open, close, showContents]);
 
   return {
-    open, view, bookId, chapter, hostScroll, canLead, reportScroll,
+    open, view, bookId, chapter, hostScroll, canLead, reportScroll, highlight,
     expanded, toggleExpanded,
     toggle, close, showContents, selectBook, selectChapter, apply,
   };

@@ -24,6 +24,8 @@ interface BiblePanelProps {
   hostScroll: BibleScrollPosition | null;
   onReportScroll: (verse: number) => void;
   expanded: boolean;
+  /** Verses to mark, when they belong to the passage on screen. */
+  highlight?: { bookId: number; chapter: number; from: number; to: number } | null;
   onShowContents: () => void;
   onSelectBook: (bookId: number) => void;
   onSelectChapter: (bookId: number, chapter: number) => void;
@@ -49,7 +51,7 @@ const isNarrowScreen = (): boolean =>
  */
 export const BiblePanel: React.FC<BiblePanelProps> = ({
   view, bookId, chapter, canLead, hostScroll, onReportScroll,
-  expanded, onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
+  expanded, highlight = null, onShowContents, onSelectBook, onSelectChapter, onToggleExpanded, onClose,
 }) => {
   const { language, t } = useLocalization();
   // Who is leading is worth saying once; leaving it there just takes a line
@@ -155,6 +157,27 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
     // a reader who has just chosen to follow again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostSeq, following, verses]);
+
+  // A presented passage: once its verses are on screen, bring the first to the
+  // top. Retried for a few frames: a panel that has only just opened is not
+  // scrollable until the page's runtime styles reach it, and a scroll before
+  // then is clamped to zero.
+  const marked = highlight && highlight.bookId === bookId && highlight.chapter === chapter ? highlight : null;
+  useEffect(() => {
+    if (!marked || !verses) return;
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      scrollToVerse(marked.from);
+      const el = scrollRef.current;
+      const node = el?.querySelector<HTMLElement>(`[data-verse="${marked.from}"]`);
+      const offset = el && node ? node.getBoundingClientRect().top - el.getBoundingClientRect().top : 0;
+      if (Math.abs(offset) > 4 && ++tries < 30) frame = requestAnimationFrame(attempt);
+    };
+    frame = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marked?.from, marked?.to, verses]);
 
   const resumeFollowing = () => {
     setFollowing(true);
@@ -322,7 +345,11 @@ export const BiblePanel: React.FC<BiblePanelProps> = ({
             {verses && (
               <ol className="space-y-3 text-gray-100" style={{ fontSize: `${scale}rem`, lineHeight: 1.9 }}>
                 {verses.map((verse, i) => (
-                  <li key={i} data-verse={i + 1} className="flex gap-2">
+                  <li
+                    key={i}
+                    data-verse={i + 1}
+                    className={`flex gap-2 ${marked && i + 1 >= marked.from && i + 1 <= marked.to ? '-mx-2 rounded-lg bg-amber-400/15 px-2 ring-1 ring-amber-300/30' : ''}`}
+                  >
                     <span
                       className="shrink-0 select-none pt-1 font-semibold tabular-nums text-blue-400"
                       style={{ fontSize: `${scale * 0.62}rem` }}

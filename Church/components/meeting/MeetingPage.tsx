@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ClipboardList } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import {
@@ -19,6 +20,8 @@ import { MeetingRoomView } from './MeetingRoomView';
 import { MeetingSignIn } from './MeetingSignIn';
 import { MeetingJoinDialog } from './MeetingJoinDialog';
 import { DesktopRoomPicker } from './DesktopRoomPicker';
+import { openAgendaStore } from '../../meeting/agenda/agendaStore';
+import { AgendaEditor } from './agenda/AgendaEditor';
 import { MeetingDesktopDownload } from './MeetingDesktopDownload';
 import { defaultJoinMedia, type JoinMedia } from '../../meeting/joinDefaults';
 import PageHeader from '../PageHeader';
@@ -73,6 +76,8 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const [pendingRoom, setPendingRoom] = useState<RoomWithActivity | null>(null);
   const [joinMedia, setJoinMedia] = useState<JoinMedia>(() => defaultJoinMedia(0));
   const socketRef = useRef<MeetingSocket | null>(null);
+  const [agendaEditorOpen, setAgendaEditorOpen] = useState(false);
+  const agendaStore = useMemo(() => openAgendaStore(), []);
 
   const sendBible = useCallback((message: BibleMessage) => socketRef.current?.sendBible(message), []);
   // A host leads the room through the text; with no host present, anyone may.
@@ -279,8 +284,10 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
           onHostForChange={setHostFor}
           onJoin={(r) => (r.hasVideo ? setPendingRoom(r) : enterRoom(r, { camOn: false, micOn: false }))}
           onSignOut={signOut}
+          onOpenAgenda={() => setAgendaEditorOpen(true)}
         />
         {joinDialog}
+        {agendaEditorOpen && <AgendaEditor store={agendaStore} onClose={() => setAgendaEditorOpen(false)} />}
       </>
     );
   }
@@ -291,7 +298,13 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         <PageHeader title={t('eventsPage.navOnlineBibleStudy')} subtitle={t('meeting.pickRoom')} />
         <MinistrySecondaryNav active="online-bible-study" />
         <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-16">
-          <h2 className="mb-2 text-center text-2xl font-bold text-gray-800 sm:text-3xl">{t('meeting.pickPrompt')}</h2>
+          <div className="relative mb-2 flex items-center justify-center">
+            <h2 className="text-center text-2xl font-bold text-gray-800 sm:text-3xl">{t('meeting.pickPrompt')}</h2>
+            <button type="button" onClick={() => setAgendaEditorOpen(true)}
+              className="absolute right-0 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50">
+              <ClipboardList size={16} />{t('meeting.agendaTitle')}
+            </button>
+          </div>
           <p className="mb-6 text-center text-sm text-gray-500 sm:mb-10">
             {name}
             <button
@@ -347,6 +360,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
         </div>
 
         {joinDialog}
+        {agendaEditorOpen && <AgendaEditor store={agendaStore} onClose={() => setAgendaEditorOpen(false)} />}
       </div>
     );
   }

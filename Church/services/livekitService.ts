@@ -11,6 +11,10 @@ const HAND_TOPIC = 'meeting-hand';
 
 /** Track name for a broadcast video file, to tell it apart from a real screen share. */
 export const VIDEO_FILE_TRACK_NAME = 'meeting-video-file';
+/** Track name for a 聚會內容 slide (text or image drawn on a canvas). */
+export const SLIDE_TRACK_NAME = 'meeting-slide';
+/** Shares that are media the page plays itself, as opposed to a captured screen. */
+const MEDIA_SHARE_TRACK_NAMES = new Set([VIDEO_FILE_TRACK_NAME, SLIDE_TRACK_NAME]);
 
 export interface LiveKitHandlers {
   onParticipantsChanged: (participants: Participant[]) => void;
@@ -74,6 +78,7 @@ export class LiveKitService {
   private closed = false;
   private connected = false;
   private videoFileTracks: MediaStreamTrack[] = [];
+  private slideTrack: MediaStreamTrack | null = null;
   constructor(private handlers: LiveKitHandlers) {}
 
   get localParticipant(): LocalParticipant | undefined {
@@ -569,6 +574,39 @@ export class LiveKitService {
     this.emit();
   }
 
+  /**
+   * Publishes a canvas as the room's shared picture. The canvas keeps being
+   * redrawn for the next slide; the track stays the same, so switching slides
+   * is instant and never re-negotiates.
+   */
+  async publishSlide(canvas: HTMLCanvasElement): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p || this.slideTrack) return;
+    // One frame a second is plenty for a still picture, and keeps a late
+    // joiner from waiting on a black tile.
+    const [track] = canvas.captureStream(1).getVideoTracks();
+    if (!track) throw new Error('This browser cannot present slides');
+    track.contentHint = 'detail';
+    this.slideTrack = track;
+    await p.publishTrack(track, {
+      source: Track.Source.ScreenShare,
+      name: SLIDE_TRACK_NAME,
+      simulcast: false,
+      screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 5 },
+      degradationPreference: 'maintain-resolution',
+    });
+    this.emit();
+  }
+
+  async unpublishSlide(): Promise<void> {
+    const p = this.room?.localParticipant;
+    const track = this.slideTrack;
+    this.slideTrack = null;
+    if (!p || !track) return;
+    try { await p.unpublishTrack(track, true); } catch { /* already gone */ }
+    this.emit();
+  }
+
   async unpublishVideoFile(): Promise<void> {
     const p = this.room?.localParticipant;
     const tracks = this.videoFileTracks;
@@ -589,6 +627,7 @@ export class LiveKitService {
   disconnect(): void {
     this.closed = true;
     this.videoFileTracks = [];
+    this.slideTrack = null;
     try { this.room?.disconnect(); } catch { /* ignore */ }
     this.room = null;
   }
@@ -640,6 +679,11 @@ export class LiveKitService {
   /** Whether a participant's screen share is a broadcast video file. */
   static isPlayingVideoFile(participant: Participant): boolean {
     return [...participant.videoTrackPublications.values()]
-      .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare && p.trackName === VIDEO_FILE_TRACK_NAME);
+      .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare && MEDIA_SHARE_TRACK_NAMES.has(p.trackName));
+  }
+
+  static isSharingSlide(participant: Participant): boolean {
+    return [...participant.videoTrackPublications.values()]
+      .some((p) => p.track && !p.isMuted && p.source === Track.Source.ScreenShare && p.trackName === SLIDE_TRACK_NAME);
   }
 }

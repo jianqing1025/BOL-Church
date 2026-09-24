@@ -41,6 +41,11 @@ export interface UseLiveKit {
   /** Publish a playing <video> element to the room. Resolves false if blocked. */
   startVideoFile: (element: HTMLVideoElement) => Promise<boolean>;
   stopVideoFile: () => Promise<void>;
+  /** Present a canvas to the room (聚會內容). Resolves false if the slot is taken. */
+  startSlide: (canvas: HTMLCanvasElement) => Promise<boolean>;
+  stopSlide: () => Promise<void>;
+  /** True while this participant is presenting a slide. */
+  slideOn: boolean;
   /** True when someone else already holds the shared-picture slot. */
   shareSlotTaken: boolean;
 }
@@ -343,6 +348,29 @@ export function useLiveKit(
     }
   }, []);
 
+  const slideOn = participants.some((p) => p.isLocal && LiveKitService.isSharingSlide(p));
+
+  const startSlide = useCallback(async (canvas: HTMLCanvasElement): Promise<boolean> => {
+    const svc = serviceRef.current;
+    if (!svc) return false;
+    // A host's claim clears the other side; the check here only guards our own screen share.
+    if (svc.localParticipant?.isScreenShareEnabled && !slideOn) {
+      setError(t('meeting.screenShareBusy'));
+      return false;
+    }
+    try {
+      await svc.publishSlide(canvas);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }, [slideOn, t, setError]);
+
+  const stopSlide = useCallback(async () => {
+    await serviceRef.current?.unpublishSlide().catch(() => undefined);
+  }, []);
+
   // The chat socket's welcome may arrive before or after the video connects,
   // so publish the presence id whenever both exist rather than at one moment.
   useEffect(() => {
@@ -371,6 +399,7 @@ export function useLiveKit(
     participants, activeSpeakerIds, connecting, reconnecting, joined, error, errorSeq: errorState.seq,
     micOn, camOn, screenOn, videoFileOn, handRaised, shareSlotTaken,
     join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile, retryLocalMedia,
+    startSlide, stopSlide, slideOn,
     toggleHand, lowerHandOf, lowerAllHands,
   };
 }

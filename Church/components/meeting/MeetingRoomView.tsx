@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, MessageSquare, Users, ScreenShareOff } from 'lucide-react';
 import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
 import { useLiveKit } from '../../hooks/useLiveKit';
@@ -23,6 +23,10 @@ import { YouTubePromptDialog } from './YouTubePromptDialog';
 import { VideoBroadcastBar } from './VideoBroadcastBar';
 import { DESKTOP_CONTROLS_WIDTH, useDesktopWindow } from './DesktopShell';
 import { DesktopShareBar, type RaisedHand } from './DesktopShareBar';
+import { useAgendaPresenter } from '../../hooks/useAgendaPresenter';
+import { openAgendaStore } from '../../meeting/agenda/agendaStore';
+import { AgendaDrawer } from './agenda/AgendaDrawer';
+import { AgendaEditor } from './agenda/AgendaEditor';
 
 interface MeetingRoomViewProps {
   room: MeetingRoom;
@@ -96,6 +100,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
   const [membersOpen, setMembersOpen] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [youtubeOpen, setYoutubeOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
+  const [agendaEditorOpen, setAgendaEditorOpen] = useState(false);
+  /** Bumped when the editor closes, so the drawer re-reads what was just changed. */
+  const [agendaReload, setAgendaReload] = useState(0);
+  const agendaStore = useMemo(() => openAgendaStore(), []);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('gallery');
   const [elapsed, setElapsed] = useState(0);
@@ -224,6 +233,12 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
     roomVideo.close();
   }, [videoFile, stopVideoFile, roomVideo]);
 
+  const agenda = useAgendaPresenter({
+    lk, roomVideo, bible, store: agendaStore, videoFile, setVideoFile, onHostCommand,
+    footer: `${t('header.logo')} · ${localizeMeetingRoomText(room.name, language)}`,
+    onError: (key) => void churchAlert(t(key)),
+  });
+
   /**
    * What this person is putting on the room's screen, if anything.
    *
@@ -234,9 +249,11 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
    */
   const sharing = (videoFile || (roomVideo.videoId !== null && (roomVideo.canLead || isHost)))
     ? { label: t('meeting.videoFileStop'), stop: stopSharedVideo }
-    : localSharing
-      ? { label: t('meeting.stopShare'), stop: () => void lk.toggleScreenShare() }
-      : null;
+    : lk.slideOn
+      ? { label: t('meeting.agendaStop'), stop: () => void agenda.stop() }
+      : localSharing
+        ? { label: t('meeting.stopShare'), stop: () => void lk.toggleScreenShare() }
+        : null;
 
   // Clear the badge when the chat is opened.
   useEffect(() => { if (chatOpen) setUnread(0); }, [chatOpen]);
@@ -407,6 +424,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             hostScroll={bible.hostScroll}
             onReportScroll={bible.reportScroll}
             expanded={bible.expanded}
+            highlight={bible.highlight}
             onShowContents={bible.showContents}
             onSelectBook={bible.selectBook}
             onSelectChapter={bible.selectChapter}
@@ -429,10 +447,19 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
             />
           </aside>
         )}
+
+        {isHost && agendaOpen && (
+          <AgendaDrawer store={agendaStore} presenter={agenda} reloadKey={agendaReload}
+            onOpenEditor={() => setAgendaEditorOpen(true)} />
+        )}
       </div>
 
       {youtubeOpen && (
         <YouTubePromptDialog onCancel={() => setYoutubeOpen(false)} onPlay={playYouTubeVideo} />
+      )}
+
+      {agendaEditorOpen && (
+        <AgendaEditor store={agendaStore} onClose={() => { setAgendaEditorOpen(false); setAgendaReload((n) => n + 1); }} />
       )}
 
       {videoFile && (
@@ -488,6 +515,8 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
         onToggleMembers={() => setMembersOpen((v) => !v)}
         onToggleBible={bible.toggle}
         onLeave={() => void leaveRoom()}
+        agendaOpen={agendaOpen}
+        onToggleAgenda={isHost ? () => setAgendaOpen((v) => !v) : undefined}
       />
     </div>
     </>

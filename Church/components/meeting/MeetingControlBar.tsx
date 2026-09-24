@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, ScreenShare, MessageSquare, Users, PhoneOff,
-  LayoutGrid, UserSquare2, BookOpen, Play, Hand, FileVideo, Youtube,
+  LayoutGrid, UserSquare2, BookOpen, Play, Hand, FileVideo, Youtube, ClipboardList,
 } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
 import { overflowKeys, type OverflowKey } from './controlBarItems';
@@ -44,6 +44,9 @@ interface MeetingControlBarProps {
   onToggleMembers: () => void;
   onToggleBible: () => void;
   onLeave: () => void;
+  /** Host only: the 聚會內容 drawer. Absent for everyone else, and then no button. */
+  agendaOpen?: boolean;
+  onToggleAgenda?: () => void;
 }
 
 /**
@@ -212,7 +215,7 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
   videoFileOn, canStopSharedVideo, onStopSharedVideo, onPickLocalVideo, onPickYouTubeVideo, videoDisabled,
   handRaised, isHost, raisedHands, showViewToggle, viewMode,
   onToggleView, onToggleMic, onToggleCamera, onToggleHand, onLowerAllHands, onMuteAll, onToggleScreenShare,
-  onToggleChat, onToggleMembers, onToggleBible, onLeave,
+  onToggleChat, onToggleMembers, onToggleBible, onLeave, agendaOpen = false, onToggleAgenda,
 }) => {
   const { t } = useLocalization();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -267,6 +270,12 @@ export const MeetingControlBar: React.FC<MeetingControlBarProps> = ({
       <CircleButton label={t('bible.open')} caption={t('meeting.tagBible')} active={bibleOpen} onClick={onToggleBible}>
         <BookOpen {...ICON} />
       </CircleButton>
+
+      {onToggleAgenda && (
+        <CircleButton label={t('meeting.agendaTitle')} caption={t('meeting.tagAgenda')} active={agendaOpen} onClick={onToggleAgenda}>
+          <ClipboardList {...ICON} />
+        </CircleButton>
+      )}
 
       {hasVideo && (
         <div ref={videoMenuRef} className="relative flex shrink-0">

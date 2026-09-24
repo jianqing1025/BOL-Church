@@ -42,6 +42,7 @@
     "@types/react-dom": "^19.2.0",
     "@types/topojson-client": "^3.1.5",
     "@vitejs/plugin-react": "^5.0.0",
+    "fake-indexeddb": "^6.2.5",
     "firebase": "^12.12.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
