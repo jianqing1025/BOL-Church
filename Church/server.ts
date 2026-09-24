@@ -52,6 +52,16 @@ type Env = {
   RESEND_WEBHOOK_SECRET?: string;
   /** 入站子域名（如 reply.bolccop.org）；設定後出站回信使用 thread 專屬 Reply-To */
   MAILBOX_INBOUND_DOMAIN?: string;
+  /** Stripe 秘密金鑰（sk_ 開頭）；務必用 wrangler secret put 設定，不可寫入檔案 */
+  STRIPE_SECRET_KEY?: string;
+  /** Stripe webhook 簽章密鑰（whsec_ 開頭）；未設則 webhook 端點一律拒收 */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Stripe 可公開金鑰（pk_ 開頭）；設計上即為公開值，會編進前端 */
+  STRIPE_PUBLISHABLE_KEY?: string;
+  /** 手續費百分比，如 "2.2"；未設則用非營利預設 2.2% */
+  STRIPE_FEE_PERCENT?: string;
+  /** 手續費固定額（分），如 "30"；未設則用預設 30 */
+  STRIPE_FEE_FIXED_CENTS?: string;
   CHAT_ROOM: DurableObjectNamespace;
   CHAT_PASSWORD?: string;
   ALLOWED_ORIGIN?: string;
@@ -470,10 +480,22 @@ type MailboxReplyRow = {
 
 type DonationRow = {
   id: string;
-  date: string;
-  amount: number;
-  type: 'one-time' | 'recurring';
-  status: 'completed';
+  created_at: string;
+  updated_at: string;
+  donor_name: string | null;
+  donor_email: string | null;
+  category: string | null;
+  note: string | null;
+  amount_cents: number;
+  covered_fee_cents: number;
+  gross_cents: number;
+  currency: string;
+  type: string;
+  status: string;
+  source: string;
+  stripe_payment_intent_id: string | null;
+  receipt_url: string | null;
+  failure_message: string | null;
 };
 
 type PhotoRow = {
@@ -865,13 +887,28 @@ function mapMailboxReply(row: MailboxReplyRow) {
   };
 }
 
+/**
+ * 轉為前端型別。注意 stripe_payment_intent_id 刻意不外送 ——
+ * 它沒有前端用途，少一個外洩面。
+ */
 function mapDonation(row: DonationRow) {
   return {
     id: row.id,
-    date: row.date,
-    amount: Number(row.amount),
-    type: row.type,
-    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    donorName: row.donor_name,
+    donorEmail: row.donor_email,
+    category: row.category,
+    note: row.note,
+    amountCents: row.amount_cents,
+    coveredFeeCents: row.covered_fee_cents,
+    grossCents: row.gross_cents,
+    currency: row.currency,
+    type: row.type as 'one-time' | 'recurring',
+    status: row.status as 'pending' | 'completed' | 'failed' | 'refunded',
+    source: row.source as 'stripe' | 'legacy' | 'manual',
+    receiptUrl: row.receipt_url,
+    failureMessage: row.failure_message,
   };
 }
 
@@ -1430,7 +1467,9 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
     const [messagesResult, prayerResult, donationsResult, usersResult] = await Promise.all([
       env.DB.prepare('SELECT * FROM messages ORDER BY date DESC').all<MessageRow>(),
       env.DB.prepare('SELECT * FROM prayer_requests ORDER BY date DESC').all<PrayerRequestRow>(),
-      env.DB.prepare('SELECT * FROM donations ORDER BY date DESC').all<DonationRow>(),
+      currentUser.role === 'owner'
+        ? env.DB.prepare('SELECT * FROM donations ORDER BY created_at DESC LIMIT 500').all<DonationRow>()
+        : Promise.resolve({ results: [] as DonationRow[] }),
       currentUser.role === 'owner'
         ? env.DB.prepare('SELECT * FROM users ORDER BY created_at ASC').all<UserRow>()
         : Promise.resolve({ results: [] as UserRow[] }),

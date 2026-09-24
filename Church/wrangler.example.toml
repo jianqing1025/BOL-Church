@@ -44,6 +44,11 @@ CLOUDFLARE_ACCOUNT_ID = "your-account-id"
 CLOUDFLARE_WEB_ANALYTICS_SITE_TAG = "your-web-analytics-site-tag"
 CLOUDFLARE_ANALYTICS_API_TOKEN = "your-analytics-read-token"
 
+# Stripe 線上奉獻。secret key 與 webhook secret 請用 `wrangler secret put` 設定。
+STRIPE_PUBLISHABLE_KEY = "pk_test_xxx"
+STRIPE_FEE_PERCENT = "2.2"
+STRIPE_FEE_FIXED_CENTS = "30"
+
 # Live stream probe — UTC SUN 17:00–22:00 every 5 min covers PT SUN 09:00–14:00 year-round.
 # Multi-channel upload sync — every 4 hours
 [triggers]

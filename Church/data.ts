@@ -74,12 +74,28 @@ export interface MailboxSettings {
   signature: string;
 }
 
+export type DonationStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+
 export interface Donation {
   id: string;
-  date: string;
-  amount: number;
+  createdAt: string;
+  updatedAt: string;
+  donorName: string | null;
+  donorEmail: string | null;
+  category: string | null;
+  note: string | null;
+  /** 奉獻本金（分） */
+  amountCents: number;
+  /** 奉獻者自願加付的手續費（分） */
+  coveredFeeCents: number;
+  /** 實際刷卡總額（分） */
+  grossCents: number;
+  currency: string;
   type: 'one-time' | 'recurring';
-  status: 'completed';
+  status: DonationStatus;
+  source: 'stripe' | 'legacy' | 'manual';
+  receiptUrl: string | null;
+  failureMessage: string | null;
 }
 
 export interface ChurchPhotoExif {
