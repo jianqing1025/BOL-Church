@@ -177,6 +177,7 @@ export const translations = {
     dlFeatureSignIn: { en: 'Stays signed in, and new features arrive without reinstalling', zh: '保持登入，新功能自動上線，免重新安裝' },
     dlButton: { en: 'Download for Windows', zh: '下載 Windows 版' },
     dlButtonSetup: { en: 'Download the installer', zh: '下載安裝版' },
+    dlIcon: { en: 'Download the icon (.ico)', zh: '下載圖示（.ico）' },
     dlButtonPortable: { en: 'Download the no-install version', zh: '下載免安裝版' },
     dlSetupHint: { en: 'Adds a desktop shortcut', zh: '安裝後桌面有捷徑' },
     dlPortableHint: { en: 'Unzip and run', zh: '解壓即用' },

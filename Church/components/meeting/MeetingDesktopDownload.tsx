@@ -112,9 +112,16 @@ export const MeetingDesktopDownload: React.FC = () => {
     <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:mt-14 sm:p-8">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/25">
-            <LogoIcon className="h-6 w-6" />
-          </span>
+          {/* The app's own icon; a click saves it as a Windows .ico. */}
+          <a href="/downloads/BOLCCOP-Meeting-Client.ico" download="BOLCCOP-Meeting-Client.ico"
+            title={t('meeting.dlIcon')} aria-label={t('meeting.dlIcon')}
+            className="group relative shrink-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+            <img src="/downloads/BOLCCOP-Meeting-Client-128.png" alt="" width={44} height={44}
+              className="h-11 w-11 rounded-xl shadow-md shadow-blue-600/25 transition-transform group-hover:scale-105" />
+            <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-gray-900 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+              <Download size={10} strokeWidth={3} />
+            </span>
+          </a>
           <h3 className="text-lg font-bold text-gray-900 sm:text-xl">{t('meeting.dlTitle')}</h3>
         </div>
         <span className="text-sm text-gray-400">v{release.version}</span>
