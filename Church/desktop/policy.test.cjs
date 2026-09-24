@@ -2,8 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { trustedMeeting, externalUrl, windowBounds } = require('./policy.cjs');
 test('only the Dev meeting page can call privileged desktop operations', () => {
-  assert.equal(trustedMeeting('https://dev.bolccop.org/meeting?v=1'), true);
-  for (const url of ['https://dev.bolccop.org/admin', 'https://dev.bolccop.org.evil.test/meeting', 'http://dev.bolccop.org/meeting', 'file:///meeting', 'https://www.bolccop.org/meeting']) assert.equal(trustedMeeting(url), false);
+  assert.equal(trustedMeeting('https://www.bolccop.org/meeting?v=1'), true);
+  for (const url of ['https://www.bolccop.org/admin', 'https://www.bolccop.org.evil.test/meeting', 'http://www.bolccop.org/meeting', 'file:///meeting', 'https://dev.bolccop.org/meeting']) assert.equal(trustedMeeting(url), false);
 });
 test('external links reject executable protocols', () => {
   assert.equal(externalUrl('https://example.com'), true);

@@ -40,7 +40,7 @@ function zipOne(file) {
 // inside), but it unpacks itself to a temp folder on every launch.
 // `--setup`: an installer (plus its zip) — per-user, no admin rights, with
 // desktop and Start menu shortcuts.
-for (const [flag, target, name] of [['--exe', 'portable', `BOLCCOP-Meeting-${version}-x64.exe`], ['--setup', 'nsis', `BOLCCOP-Meeting-Setup-${version}-x64.exe`]]) {
+for (const [flag, target, name] of [['--exe', 'portable', `BOLCCOP-Meeting-Client-${version}-x64.exe`], ['--setup', 'nsis', `BOLCCOP-Meeting-Client-Setup-${version}-x64.exe`]]) {
   if (!process.argv.includes(flag)) continue;
   execFileSync(builder, ['--win', target, '--x64', `-c.directories.output=${out}`, `-c.artifactName=${name}`], { stdio: 'inherit', shell: true });
   const exe = path.join(__dirname, 'release', name);
@@ -50,7 +50,7 @@ for (const [flag, target, name] of [['--exe', 'portable', `BOLCCOP-Meeting-${ver
 }
 execFileSync(builder, ['--win', 'dir', '--x64', `-c.directories.output=${out}`], { stdio: 'inherit', shell: true });
 
-const folder = path.join(out, 'BOLCCOP Meeting');
+const folder = path.join(out, 'BOLCCOP Meeting Client');
 fs.renameSync(path.join(out, 'win-unpacked'), folder);
 fs.writeFileSync(path.join(folder, '使用說明.txt'), [
   `${build.productName} ${version}`,
@@ -62,7 +62,7 @@ fs.writeFileSync(path.join(folder, '使用說明.txt'), [
   '',
 ].join('\r\n'), 'utf8');
 
-const zip = path.join(__dirname, 'release', `BOLCCOP-Meeting-${version}-win-x64.zip`);
+const zip = path.join(__dirname, 'release', `BOLCCOP-Meeting-Client-${version}-win-x64.zip`);
 fs.rmSync(zip, { force: true });
 execFileSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${folder}' -DestinationPath '${zip}' -CompressionLevel Optimal`], { stdio: 'inherit' });
 console.log(`${zip}  ${(fs.statSync(zip).size / 1024 / 1024).toFixed(1)} MB`);

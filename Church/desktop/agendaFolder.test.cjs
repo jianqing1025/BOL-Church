@@ -18,7 +18,7 @@ test('content lives in BOLCCOP next to the real exe, falling back to Documents w
     path.join(exeDir, 'BOLCCOP'));
   // An installed copy: its uninstaller would take the content with it, so Documents.
   const installDir = tmp();
-  fs.writeFileSync(path.join(installDir, 'Uninstall BOLCCOP Meeting Dev.exe'), '');
+  fs.writeFileSync(path.join(installDir, 'Uninstall BOLCCOP Meeting Client.exe'), '');
   assert.equal(resolveContentDir({ portableDir: '', exePath: path.join(installDir, 'app.exe'), isPackaged: true, devDir: 'unused', documentsDir: docs }),
     path.join(docs, 'BOLCCOP'));
   const blocked = path.join(exeDir, 'blocked');

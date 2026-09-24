@@ -1,6 +1,6 @@
-const DEFAULT_MEETING_URL = 'https://dev.bolccop.org/meeting';
+const DEFAULT_MEETING_URL = 'https://www.bolccop.org/meeting';
 // `electron .` (process.defaultApp) may point at a local Vite server for UI
-// work; a packaged build always loads the Dev site.
+// work; a packaged build always loads the church site.
 const MEETING_URL = (process.defaultApp && process.env.MEETING_DESKTOP_URL) || DEFAULT_MEETING_URL;
 const MEETING_ORIGIN = new URL(MEETING_URL).origin;
 

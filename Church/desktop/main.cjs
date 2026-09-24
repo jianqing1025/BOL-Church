@@ -5,7 +5,7 @@ const { AgendaFolder, resolveContentDir, sameFile } = require('./agendaFolder.cj
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { MEETING_URL, trustedMeeting, externalUrl, windowBounds } = require('./policy.cjs');
-app.setName('BOLCCOP Meeting Dev');
+app.setName('BOLCCOP Meeting Client');
 // Local videos reach the page through this scheme: standard + secure so a
 // https page may load it, CORS so the <video> can be captured for broadcast.
 protocol.registerSchemesAsPrivileged([{ scheme: 'meeting-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
@@ -120,7 +120,7 @@ async function serveVideo(request) {
 }
 
 app.whenReady().then(() => {
-  const ses = session.fromPartition('persist:meeting-dev');
+  const ses = session.fromPartition('persist:meeting');
   ses.protocol.handle('meeting-file', serveVideo);
   const allowed = ['media', 'display-capture', 'fullscreen', 'clipboard-sanitized-write', 'speaker-selection'];
   ses.setPermissionCheckHandler((contents, permission, _origin, details) => {
@@ -161,9 +161,9 @@ app.whenReady().then(() => {
     } catch (error) { if (smoke) console.error('Capture error', error); finishCapture(null); respond(null); }
   });
   mainWindow = new BrowserWindow({
-    ...windowBounds('auth', screen.getPrimaryDisplay().workArea), title: 'BOLCCOP Meeting Dev', frame: false, backgroundColor: STAGE_BACKGROUND.auth,
+    ...windowBounds('auth', screen.getPrimaryDisplay().workArea), title: 'BOLCCOP Meeting Client', frame: false, backgroundColor: STAGE_BACKGROUND.auth,
     show: false, maximizable: false, autoHideMenuBar: true,
-    webPreferences: { partition: 'persist:meeting-dev', preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', spellcheck: false },
+    webPreferences: { partition: 'persist:meeting', preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', spellcheck: false },
   });
   mainWindow.setMenu(null);
   mainWindow.setMaximumSize(...MIN_SIZE.auth);

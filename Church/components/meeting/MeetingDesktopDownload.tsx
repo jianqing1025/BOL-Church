@@ -101,7 +101,7 @@ export const MeetingDesktopDownload: React.FC = () => {
   }, []);
 
   if (!release) return null;
-  const features = ['meeting.dlFeatureShare', 'meeting.dlFeatureToolbar', 'meeting.dlFeaturePrompts', 'meeting.dlFeatureSignIn'];
+  const features = ['meeting.dlFeatureAgenda', 'meeting.dlFeatureShare', 'meeting.dlFeatureToolbar', 'meeting.dlFeaturePrompts', 'meeting.dlFeatureSignIn'];
   const steps: [string, React.ReactNode][] = [
     ['meeting.dlStepKeep', <BrowserKeepShot file={release.file} />],
     ['meeting.dlStepRunAnyway', <SmartScreenShot file={release.setup?.exe ?? release.exe ?? release.file} />],
