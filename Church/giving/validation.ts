@@ -7,6 +7,8 @@ export const MAX_AMOUNT_CENTS = 2_500_000;
 
 export const MAX_NAME_LENGTH = 100;
 export const MAX_NOTE_LENGTH = 1000;
+/** RFC 5321 的 forward path 上限。沒有這道上限，惡意請求可以送 100KB 的位址進 D1 與 Stripe */
+export const MAX_EMAIL_LENGTH = 254;
 
 export type GivingInput = {
   amountCents: number;
@@ -39,8 +41,11 @@ function fail(field: string, message: string): ValidationResult {
  *
  * 注意這裡「不」接受任何總額或手續費欄位 —— 那些一律由伺服器用 computeGiving 算，
  * 否則有人可以改 request 用 $1 換一張 $500 的報稅收據。
+ *
+ * `trustedCategories` 必須是伺服器端經由 getGivingCategories 從資料庫取得的清單，
+ * 絕不能直接使用 request 帶來的分類清單 —— 否則分類白名單形同虛設。
  */
-export function validateGivingInput(raw: unknown, categories: readonly string[]): ValidationResult {
+export function validateGivingInput(raw: unknown, trustedCategories: readonly string[]): ValidationResult {
   if (typeof raw !== 'object' || raw === null) {
     return fail('body', '請求格式不正確');
   }
@@ -58,7 +63,7 @@ export function validateGivingInput(raw: unknown, categories: readonly string[])
   }
 
   const category = typeof input.category === 'string' ? input.category.trim() : '';
-  if (!isValidCategory(category, categories)) {
+  if (!isValidCategory(category, trustedCategories)) {
     return fail('category', '請選擇奉獻用途');
   }
 
@@ -73,6 +78,9 @@ export function validateGivingInput(raw: unknown, categories: readonly string[])
   const donorEmail = typeof input.donorEmail === 'string' ? input.donorEmail.trim().toLowerCase() : '';
   if (donorEmail.length === 0) {
     return fail('donorEmail', '請填寫電子郵件，我們會寄送奉獻收據');
+  }
+  if (donorEmail.length > MAX_EMAIL_LENGTH) {
+    return fail('donorEmail', '電子郵件過長，請確認是否輸入正確');
   }
   if (!EMAIL_PATTERN.test(donorEmail)) {
     return fail('donorEmail', '電子郵件格式不正確');

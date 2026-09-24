@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { validateGivingInput, MIN_AMOUNT_CENTS, MAX_AMOUNT_CENTS } from './validation';
+import { validateGivingInput, MIN_AMOUNT_CENTS, MAX_AMOUNT_CENTS, MAX_EMAIL_LENGTH } from './validation';
 import { DEFAULT_CATEGORIES } from './categories';
+
+/** 產生指定總長度、網域固定合法的 email，只讓本地部分變長，避免誤觸格式規則。 */
+function emailOfLength(totalLength: number): string {
+  const domain = '@example.com';
+  return 'a'.repeat(totalLength - domain.length) + domain;
+}
 
 const valid = {
   amountCents: 5000,
@@ -114,6 +120,19 @@ describe('validateGivingInput 其他欄位', () => {
     expect(run({ donorEmail: 'missing@domain' }).ok).toBe(false);
     expect(run({ donorEmail: '@example.com' }).ok).toBe(false);
     expect(run({ donorEmail: 'a b@example.com' }).ok).toBe(false);
+  });
+
+  it('email 恰好等於長度上限通過，超過一個字元被拒', () => {
+    const at254 = emailOfLength(MAX_EMAIL_LENGTH);
+    expect(at254.length).toBe(254);
+    expect(run({ donorEmail: at254 }).ok).toBe(true);
+
+    const at255 = emailOfLength(MAX_EMAIL_LENGTH + 1);
+    expect(at255.length).toBe(255);
+    const result = run({ donorEmail: at255 });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.field).toBe('donorEmail');
   });
 
   it('分類必須在允許清單內', () => {
