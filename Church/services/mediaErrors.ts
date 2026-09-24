@@ -12,7 +12,18 @@ export type MediaErrorKey =
   | 'meeting.mediaNotFound'
   | 'meeting.mediaInUse'
   | 'meeting.mediaUnsupported'
-  | 'meeting.mediaFailed';
+  | 'meeting.mediaFailed'
+  | 'meeting.cameraWontStartWindows';
+
+/**
+ * The same, for a camera that would not start on Windows. There "in use by
+ * another app" is usually wrong — every camera has already been tried by then
+ * — and the real causes (the privacy switch, a driver) need their own words.
+ */
+export function classifyCameraError(error: unknown, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): MediaErrorKey {
+  const key = classifyMediaError(error);
+  return key === 'meeting.mediaInUse' && /Windows/i.test(userAgent) ? 'meeting.cameraWontStartWindows' : key;
+}
 
 export function classifyMediaError(error: unknown): MediaErrorKey {
   const name = error instanceof DOMException || error instanceof Error

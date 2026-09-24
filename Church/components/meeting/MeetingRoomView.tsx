@@ -374,6 +374,7 @@ export const MeetingRoomView: React.FC<MeetingRoomViewProps> = ({
               onLowerHand={(identity) => void lk.lowerHandOf(identity)}
               roomVideo={roomVideo}
               connecting={lk.connecting}
+              reconnecting={lk.reconnecting}
               error={lk.error}
               errorSeq={lk.errorSeq}
               onRetry={() => void lk.join()}

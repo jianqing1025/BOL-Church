@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Participant } from 'livekit-client';
-import { LiveKitService } from '../services/livekitService';
+import { LiveKitJoinError, LiveKitService } from '../services/livekitService';
 import { handRaisedAt } from '../meeting/raisedHands';
 import { useLocalization } from './useLocalization';
 import type { MeetingRoom } from '../constants/meetingRooms';
 import { churchPermissionConfirm } from '../components/ChurchDialog';
-import { classifyMediaError } from '../services/mediaErrors';
+import { classifyCameraError, classifyMediaError } from '../services/mediaErrors';
 import { needsPermissionIntro } from '../meeting/mediaPermission';
 import type { JoinMedia } from '../meeting/joinDefaults';
 
@@ -13,6 +13,8 @@ export interface UseLiveKit {
   participants: Participant[];
   activeSpeakerIds: string[];
   connecting: boolean;
+  /** The meeting dropped and is being rejoined; the stage keeps its picture meanwhile. */
+  reconnecting: boolean;
   joined: boolean;
   error: string;
   micOn: boolean;
@@ -24,7 +26,7 @@ export interface UseLiveKit {
   errorSeq: number;
   /** True while this participant has a hand up. */
   handRaised: boolean;
-  join: () => Promise<void>;
+  join: (options?: { rejoin?: boolean }) => Promise<void>;
   leave: () => void;
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
@@ -66,6 +68,9 @@ export function useLiveKit(
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [activeSpeakerIds, setActiveSpeakerIds] = useState<string[]>([]);
   const [connecting, setConnecting] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  /** Set on unmount, so a retry sleeping in the background does not join a room nobody is in. */
+  const disposedRef = useRef(false);
   const [joined, setJoined] = useState(false);
   /**
    * Kept with a sequence because the banner showing it hides itself after a
@@ -108,58 +113,118 @@ export function useLiveKit(
     cancelLabel: t('meeting.permissionCancel'),
   }), [t]);
 
-  const join = useCallback(async () => {
+  // Read at rejoin time, when the closure that scheduled it is long stale.
+  const devicesRef = useRef({ micOn, camOn });
+  devicesRef.current = { micOn, camOn };
+  const connectionLostRef = useRef<() => void>(() => undefined);
+
+  /**
+   * Joins the room's video, trying up to three times before saying anything.
+   *
+   * Each attempt asks for a new token, and so a new identity. That is the
+   * point: LiveKit's own recovery reuses the old identity, and the server
+   * refuses a second session under a name it still holds ("could not restart
+   * participant") — which is what people saw as "could not establish signal
+   * connection". A fresh identity is never refused that way.
+   *
+   * `rejoin` is the meeting coming back after a dropped connection: no device
+   * capture up front (nobody tapped anything), the devices that were on are
+   * turned back on after connecting, and the stage keeps showing the room.
+   */
+  const join = useCallback(async ({ rejoin = false }: { rejoin?: boolean } = {}) => {
     // joiningRef blocks re-entry synchronously — before the first await — so the
     // permission dialog (awaited below) can't be enqueued more than once and we
     // never open a second LiveKit connection with the same identity.
     if (!room.hasVideo || serviceRef.current || joiningRef.current) return;
     joiningRef.current = true;
-    setConnecting(true);
+    if (!rejoin) setConnecting(true);
     setError('');
+    const devices = rejoin ? devicesRef.current : null;
+    let stream: MediaStream | null = null;
     try {
       // Capture before any network call. Safari on iOS grants the camera only
       // while the tap that got us here still counts, and the token fetch plus
       // the WebRTC connect below would spend that window. A failure here is
       // reported but must not stop the join — joining muted beats not joining.
-      let stream: MediaStream | null = null;
-      try {
-        stream = await LiveKitService.captureLocalMedia(window.meetingDesktop ? media : undefined);
-        if (window.meetingDesktop && media.micOn && stream && stream.getAudioTracks().length === 0) setError(t('meeting.microphoneNotFound'));
-      } catch (e) {
-        setError(t(classifyMediaError(e)));
-        setMicOn(false);
-        setCamOn(false);
+      if (!rejoin) {
+        try {
+          stream = await LiveKitService.captureLocalMedia(
+            window.meetingDesktop ? media : undefined,
+            (e) => setError(t(classifyCameraError(e))),
+          );
+          if (window.meetingDesktop && media.micOn && stream && stream.getAudioTracks().length === 0) setError(t('meeting.microphoneNotFound'));
+        } catch (e) {
+          setError(t(classifyCameraError(e)));
+          setMicOn(false);
+          setCamOn(false);
+        }
       }
 
-      const service = new LiveKitService({
-        onParticipantsChanged: (p) => setParticipants([...p]),
-        onActiveSpeakersChanged: (ids) => setActiveSpeakerIds(ids),
-        onError: (e) => setError(e instanceof Error ? e.message : String(e)),
-      });
-      serviceRef.current = service;
-      await service.connect({ roomId: room.id, name, password, stream, isHost, media });
+      for (let attempt = 0; ; attempt++) {
+        const service = new LiveKitService({
+          onParticipantsChanged: (p) => setParticipants([...p]),
+          onActiveSpeakersChanged: (ids) => setActiveSpeakerIds(ids),
+          onError: (e) => setError(e instanceof Error ? e.message : String(e)),
+          onReconnecting: setReconnecting,
+          onConnectionLost: () => connectionLostRef.current(),
+        });
+        serviceRef.current = service;
+        // A capture whose tracks died with a failed attempt cannot be published again.
+        const usable = stream && stream.getTracks().every((track) => track.readyState === 'live') ? stream : null;
+        try {
+          await service.connect({ roomId: room.id, name, password, stream: usable, isHost, media: devices ?? media });
+          if (devices) await service.restoreDevices(devices);
+          break;
+        } catch (e) {
+          service.disconnect();
+          serviceRef.current = null;
+          const retryable = !(e instanceof LiveKitJoinError) || e.retryable;
+          if (disposedRef.current) return;
+          if (!retryable || attempt >= 2) throw e;
+          await new Promise((resolve) => window.setTimeout(resolve, 1000 * 2 ** attempt));
+          if (disposedRef.current) return;
+        }
+      }
       setJoined(true);
-      setMicOn(service.localParticipant?.isMicrophoneEnabled ?? false);
-      setCamOn(service.localParticipant?.isCameraEnabled ?? false);
+      setMicOn(serviceRef.current?.localParticipant?.isMicrophoneEnabled ?? false);
+      setCamOn(serviceRef.current?.localParticipant?.isCameraEnabled ?? false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       serviceRef.current?.disconnect();
       serviceRef.current = null;
+      // Never published, so nothing else will ever stop it: left running, our
+      // own capture is what would keep the camera "in use" for the next try.
+      stream?.getTracks().forEach((track) => track.stop());
+      // Back to "not joined", so the stage offers the join button again.
+      setParticipants([]);
+      setJoined(false);
     } finally {
       joiningRef.current = false;
       setConnecting(false);
+      if (rejoin) setReconnecting(false);
     }
     // media is read once, at the join it belongs to; a later change to the
     // boxes on the picker must not reach back into a meeting already running.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.hasVideo, room.id, name, password, isHost, confirmPermission, t]);
 
+  // A dropped meeting rejoins by itself, as a new participant.
+  connectionLostRef.current = () => {
+    if (disposedRef.current) return;
+    const lost = serviceRef.current;
+    serviceRef.current = null;
+    lost?.disconnect();
+    setReconnecting(true);
+    void join({ rejoin: true });
+  };
+
   const retryLocalMedia = useCallback(async () => {
     const svc = serviceRef.current;
-    if (!svc) return;
+    // No connection at all: the only useful retry is joining.
+    if (!svc) { await joinRef.current(); return; }
     try {
       setError('');
-      const stream = await LiveKitService.captureLocalMedia();
+      const stream = await LiveKitService.captureLocalMedia(undefined, (e) => setError(t(classifyCameraError(e))));
       if (stream) await svc.publishLocalMedia(stream);
       setMicOn(svc.localParticipant?.isMicrophoneEnabled ?? false);
       setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
@@ -203,7 +268,7 @@ export function useLiveKit(
       }
       setCamOn(await svc.toggleCamera());
     } catch (e) {
-      setError(t(classifyMediaError(e)));
+      setError(t(classifyCameraError(e)));
       setCamOn(svc.localParticipant?.isCameraEnabled ?? false);
     }
   }, [confirmPermission, t]);
@@ -293,15 +358,17 @@ export function useLiveKit(
 
   // Auto-join video rooms once on mount; disconnect on unmount / room change.
   useEffect(() => {
+    disposedRef.current = false;
     if (room.hasVideo) void joinRef.current();
     return () => {
+      disposedRef.current = true;
       serviceRef.current?.disconnect();
       serviceRef.current = null;
     };
   }, [room.hasVideo]);
 
   return {
-    participants, activeSpeakerIds, connecting, joined, error, errorSeq: errorState.seq,
+    participants, activeSpeakerIds, connecting, reconnecting, joined, error, errorSeq: errorState.seq,
     micOn, camOn, screenOn, videoFileOn, handRaised, shareSlotTaken,
     join, leave, toggleMic, toggleCamera, toggleScreenShare, startVideoFile, stopVideoFile, retryLocalMedia,
     toggleHand, lowerHandOf, lowerAllHands,

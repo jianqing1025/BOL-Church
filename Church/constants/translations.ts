@@ -167,6 +167,7 @@ export const translations = {
     desktopSharing: { en: 'You are sharing. Everyone sees what you share, not this window.', zh: '你正在分享，大家看到的是你分享的內容，不會看到本視窗。' },
     desktopExpand: { en: 'Full meeting', zh: '完整會議' },
     desktopCompact: { en: 'Share toolbar', zh: '縮小為分享工具列' },
+    reconnecting: { en: 'Connection lost — reconnecting…', zh: '連線中斷，正在重新連線…' },
     desktopHandsTitle: { en: 'Raised hands', zh: '舉手' },
     desktopNoHands: { en: 'No hands raised', zh: '目前沒有人舉手' },
     desktopYou: { en: 'you', zh: '我' },
@@ -269,6 +270,10 @@ export const translations = {
     mediaInUse: {
       en: 'Another app is using the camera or microphone. Close it, then press 視訊 on the control bar.',
       zh: '有其他 App 正在使用鏡頭或麥克風，請先關掉它，再按控制列的「視訊」重新開啟。'
+    },
+    cameraWontStartWindows: {
+      en: 'The camera would not start (every camera was tried). Check: 1) Windows Settings → Privacy & security → Camera → "Let desktop apps access your camera" is on; 2) no other app (Zoom, Teams, LINE, Camera) is open; 3) then press 視訊 again.',
+      zh: '鏡頭無法啟動（已試過所有鏡頭）。請檢查：① Windows「設定 → 隱私權與安全性 → 相機」中，「允許桌面應用程式存取您的相機」已開啟；② 沒有其他程式（Zoom、Teams、LINE、相機）開著；③ 再按一次「視訊」。'
     },
     mediaUnsupported: {
       en: 'This browser cannot open the camera or microphone. Please open this page in Safari or Chrome.',

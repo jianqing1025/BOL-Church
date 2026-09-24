@@ -26,6 +26,8 @@ interface VideoStageProps {
   /** The YouTube video the room is watching together, if any. */
   roomVideo: RoomVideo;
   connecting: boolean;
+  /** The meeting dropped and is rejoining by itself. */
+  reconnecting?: boolean;
   error: string;
   /** Bumped on every report, so the banner reappears for a repeated error. */
   errorSeq: number;
@@ -40,7 +42,7 @@ interface VideoStageProps {
  * is excluded from the main layout and shown as a floating self-view instead.
  */
 export const VideoStage: React.FC<VideoStageProps> = ({
-  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, roomVideo, connecting, error, errorSeq, onRetry, onRetryMedia,
+  participants, activeSpeakerIds, viewMode, isHost, onLowerHand, roomVideo, connecting, reconnecting = false, error, errorSeq, onRetry, onRetryMedia,
 }) => {
   const { t } = useLocalization();
   // Raised hands first, so the six tiles a phone can fit are the six that
@@ -178,6 +180,14 @@ export const VideoStage: React.FC<VideoStageProps> = ({
             <RotateCcw size={13} />
             {t('meeting.retryMedia')}
           </button>
+        </div>
+      )}
+      {reconnecting && (
+        <div className="absolute inset-x-0 top-2 z-30 flex justify-center" role="status">
+          <div className="flex items-center gap-2 rounded-full bg-amber-500/95 px-4 py-1.5 text-sm font-semibold text-gray-900 shadow-lg">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-900/30 border-t-gray-900" />
+            {t('meeting.reconnecting')}
+          </div>
         </div>
       )}
       {/* Floating self-view only in speaker mode; in gallery/screen you are a tile. */}

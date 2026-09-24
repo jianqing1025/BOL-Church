@@ -1,4 +1,4 @@
-import { LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
+import { DisconnectReason, LocalVideoTrack, Room, RoomEvent, Track, type RemoteParticipant, type LocalParticipant, type Participant } from 'livekit-client';
 import { HAND_ATTRIBUTE, handRaisedAt } from '../meeting/raisedHands';
 import { HOST_ATTRIBUTE, USER_ID_ATTRIBUTE } from '../meeting/participantFlags';
 
@@ -17,7 +17,43 @@ export interface LiveKitHandlers {
   /** Dominant-speaker order from LiveKit (identities, loudest first). */
   onActiveSpeakersChanged?: (identities: string[]) => void;
   onError?: (error: unknown) => void;
+  /**
+   * The connection is gone and LiveKit has given up on it. Not called when we
+   * hung up ourselves or the host removed us — only for the kind of loss a
+   * fresh join can fix (a dropped network, a phone that slept).
+   */
+  onConnectionLost?: () => void;
+  /** LiveKit is trying to resume a wobbling connection by itself. */
+  onReconnecting?: (reconnecting: boolean) => void;
 }
+
+/**
+ * A join that failed. `retryable` is false when trying again cannot help —
+ * a wrong password or a room that does not exist — so the caller asks the
+ * person instead of looping.
+ */
+export class LiveKitJoinError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = 'LiveKitJoinError';
+  }
+}
+
+const CAMERA_STORAGE_KEY = 'meeting.cameraDeviceId';
+/** Windows Hello's infrared sensor: listed as a camera, held by Windows, never a picture. */
+const INFRARED = /\bIR\b|infrared|紅外|红外/i;
+/** getUserMedia failures that mean "this device would not start", as opposed to "not allowed". */
+const START_FAILURES = new Set(['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError', 'ConstraintNotSatisfiedError']);
+const isStartFailure = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && START_FAILURES.has((error as { name?: string }).name ?? '');
+
+/** Disconnects that a new join must not undo. */
+const FINAL_DISCONNECTS = new Set<DisconnectReason | undefined>([
+  DisconnectReason.CLIENT_INITIATED,
+  DisconnectReason.PARTICIPANT_REMOVED,
+  DisconnectReason.ROOM_DELETED,
+  DisconnectReason.DUPLICATE_IDENTITY,
+]);
 
 export interface LiveKitConnectParams {
   roomId: string;
@@ -34,6 +70,9 @@ export interface LiveKitConnectParams {
 /** Wraps a single LiveKit Room connection and the local track toggles. */
 export class LiveKitService {
   private room: Room | null = null;
+  /** Set once we hang up, so our own disconnect is not mistaken for a loss. */
+  private closed = false;
+  private connected = false;
   private videoFileTracks: MediaStreamTrack[] = [];
   constructor(private handlers: LiveKitHandlers) {}
 
@@ -41,8 +80,11 @@ export class LiveKitService {
     return this.room?.localParticipant;
   }
 
+  // Nothing until joined, nothing after hanging up: a failed connect used to
+  // report the local participant alone, which made the page think it was in
+  // the meeting and hid the button that would actually join.
   private emit(): void {
-    if (!this.room) return;
+    if (!this.room || !this.connected || this.closed) return;
     const remote: RemoteParticipant[] = [...this.room.remoteParticipants.values()];
     this.handlers.onParticipantsChanged([this.room.localParticipant, ...remote]);
   }
@@ -78,28 +120,114 @@ export class LiveKitService {
     width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 },
   };
 
-  static async captureLocalMedia(media?: { micOn: boolean; camOn: boolean }): Promise<MediaStream | null> {
+  /** The camera that last started, so the next start tries it first. */
+  static preferredCameraId(): string | undefined {
+    try { return localStorage.getItem(CAMERA_STORAGE_KEY) || undefined; } catch { return undefined; }
+  }
+
+  static rememberCamera(track: MediaStreamTrack | undefined): void {
+    const id = track?.getSettings?.().deviceId;
+    if (!id) return;
+    try { localStorage.setItem(CAMERA_STORAGE_KEY, id); } catch { /* private mode */ }
+  }
+
+  /** 720p, from the camera that worked last time if there was one. */
+  static cameraConstraints(): MediaTrackConstraints {
+    const id = LiveKitService.preferredCameraId();
+    return id ? { ...LiveKitService.CAMERA_CONSTRAINTS, deviceId: { ideal: id } } : LiveKitService.CAMERA_CONSTRAINTS;
+  }
+
+  /**
+   * Opens a camera that will actually start, trying progressively plainer
+   * requests before giving up.
+   *
+   * "Could not start video source" (NotReadableError) on Windows is rarely
+   * another app. Far more often it is the infrared Windows Hello camera picked
+   * as the default and held by Windows itself, a driver that refuses the
+   * 720p/30 fps request, or the "let desktop apps use the camera" privacy
+   * switch — none of which a restart fixes. So: the same request with no
+   * resolution, then each camera in turn, infrared ones last. Anything that is
+   * not a start failure (a denied permission) stops at once.
+   *
+   * `skipPreferred` when the caller has just tried the 720p request itself.
+   */
+  static async openCamera(skipPreferred = false): Promise<MediaStreamTrack> {
+    const devices = navigator.mediaDevices;
+    const start = async (video: MediaTrackConstraints | true): Promise<MediaStreamTrack> => {
+      const [track] = (await devices.getUserMedia({ video })).getVideoTracks();
+      LiveKitService.rememberCamera(track);
+      return track;
+    };
+    let lastError: unknown = null;
+    const attempts: (MediaTrackConstraints | true)[] = skipPreferred ? [true] : [LiveKitService.cameraConstraints(), true];
+    for (const video of attempts) {
+      try { return await start(video); } catch (error) {
+        if (!isStartFailure(error)) throw error;
+        lastError = error;
+      }
+    }
+    const cameras = (await devices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]))
+      .filter((d) => d.kind === 'videoinput' && d.deviceId && d.deviceId !== 'default')
+      .sort((a, b) => Number(INFRARED.test(a.label)) - Number(INFRARED.test(b.label)));
+    for (const camera of cameras) {
+      try { return await start({ deviceId: { exact: camera.deviceId } }); } catch (error) {
+        if (!isStartFailure(error)) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError ?? new DOMException('No camera would start', 'NotReadableError');
+  }
+
+  /**
+   * `onPartialFailure` hears about a device that would not start when the
+   * other one did — joining with the microphone alone beats not joining.
+   */
+  static async captureLocalMedia(
+    media?: { micOn: boolean; camOn: boolean },
+    onPartialFailure?: (error: unknown) => void,
+  ): Promise<MediaStream | null> {
     if (media && !media.micOn && !media.camOn) return null;
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     }
-    if (media && (!media.micOn || !media.camOn)) {
-      return navigator.mediaDevices.getUserMedia({ audio: media.micOn, video: media.camOn && LiveKitService.CAMERA_CONSTRAINTS });
+    const devices = navigator.mediaDevices;
+    if (media && !media.camOn) return devices.getUserMedia({ audio: true, video: false });
+    if (media && !media.micOn) {
+      try {
+        return await devices.getUserMedia({ audio: false, video: LiveKitService.cameraConstraints() });
+      } catch (error) {
+        if (!isStartFailure(error)) throw error;
+        return new MediaStream([await LiveKitService.openCamera(true)]);
+      }
     }
     try {
-      return await navigator.mediaDevices.getUserMedia({ audio: true, video: LiveKitService.CAMERA_CONSTRAINTS });
+      const stream = await devices.getUserMedia({ audio: true, video: LiveKitService.cameraConstraints() });
+      LiveKitService.rememberCamera(stream.getVideoTracks()[0]);
+      return stream;
     } catch (error) {
       if (error instanceof DOMException && (error.name === 'NotFoundError' || error.name === 'OverconstrainedError')) {
         try {
-          return await navigator.mediaDevices.getUserMedia({ audio: true });
+          return await devices.getUserMedia({ audio: true });
         } catch (audioError) {
           if (typeof window !== 'undefined' && window.meetingDesktop && audioError instanceof DOMException && audioError.name === 'NotFoundError') {
-            return await navigator.mediaDevices.getUserMedia({ video: LiveKitService.CAMERA_CONSTRAINTS });
+            return await devices.getUserMedia({ video: LiveKitService.CAMERA_CONSTRAINTS });
           }
           throw audioError;
         }
       }
-      throw error;
+      if (!isStartFailure(error)) throw error;
+      // One of the two would not start. Taken apart, a stuck camera no longer
+      // costs the microphone as well.
+      const tracks: MediaStreamTrack[] = [];
+      let micError: unknown = null;
+      try { tracks.push(...(await devices.getUserMedia({ audio: true })).getAudioTracks()); } catch (e) { micError = e; }
+      try { tracks.push(await LiveKitService.openCamera(true)); } catch (e) {
+        if (!tracks.length) throw micError ?? e;
+        onPartialFailure?.(e);
+      }
+      if (!tracks.length) throw micError ?? error;
+      if (micError) onPartialFailure?.(micError);
+      return new MediaStream(tracks);
     }
   }
 
@@ -169,7 +297,9 @@ export class LiveKitService {
     });
     if (!res.ok) {
       const info = await res.json().catch(() => ({})) as { error?: string };
-      throw new Error(info.error || `Token request failed (${res.status})`);
+      // 4xx is the request itself (password, room); 5xx and 429 may pass.
+      const retryable = res.status >= 500 || res.status === 429;
+      throw new LiveKitJoinError(info.error || `Token request failed (${res.status})`, retryable);
     }
     const { url, token } = await res.json() as { url: string; token: string };
 
@@ -196,9 +326,24 @@ export class LiveKitService {
         this.handlers.onActiveSpeakersChanged?.(speakers.map((s) => s.identity));
         this.emit();
       })
-      .on(RoomEvent.Disconnected, () => this.emit());
+      .on(RoomEvent.Reconnecting, () => this.handlers.onReconnecting?.(true))
+      .on(RoomEvent.Reconnected, () => this.handlers.onReconnecting?.(false))
+      .on(RoomEvent.Disconnected, (reason) => {
+        this.handlers.onReconnecting?.(false);
+        // Only a loss that happens after joining; a failed connect() throws
+        // to its caller instead, which does its own retrying.
+        if (this.closed || !this.connected || FINAL_DISCONNECTS.has(reason)) return;
+        this.handlers.onConnectionLost?.();
+      });
 
-    await room.connect(url, token);
+    try {
+      await room.connect(url, token);
+    } catch (error) {
+      // Which server matters when reading a report: the church's own or a cloud project.
+      console.warn(`LiveKit connect to ${new URL(url).host} failed`, error);
+      throw error;
+    }
+    this.connected = true;
     // Browsers block autoplay of remote audio until a gesture; the click that
     // brought the user into the room usually satisfies it. Best-effort resume.
     await room.startAudio().catch(() => undefined);
@@ -232,6 +377,42 @@ export class LiveKitService {
     }
   }
 
+  /**
+   * Turns devices back on after rejoining a lost meeting. No capture up front
+   * there — nobody pressed anything — so LiveKit opens them itself.
+   */
+  async restoreDevices(media: { camOn: boolean; micOn: boolean }): Promise<void> {
+    const p = this.room?.localParticipant;
+    if (!p) return;
+    try {
+      if (media.micOn) await p.setMicrophoneEnabled(true);
+      if (media.camOn) await this.enableCamera(p);
+    } catch (error) {
+      this.handlers.onError?.(error);
+    }
+    this.emit();
+  }
+
+  /**
+   * LiveKit's own start first; if the camera will not start that way, the
+   * fallback chain in openCamera, published in place of whatever was there.
+   */
+  private async enableCamera(p: LocalParticipant): Promise<void> {
+    const preferred = LiveKitService.preferredCameraId();
+    try {
+      await p.setCameraEnabled(true, {
+        resolution: { width: 1280, height: 720, frameRate: 30 },
+        ...(preferred ? { deviceId: { ideal: preferred } } : {}),
+      });
+    } catch (error) {
+      if (!isStartFailure(error)) throw error;
+      const track = await LiveKitService.openCamera(true);
+      await LiveKitService.retireSource(p, Track.Source.Camera);
+      await p.publishTrack(LiveKitService.managedCameraTrack(track), { source: Track.Source.Camera });
+    }
+    LiveKitService.rememberCamera(p.getTrackPublication(Track.Source.Camera)?.track?.mediaStreamTrack);
+  }
+
   async toggleMic(): Promise<boolean> {
     const p = this.room?.localParticipant;
     if (!p) return false;
@@ -247,7 +428,8 @@ export class LiveKitService {
     if (!p) return false;
     if (!this.hasUserMedia()) throw new Error(MEDIA_UNSUPPORTED_MESSAGE);
     const enabled = !p.isCameraEnabled;
-    await p.setCameraEnabled(enabled);
+    if (enabled) await this.enableCamera(p);
+    else await p.setCameraEnabled(false);
     this.emit();
     return enabled;
   }
@@ -405,6 +587,7 @@ export class LiveKitService {
   }
 
   disconnect(): void {
+    this.closed = true;
     this.videoFileTracks = [];
     try { this.room?.disconnect(); } catch { /* ignore */ }
     this.room = null;
