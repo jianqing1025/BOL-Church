@@ -39,7 +39,7 @@
 | `Church/giving/stripeApi.ts` | 呼叫 Stripe REST API 建立 PaymentIntent |
 | `Church/giving/receiptEmail.ts` | 感謝信 HTML 組裝（純函式） |
 | `Church/giving/receiptEmail.test.ts` | 同上測試 |
-| `Church/migrations/0016_donations_stripe.sql` | 重建 `donations` 表 + 建立 `giving_rate_limit` 表 |
+| `Church/migrations/0018_donations_stripe.sql` | 重建 `donations` 表 + 建立 `giving_rate_limit` 表 |
 | `Church/components/giving/StripeGivingForm.tsx` | 表單容器：欄位狀態、送出、Stripe Elements 掛載 |
 | `Church/components/giving/AmountSelector.tsx` | 金額快捷鈕與自訂金額 |
 | `Church/components/giving/FeeCoverToggle.tsx` | 代付手續費勾選 + 即時金額顯示 |
@@ -1011,7 +1011,7 @@ git commit -m "feat(church): 奉獻端點速率限制邏輯"
 ## Task 6: 資料庫 Migration
 
 **Files:**
-- Create: `Church/migrations/0016_donations_stripe.sql`（編號依實際情況調整，見 Step 1）
+- Create: `Church/migrations/0018_donations_stripe.sql`（編號依實際情況調整，見 Step 1）
 
 - [ ] **Step 1: 確認下一個 migration 編號**
 
@@ -1019,11 +1019,11 @@ git commit -m "feat(church): 奉獻端點速率限制邏輯"
 ls Church/migrations/
 ```
 
-找出目前最大的編號，新檔名用「最大號 + 1」。以下假設是 `0016`，若不是請一併調整檔名。
+找出目前最大的編號，新檔名用「最大號 + 1」。實際確認過目前最大是 `0017`，因此新檔為 `0018`。
 
 - [ ] **Step 2: 寫 migration**
 
-建立 `Church/migrations/0016_donations_stripe.sql`：
+建立 `Church/migrations/0018_donations_stripe.sql`：
 
 ```sql
 -- 重建 donations 表以支援 Stripe 線上奉獻。
@@ -1099,7 +1099,7 @@ PRAGMA foreign_keys = ON;
 npx wrangler d1 migrations apply bol-church --local
 ```
 
-預期：顯示 `0016_donations_stripe.sql` 套用成功
+預期：顯示 `0018_donations_stripe.sql` 套用成功
 
 - [ ] **Step 4: 驗證新結構正確**
 
@@ -1131,12 +1131,28 @@ npx wrangler d1 execute bol-church --local --command "SELECT COUNT(*) AS bad FRO
 
 預期：`bad = 0`（恆等式在所有列都成立）
 
-> 若本地資料庫原本就沒有 donations 資料，這兩個查詢會回空結果 —— 那是正常的，不代表 migration 有問題。正式環境套用前（Task 24 Step 5）要再跑一次同樣的檢查。
+> **本地 `donations` 表確認是空的**，所以上面兩個查詢照跑只會回空結果 —— 那等於什麼都沒驗到。搬遷邏輯寫錯會讓歷史奉獻金額差 100 倍，這是最不該只靠「看起來沒報錯」就放過的地方。
+>
+> 因此**必須先塞測試資料再驗**。在套用 migration 之前，先用舊 schema 寫入幾筆涵蓋代表性金額與進位邊界的資料：
+>
+> ```bash
+> npx wrangler d1 execute bol-church --local --command "INSERT INTO donations (id, date, amount, type, status) VALUES ('mig-t1','2025-01-05T00:00:00.000Z',50,'one-time','completed'),('mig-t2','2025-02-05T00:00:00.000Z',100.5,'one-time','completed'),('mig-t3','2025-03-05T00:00:00.000Z',0.01,'recurring','completed'),('mig-t4','2025-04-05T00:00:00.000Z',1234.56,'one-time','completed'),('mig-t5','2025-05-05T00:00:00.000Z',0.1,'one-time','completed');"
+> ```
+>
+> 套用 migration 後，這五筆應分別成為 `5000`、`10050`、`1`、`123456`、`10` 分。`0.1` 與 `100.5` 特別重要 —— 它們是浮點數無法精確表示的值，正是 `CAST(ROUND(amount * 100) AS INTEGER)` 可能出錯的地方。
+>
+> 驗完把測試資料清掉：
+>
+> ```bash
+> npx wrangler d1 execute bol-church --local --command "DELETE FROM donations WHERE id LIKE 'mig-t%';"
+> ```
+>
+> 正式環境套用前（Task 24 Step 5）要再跑一次同樣的金額檢查，但**不可**在正式環境塞測試資料。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Church/migrations/0016_donations_stripe.sql
+git add Church/migrations/0018_donations_stripe.sql
 git commit -m "feat(church): 重建 donations 表以支援 Stripe（整數分 + 完整狀態）"
 ```
 
