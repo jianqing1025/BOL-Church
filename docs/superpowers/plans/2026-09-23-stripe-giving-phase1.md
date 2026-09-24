@@ -3434,6 +3434,45 @@ function formatDonationAmount(cents: number): string {
 }
 ```
 
+- [ ] **Step 1.5: 總額改用伺服器端彙總，不要加總抓回來的陣列**
+
+`handleBootstrap` 只回傳最近 500 筆（Task 7 加的 `LIMIT 500`）。後台目前把 `donations.length` 當總筆數顯示、`totalGivenCents` 只加總這 500 筆 —— 教會累積超過 500 筆之後，財務總額會**靜默算錯**，而畫面上沒有任何跡象。奉獻總額算錯是這個後台最不該出的錯。
+
+在 `Church/server.ts` 的 `handleBootstrap` 中，owner 分支額外查一次彙總（整張表，不受 LIMIT 影響）：
+
+```ts
+      currentUser.role === 'owner'
+        ? env.DB.prepare(
+            `SELECT COUNT(*) AS total_count,
+                    COALESCE(SUM(CASE WHEN status = 'completed' THEN gross_cents ELSE 0 END), 0) AS completed_gross_cents
+             FROM donations`,
+          ).first<{ total_count: number; completed_gross_cents: number }>()
+        : Promise.resolve(null),
+```
+
+把它加進 `Promise.all` 並解構為 `donationStatsRow`，然後：
+
+```ts
+    payload.donationStats = donationStatsRow
+      ? { totalCount: donationStatsRow.total_count, completedGrossCents: donationStatsRow.completed_gross_cents }
+      : { totalCount: 0, completedGrossCents: 0 };
+```
+
+在 `Church/data.ts` 加上型別：
+
+```ts
+export interface DonationStats {
+  /** 全部奉獻筆數，不受列表的 500 筆上限影響 */
+  totalCount: number;
+  /** 已完成奉獻的實收總額（分） */
+  completedGrossCents: number;
+}
+```
+
+後台兩張統計卡改用 `donationStats.completedGrossCents` 與 `donationStats.totalCount`，不要再從 `donations` 陣列算。
+
+另外，當 `donationStats.totalCount > donations.length` 時，在列表上方顯示一行提示，例如「僅顯示最近 500 筆，完整記錄請匯出 CSV」—— 使用者必須知道自己看到的是被截斷的清單。CSV 匯出（Step 8）本來就不受 500 筆限制。
+
 - [ ] **Step 2: 確認 totalGivenCents 已就緒**
 
 Task 8 已經把 `totalGiven` 改成 `totalGivenCents`（只計 `completed`，單位為分）並修好兩處顯示。先確認現況：
