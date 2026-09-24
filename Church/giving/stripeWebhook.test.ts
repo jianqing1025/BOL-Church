@@ -96,3 +96,73 @@ describe('verifyStripeSignature', () => {
     expect(await verifyStripeSignature({ payload, header: multi, secret: SECRET, nowSec: now })).toBe(true);
   });
 });
+
+describe('verifyStripeSignature 全長比對（防止簽章比對被截斷成只比對開頭幾碼）', () => {
+  const payload = JSON.stringify({ id: 'evt_1', type: 'payment_intent.succeeded' });
+  const now = 1700000000;
+
+  /** 十六進位字元位移到另一個值，保證與原字元不同 */
+  function flipHexChar(c: string): string {
+    const digit = parseInt(c, 16);
+    return ((digit + 1) % 16).toString(16);
+  }
+
+  async function correctHex(): Promise<string> {
+    const header = await sign(payload, now);
+    const hex = header.split('v1=')[1];
+    expect(hex).toHaveLength(64);
+    return hex;
+  }
+
+  it('前 32 碼相同、後 32 碼皆不同則不通過', async () => {
+    const hex = await correctHex();
+    const prefix = hex.slice(0, 32);
+    const originalTail = hex.slice(32);
+    const forgedTail = originalTail.split('').map(flipHexChar).join('');
+    expect(forgedTail).not.toBe(originalTail);
+    const candidate = prefix + forgedTail;
+    expect(candidate).not.toBe(hex);
+    const header = `t=${now},v1=${candidate}`;
+    expect(await verifyStripeSignature({ payload, header, secret: SECRET, nowSec: now })).toBe(false);
+  });
+
+  it('僅最後一碼不同則不通過', async () => {
+    const hex = await correctHex();
+    const lastChar = hex.slice(-1);
+    const flipped = flipHexChar(lastChar);
+    expect(flipped).not.toBe(lastChar);
+    const candidate = hex.slice(0, -1) + flipped;
+    expect(candidate).not.toBe(hex);
+    expect(candidate).toHaveLength(hex.length);
+    const header = `t=${now},v1=${candidate}`;
+    expect(await verifyStripeSignature({ payload, header, secret: SECRET, nowSec: now })).toBe(false);
+  });
+
+  it('僅第一碼不同則不通過', async () => {
+    const hex = await correctHex();
+    const firstChar = hex.slice(0, 1);
+    const flipped = flipHexChar(firstChar);
+    expect(flipped).not.toBe(firstChar);
+    const candidate = flipped + hex.slice(1);
+    expect(candidate).not.toBe(hex);
+    expect(candidate).toHaveLength(hex.length);
+    const header = `t=${now},v1=${candidate}`;
+    expect(await verifyStripeSignature({ payload, header, secret: SECRET, nowSec: now })).toBe(false);
+  });
+
+  it('少一碼（63 碼，截斷）則不通過', async () => {
+    const hex = await correctHex();
+    const truncated = hex.slice(0, 63);
+    expect(truncated).toHaveLength(63);
+    const header = `t=${now},v1=${truncated}`;
+    expect(await verifyStripeSignature({ payload, header, secret: SECRET, nowSec: now })).toBe(false);
+  });
+
+  it('多一碼（65 碼，附加）則不通過', async () => {
+    const hex = await correctHex();
+    const extended = `${hex}0`;
+    expect(extended).toHaveLength(65);
+    const header = `t=${now},v1=${extended}`;
+    expect(await verifyStripeSignature({ payload, header, secret: SECRET, nowSec: now })).toBe(false);
+  });
+});
