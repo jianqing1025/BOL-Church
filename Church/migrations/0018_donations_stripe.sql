@@ -5,7 +5,9 @@
 --   2. amount REAL —— 金額用浮點數，累加會有誤差，報稅金額不能這樣存
 -- SQLite 無法 ALTER TABLE 移除 CHECK，只能重建。
 
-PRAGMA foreign_keys = OFF;
+-- 刻意不用 PRAGMA foreign_keys = OFF/ON 包住。實測過：D1 的 batch 一定在交易內，
+-- 而 SQLite 的這個 pragma 在交易開啟後是 no-op —— 寫了看起來像防護，其實毫無作用，
+-- 反而會誤導日後重建「真的有外鍵指向它」的表的人。本表目前無任何外鍵指向。
 
 CREATE TABLE donations_new (
   id                        TEXT PRIMARY KEY,
@@ -22,9 +24,11 @@ CREATE TABLE donations_new (
   gross_cents               INTEGER NOT NULL,
   currency                  TEXT NOT NULL DEFAULT 'usd',
 
-  type                      TEXT NOT NULL DEFAULT 'one-time',
-  status                    TEXT NOT NULL,
-  source                    TEXT NOT NULL DEFAULT 'stripe',
+  -- type 與 source 刻意不給預設值。它們是財務記錄的分類欄位，
+  -- 漏填應該直接寫入失敗，而不是被悄悄標成 one-time / stripe。
+  type                      TEXT NOT NULL CHECK (type IN ('one-time', 'recurring')),
+  status                    TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed', 'refunded')),
+  source                    TEXT NOT NULL CHECK (source IN ('stripe', 'legacy', 'manual')),
 
   stripe_payment_intent_id  TEXT UNIQUE,
   receipt_url               TEXT,
@@ -48,7 +52,17 @@ SELECT
   NULL, NULL, NULL
 FROM donations;
 
-DROP TABLE donations;
+-- 保留舊表而不是 DROP。
+--
+-- 這是教會的奉獻帳，而且 dev 與 prod 共用同一個 D1 —— 沒有排練環境，
+-- Task 24 那一次執行就是正式資料。CAST(ROUND(amount * 100)) 對所有合法的
+-- 兩位小數金額都精確，但對第三位小數剛好是半分的值會少 1 分，而舊的寫入端
+-- 從未驗證過小數位數。原始值一旦沒了，日後有人對某筆報稅金額有疑問時，
+-- 沒有任何東西可以回頭稽核；總額比對也擋不住兩筆反向誤差互相抵銷。
+--
+-- 舊表沒有任何程式會查，資料量也極小。等教會對過一個完整的報稅週期、
+-- 確認無誤之後，再用另一個 migration 把它刪掉。
+ALTER TABLE donations RENAME TO donations_pre_0018;
 ALTER TABLE donations_new RENAME TO donations;
 
 CREATE INDEX IF NOT EXISTS idx_donations_created ON donations(created_at DESC);
@@ -61,5 +75,3 @@ CREATE TABLE IF NOT EXISTS giving_rate_limit (
   window_start_ms   INTEGER NOT NULL,
   count             INTEGER NOT NULL
 );
-
-PRAGMA foreign_keys = ON;
