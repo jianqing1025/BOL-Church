@@ -639,6 +639,8 @@ git commit -m "feat(church): 奉獻表單輸入驗證"
 
 ## Task 4: Stripe Webhook 簽章驗證
 
+> **測試補充（執行過程中發現）：** 下方 Step 1 的測試雖然涵蓋了錯誤金鑰、竄改 payload、`deadbeef` 等情境，但這些簽章與正確值「處處不同」，因此無法分辨「全長比對」與「只比前幾個 byte」。實測把 `timingSafeEqual` 換成只比前 8 個十六進位字元，15 條測試全數通過。務必另外加上共用前綴但後段發散、僅末字元不同、僅首字元不同、以及長度多一 / 少一的測試，把全長比對這個性質鎖住。
+
 Stripe 的簽章與現有 `mailbox/inbound.ts` 的 Svix 驗證有兩點關鍵差異，實作時別照抄：
 
 1. Stripe 把 `whsec_...` **整串當作 HMAC 金鑰直接使用**（UTF-8 bytes），Svix 則是去掉前綴後 base64 解碼
