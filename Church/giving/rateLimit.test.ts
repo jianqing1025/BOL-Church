@@ -38,8 +38,8 @@ describe('evaluateRateLimit', () => {
     expect(result.allowed).toBe(false);
   });
 
-  it('上限為每分鐘 5 次', () => {
-    expect(RATE_LIMIT_MAX).toBe(5);
+  it('上限為每分鐘 15 次', () => {
+    expect(RATE_LIMIT_MAX).toBe(15);
     expect(RATE_LIMIT_WINDOW_MS).toBe(60_000);
   });
 
@@ -71,5 +71,19 @@ describe('evaluateRateLimit', () => {
     // +60001 超過視窗，重置並放行
     const result60001 = evaluateRateLimit({ windowStartMs: T0, count: RATE_LIMIT_MAX }, T0 + 60001);
     expect(result60001).toEqual({ allowed: true, nextWindowStartMs: T0 + 60001, nextCount: 1 });
+  });
+
+  it('恰好在視窗開始的瞬間不過期（elapsed === 0）', () => {
+    const result = evaluateRateLimit({ windowStartMs: T0, count: RATE_LIMIT_MAX }, T0);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('被擋時保留真實計數，即使超過上限', () => {
+    const result = evaluateRateLimit({ windowStartMs: T0, count: RATE_LIMIT_MAX + 2 }, T0 + 1000);
+    expect(result).toEqual({
+      allowed: false,
+      nextWindowStartMs: T0,
+      nextCount: RATE_LIMIT_MAX + 2,
+    });
   });
 });

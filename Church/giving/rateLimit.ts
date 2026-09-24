@@ -1,12 +1,14 @@
 /**
- * 建立 PaymentIntent 的速率限制。
+ * 每分鐘上限刻意放寬到 15。
  *
- * 目的不是擋 DDoS，而是避免奉獻端點被拿來當卡號測試工具（carding）——
- * 攻擊者用大量被竊卡號逐一嘗試小額付款來篩出可用的卡。
- * Stripe Radar 會擋一部分，但不該讓教會的端點成為第一道免費關卡。
+ * 這是小教會，主日崇拜後常有一群人在共用的教會 wifi 或電信 CGNAT 後面同時奉獻，
+ * 對外看起來是同一個 IP。上限訂 5 的話，第六個要奉獻的人就被擋死且毫無出路 ——
+ * 那是主日的常態流量，不是邊緣案例。
+ *
+ * 卡號測試要有價值得試上幾十到幾百次，15/分鐘仍然擋得住，而擋它的最後一道
+ * 防線本來就是 Stripe Radar，不是這裡。寧可漏幾次也不能擋住真的要奉獻的人。
  */
-
-export const RATE_LIMIT_MAX = 5;
+export const RATE_LIMIT_MAX = 15;
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 
 export type RateLimitRecord = {
