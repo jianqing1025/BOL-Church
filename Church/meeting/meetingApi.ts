@@ -143,7 +143,18 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     const doUrl = new URL(request.url);
     doUrl.searchParams.set('roomId', v.room.id);
     doUrl.searchParams.set('name', v.name);
-    doUrl.searchParams.set('uid', crypto.randomUUID());
+    const sessionId = url.searchParams.get('sessionId');
+    // A random per-visit token, never a display name or account identifier.
+    if (sessionId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+      return jsonCors(env, { error: 'Invalid session ID' }, 400);
+    }
+    // Do not expose the reconnect token in presence: another room member
+    // must not be able to copy a visible user ID and replace that connection.
+    const digest = sessionId ? await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${v.room.id}:${sessionId}`)) : null;
+    const uid = digest ? Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('') : crypto.randomUUID();
+    doUrl.searchParams.set('uid', uid);
+    doUrl.searchParams.delete('sessionId');
+    doUrl.searchParams.set('heartbeat', sessionId ? '1' : '0');
     // Host is self-declared on the room card; normalize it to a strict flag.
     doUrl.searchParams.set('host', url.searchParams.get('host') === '1' ? '1' : '0');
     doUrl.searchParams.delete('password'); // never forward the password

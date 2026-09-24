@@ -20,6 +20,15 @@ export interface MeetingSocketParams {
  */
 export class MeetingSocket {
   private ws: WebSocket | null = null;
+  // One identity per room visit; retries reuse it, separate tabs remain separate.
+  private readonly sessionId = crypto.randomUUID();
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private lastPong = 0;
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat !== null) clearInterval(this.heartbeat);
+    this.heartbeat = null;
+  }
   private opened = false;
   private closed = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -30,11 +39,18 @@ export class MeetingSocket {
   constructor(private handlers: MeetingSocketHandlers) {}
 
   connect(params: MeetingSocketParams): void {
+    this.stopHeartbeat();
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const previous = this.ws;
+    this.ws = null;
+    previous?.close(1000, 'replaced');
     this.closed = false;
     this.opened = false;
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const url = new URL(`${proto}://${window.location.host}/api/meeting/ws`);
     url.searchParams.set('roomId', params.roomId);
+    url.searchParams.set('sessionId', this.sessionId);
     url.searchParams.set('name', params.name);
     url.searchParams.set('password', params.password);
     url.searchParams.set('host', params.isHost ? '1' : '0');
@@ -46,6 +62,17 @@ export class MeetingSocket {
       if (this.closed || this.ws !== ws) return;
       this.opened = true;
       this.hasConnected = true;
+      this.lastPong = Date.now();
+      this.heartbeat = setInterval(() => {
+        if (this.closed || this.ws !== ws) return;
+        if (Date.now() - this.lastPong >= 90_000) {
+          ws.close(4000, 'heartbeat timeout');
+          // A half-open network may never finish the close handshake.
+          if (!this.closed) this.connect(params);
+          return;
+        }
+        this.post({ type: 'ping' });
+      }, 25_000);
       this.retryDelay = 1000;
       if (this.pendingBible) {
         const pending = this.pendingBible;
@@ -56,13 +83,18 @@ export class MeetingSocket {
     });
     ws.addEventListener('message', (event) => {
       if (this.closed || this.ws !== ws) return;
-      try { this.handlers.onMessage(JSON.parse(event.data as string) as ServerMessage); } catch { /* ignore */ }
+      try {
+        const message = JSON.parse(event.data as string);
+        if (message?.type === 'pong') { this.lastPong = Date.now(); return; }
+        this.handlers.onMessage(message as ServerMessage);
+      } catch { /* ignore */ }
     });
     ws.addEventListener('error', (event) => this.handlers.onError?.(event));
     ws.addEventListener('close', (event) => {
       if (this.closed || this.ws !== ws) return;
       // Closing before it ever opened almost always means the Worker rejected
       // the credentials/room (it returns a 4xx instead of upgrading).
+      this.stopHeartbeat();
       const authFailed = !this.hasConnected;
       this.opened = false;
       this.handlers.onClose?.({ authFailed });
@@ -112,6 +144,7 @@ export class MeetingSocket {
 
   close(): void {
     this.closed = true;
+    this.stopHeartbeat();
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     this.pendingBible = null;

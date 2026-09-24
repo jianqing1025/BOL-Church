@@ -14,7 +14,7 @@ import {
 import { isLiveKitProjectKey, stickyProject, type StickyProject } from './livekitProject';
 import { toggleReaction } from './reactions';
 
-interface Session { id: string; name: string; isHost: boolean; }
+interface Session { id: string; name: string; isHost: boolean; lastSeen: number; heartbeat: boolean; }
 
 /** Durable storage key for the room's LiveKit server (see decideLiveKitProject). */
 const LIVEKIT_PROJECT_KEY = 'livekitProject';
@@ -28,6 +28,32 @@ const LIVEKIT_PROJECT_KEY = 'livekitProject';
 export class ChatRoom {
   private sessions = new Map<WebSocket, Session>();
   private messages: ChatMessage[] = [];
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+  private dropSession(ws: WebSocket): void {
+    const session = this.sessions.get(ws);
+    if (!session) return;
+    this.sessions.delete(ws);
+    if (this.sessions.size === 0 && this.sweepTimer !== null) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+    if (this.roomVideo?.leaderId === session.id) {
+      this.roomVideo = null;
+      this.broadcast({ type: 'video', action: 'close' });
+    }
+    this.broadcast({ type: 'system', event: 'left', name: session.name, createdAt: Date.now() });
+    this.broadcastPresence();
+  }
+
+  private sweepSessions(): void {
+    for (const [ws, session] of this.sessions) {
+      if (session.heartbeat && Date.now() - session.lastSeen >= 120_000) {
+        this.dropSession(ws);
+        try { ws.close(4000, 'heartbeat timeout'); } catch { /* already gone */ }
+      }
+    }
+  }
   /**
    * Where the room currently is in the Bible. Kept so someone joining late —
    * or a phone whose socket dropped and came back — lands on the passage the
@@ -102,7 +128,17 @@ export class ChatRoom {
     const client = pair[0];
     const server = pair[1];
     server.accept();
-    this.sessions.set(server, { id, name, isHost });
+    // Retire the old transport before closing it: its delayed events must
+    // neither delete the replacement nor clear the current presenter's video.
+    let replacing = false;
+    for (const [old, session] of this.sessions) {
+      if (session.id !== id) continue;
+      replacing = true;
+      this.sessions.delete(old);
+      try { old.close(1000, 'session replaced'); } catch { /* already gone */ }
+    }
+    this.sessions.set(server, { id, name, isHost, lastSeen: Date.now(), heartbeat: url.searchParams.get('heartbeat') === '1' });
+    if (this.sweepTimer === null) this.sweepTimer = setInterval(() => this.sweepSessions(), 30_000);
 
     this.sendTo(server, { type: 'welcome', roomId, userId: id, messages: this.messages });
     if (this.biblePosition) this.sendTo(server, this.biblePosition);
@@ -116,13 +152,21 @@ export class ChatRoom {
       this.sendTo(server, { type: 'video', action: 'open', videoId, startSeconds: seconds, leaderId });
       this.sendTo(server, { type: 'video', action: 'state', playing, seconds });
     }
-    this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
+    if (!replacing) this.broadcast({ type: 'system', event: 'joined', name, createdAt: Date.now() });
     this.broadcastPresence();
 
     server.addEventListener('message', (event: MessageEvent) => {
+      const session = this.sessions.get(server);
+      if (!session) return;
+      session.lastSeen = Date.now();
       let parsed: unknown;
       try { parsed = JSON.parse(typeof event.data === 'string' ? event.data : ''); } catch { return; }
       const kind = (parsed as { type?: string } | null)?.type;
+
+      if (kind === 'ping') {
+        try { server.send(JSON.stringify({ type: 'pong' })); } catch { this.dropSession(server); }
+        return;
+      }
 
       if (kind === 'bible') {
         const bible = sanitizeBibleMessage(parsed);
@@ -213,18 +257,7 @@ export class ChatRoom {
       this.broadcast(msg);
     });
 
-    const cleanup = () => {
-      if (!this.sessions.has(server)) return;
-      this.sessions.delete(server);
-      // Nobody is driving it any more, and a video frozen at the moment its
-      // leader closed their laptop is worse than no video.
-      if (this.roomVideo?.leaderId === id) {
-        this.roomVideo = null;
-        this.broadcast({ type: 'video', action: 'close' });
-      }
-      this.broadcast({ type: 'system', event: 'left', name, createdAt: Date.now() });
-      this.broadcastPresence();
-    };
+    const cleanup = () => this.dropSession(server);
     server.addEventListener('close', cleanup);
     server.addEventListener('error', cleanup);
 
@@ -257,22 +290,22 @@ export class ChatRoom {
   private removeUser(targetUserId: string): void {
     for (const [ws, session] of this.sessions) {
       if (session.id !== targetUserId || session.isHost) continue;
-      this.sessions.delete(ws);
+      this.dropSession(ws);
       try { ws.close(1000, 'removed by host'); } catch { /* already gone */ }
-      this.broadcast({ type: 'system', event: 'left', name: session.name, createdAt: Date.now() });
-      this.broadcastPresence();
     }
   }
 
   private sendTo(ws: WebSocket, message: ServerMessage): void {
-    try { ws.send(JSON.stringify(message)); } catch { this.sessions.delete(ws); }
+    try { ws.send(JSON.stringify(message)); } catch { this.dropSession(ws); }
   }
 
   private broadcast(message: ServerMessage): void {
     const payload = JSON.stringify(message);
+    const failed: WebSocket[] = [];
     for (const ws of this.sessions.keys()) {
-      try { ws.send(payload); } catch { this.sessions.delete(ws); }
+      try { ws.send(payload); } catch { failed.push(ws); }
     }
+    for (const ws of failed) this.dropSession(ws);
   }
 
   private broadcastPresence(): void {

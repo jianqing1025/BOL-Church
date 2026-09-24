@@ -107,3 +107,40 @@ describe('Bible synchronization transport', () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 });
+
+
+describe('presence session lifecycle', () => {
+  it('reuses identity on retry but separates different visits with the same name', () => {
+    const socket = new MeetingSocket({ onMessage: vi.fn() });
+    socket.connect(params);
+    const first = FakeSocket.instances[0];
+    first.open();
+    first.close(1006);
+    vi.advanceTimersByTime(1000);
+    const id = (ws: FakeSocket) => new URL(ws.url).searchParams.get('sessionId');
+    expect(id(first)).toBeTruthy();
+    expect(id(FakeSocket.instances[1])).toBe(id(first));
+    new MeetingSocket({ onMessage: vi.fn() }).connect(params);
+    expect(id(FakeSocket.instances[2])).not.toBe(id(first));
+  });
+
+  it('keeps responsive connections and retries an unresponsive one', () => {
+    const onMessage = vi.fn();
+    const socket = new MeetingSocket({ onMessage });
+    socket.connect(params);
+    const first = FakeSocket.instances[0];
+    first.open();
+    for (let i = 0; i < 8; i++) {
+      vi.advanceTimersByTime(25_000);
+      first.receive({ type: 'pong' });
+    }
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(first.send).toHaveBeenCalledWith('{"type":"ping"}');
+    expect(onMessage).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    socket.close();
+    vi.runAllTimers();
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+});
