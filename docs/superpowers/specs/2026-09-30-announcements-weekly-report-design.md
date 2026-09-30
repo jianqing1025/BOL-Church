@@ -24,7 +24,7 @@
 | --- | --- |
 | `id` | TEXT 主鍵 |
 | `title` | 標題，必填 |
-| `body_html` | 內容（富文字，沿用後台現有編輯器，輸出前照現有規則消毒） |
+| `body_html` | 內容（富文字，沿用後台現有編輯器；顯示方式與網站文字相同，用 `toDisplayHtml`。只有登入的管理者能寫入） |
 | `event_date` | 活動日期 `YYYY-MM-DD`，可空 |
 | `show_until` | 顯示到 `YYYY-MM-DD`，必填 |
 | `created_by`、`created_at`、`updated_at` | |
@@ -101,7 +101,7 @@
 
 ## 後台
 
-新增兩個區塊，同工（contributor）與擁有者（owner）都能使用；「週報密碼」僅 owner。所有新增、修改、刪除、改密碼都寫入現有操作日誌。
+新增兩個區塊，同工（contributor）與擁有者（owner）都能使用；「週報密碼」僅 owner。（教會網站目前沒有操作日誌，這次不另建。）
 
 ### 公告欄
 
