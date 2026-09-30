@@ -4,7 +4,8 @@ import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { SermonSubPage, Language } from '../types';
 import SermonsSecondaryNav from './SermonsSecondaryNav';
-import { useAdmin } from '../hooks/useAdmin';
+import { useSermonList } from '../hooks/useSermonList';
+import { ListLoadError, VideoCardSkeletons } from './ListPlaceholder';
 import type { Sermon, SermonCategory } from '../data';
 import { buildPaginationNumbers } from '../utils/pagination';
 
@@ -76,7 +77,7 @@ function formatViewCount(count?: number | null): string {
 
 const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: SermonCategory }> = ({ entryType, category }) => {
   const { t, language } = useLocalization();
-  const { sermons, dailyManna } = useAdmin();
+  const list = useSermonList(entryType === 'daily-manna' ? 'daily-manna' : 'sermon');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [page, setPage] = useState(1);
@@ -85,7 +86,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
   const [searchTerm, setSearchTerm] = useState<string>('');
   const playerSectionRef = React.useRef<HTMLElement>(null);
   const gridSectionRef = React.useRef<HTMLElement>(null);
-  const sourceEntries = entryType === 'daily-manna' ? dailyManna : sermons;
+  const sourceEntries = list.items;
 
   // 此 tab 下所有可見條目（用於播放器選擇 + 連續播放隊列 + 年份列表計算）
   const entries = useMemo(() => {
@@ -180,6 +181,19 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
       setSelectedId(selectedEntry.id);
     }
   }, [selectedEntry, selectedId]);
+
+  if (!selectedEntry && (list.status === 'idle' || list.status === 'loading')) {
+    return (
+      <div className="space-y-8">
+        <div className="aspect-video w-full animate-pulse rounded-2xl bg-gray-200" aria-busy="true" />
+        <VideoCardSkeletons count={8} className="grid grid-cols-2 gap-4 md:grid-cols-4" />
+      </div>
+    );
+  }
+
+  if (!selectedEntry && list.status === 'error') {
+    return <ListLoadError onRetry={list.retry} />;
+  }
 
   if (!selectedEntry) {
     return (

@@ -4,6 +4,8 @@ import React, { useState, useMemo } from 'react';
 import { useLocalization } from '../hooks/useLocalization';
 import { PlayIcon } from './icons/Icons';
 import { useAdmin } from '../hooks/useAdmin';
+import { useSermonList } from '../hooks/useSermonList';
+import { VideoCardSkeletons } from './ListPlaceholder';
 import { Language } from '../types';
 import type { Sermon } from '../data';
 
@@ -56,10 +58,12 @@ const VideoSection: React.FC<{
   ctaText: string;
   entryHref: (sermon: Sermon) => string;
   headerExtra?: React.ReactNode;
-}> = ({ title, entries, language, emptyText, ctaHref, ctaText, entryHref, headerExtra }) => (
+  loading?: boolean;
+}> = ({ title, entries, language, emptyText, ctaHref, ctaText, entryHref, headerExtra, loading = false }) => (
   <div className="rounded-[2rem] bg-white px-4 py-10 shadow-sm ring-1 ring-gray-200 sm:px-8">
     <h3 className="mb-12 text-center text-3xl font-bold text-gray-800 md:text-4xl">{title}</h3>
     {headerExtra}
+    {loading ? <VideoCardSkeletons count={4} /> : (
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
       {entries.length > 0 ? (
         entries.map((sermon, index) => (
@@ -75,6 +79,7 @@ const VideoSection: React.FC<{
         <p className="text-gray-500 text-center col-span-4">{emptyText}</p>
       )}
     </div>
+    )}
     <div className="text-center mt-12">
       <a href={ctaHref} className="bg-gray-800 text-white px-8 py-3 rounded-full hover:bg-gray-900 transition-all font-semibold">
         {ctaText}
@@ -85,20 +90,28 @@ const VideoSection: React.FC<{
 
 const Sermons: React.FC = () => {
   const { t, language } = useLocalization();
-  const { sermons, dailyManna } = useAdmin();
+  const { recent, loading, loadError } = useAdmin();
+  // 載入失敗時維持占位（畫面下方有重試提示），不要顯示「找不到相關信息」誤導訪客
+  const waiting = loading || loadError;
   const [searchTerm, setSearchTerm] = useState('');
-  
+  // 平常只用伺服器給的最新 8 筆；開始搜尋才下載完整清單，搜到更早的內容
+  const searching = searchTerm.trim() !== '';
+  const allSermons = useSermonList('sermon', searching);
+  const allManna = useSermonList('daily-manna', searching);
+  const sermonSource = searching && allSermons.status === 'ready' ? allSermons.items.filter(item => !item.hidden) : recent.sermons;
+  const mannaSource = searching && allManna.status === 'ready' ? allManna.items.filter(item => !item.hidden) : recent.dailyManna;
+
   const recentSermons = useMemo(() => {
-    return [...filterEntries(sermons, searchTerm)]
+    return [...filterEntries(sermonSource, searchTerm)]
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 8);
-  }, [sermons, searchTerm]);
+  }, [sermonSource, searchTerm]);
 
   const recentDailyManna = useMemo(() => {
-    return [...filterEntries(dailyManna, searchTerm)]
+    return [...filterEntries(mannaSource, searchTerm)]
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 8);
-  }, [dailyManna, searchTerm]);
+  }, [mannaSource, searchTerm]);
 
   return (
     <section id="sermons" className="py-20 bg-gray-50">
@@ -107,6 +120,7 @@ const Sermons: React.FC = () => {
           <VideoSection
             title={t('sermons.title')}
             entries={recentSermons}
+            loading={waiting}
             language={language}
             emptyText={t('sermonArchive.noResults')}
             ctaHref="/sermons/sunday-worship"
@@ -128,6 +142,7 @@ const Sermons: React.FC = () => {
           <VideoSection
             title={t('sermonsPage.navDailyManna')}
             entries={recentDailyManna}
+            loading={waiting}
             language={language}
             emptyText={t('sermonArchive.noResults')}
             ctaHref="/sermons/daily-manna"

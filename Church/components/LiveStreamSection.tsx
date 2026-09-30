@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLocalization } from '../hooks/useLocalization';
 import { useAdmin } from '../hooks/useAdmin';
@@ -68,7 +68,7 @@ type RoomTarget = { kind: 'stream' } | { kind: 'past'; videoId: string };
 
 const LiveStreamSection: React.FC = () => {
   const { t, language } = useLocalization();
-  const { currentUser, sermons } = useAdmin();
+  const { currentUser, recent } = useAdmin();
   const [state, setState] = useState<LiveStreamPublicState | null>(null);
   const [identity, setIdentity] = useState<StoredIdentity | null>(() => (typeof window !== 'undefined' ? readIdentity() : null));
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -191,14 +191,9 @@ const LiveStreamSection: React.FC = () => {
     if (roomTarget?.kind === 'stream' && shouldCloseLiveRoom(true, cta)) setRoomTarget(null);
   }, [roomTarget, cta]);
 
-  // 歷史直播：從本地 sermons 拉所有 category='live-broadcast' 的條目，
-  // 過濾隱藏，按日期倒序排，限制顯示前 12 條（多了讓用戶去 /sermons 翻）
-  const pastBroadcasts = useMemo(() => {
-    return sermons
-      .filter(s => s.category === 'live-broadcast' && !s.hidden)
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .slice(0, 12);
-  }, [sermons]);
+  // 歷史直播：伺服器快照已挑好最新 12 條 category='live-broadcast'（不含隱藏、日期倒序），
+  // 不必為此下載全部講道；多了讓用戶去 /sermons 翻
+  const pastBroadcasts = recent.liveBroadcasts;
   // 歷史直播（直播回放）也進影院式房間觀看：replay 模式、聊天為該場存檔（只讀）
   const handlePastBroadcastClick = (youtubeId: string) => {
     setRoomTarget({ kind: 'past', videoId: youtubeId });

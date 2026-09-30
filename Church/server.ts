@@ -23,12 +23,15 @@ import { friendlyMessage } from './snapshot/friendlyMessage';
 import {
   readSiteSnapshot,
   readCatalogue,
+  readSermonList,
   rebuildSnapshots,
   type SiteSnapshot,
-  type CatalogueEntry,
+  type ListEntry,
   type SnapshotDeps,
 } from './snapshot/snapshot';
 import { shouldRebuildSnapshot } from './snapshot/rebuildTrigger';
+import { addDays, todayInChurch, type Announcement } from './bulletin/announcements';
+import { attachmentProblem, issueAccessToken, sundayOf, verifyAccessToken, ACCESS_TTL_DAYS } from './bulletin/weekly';
 import { decodeCursor } from './snapshot/cursor';
 import { buildKeysetQuery, normalizeLimit, slicePage, type SermonKind } from './snapshot/pagination';
 
@@ -1392,49 +1395,330 @@ function snapshotDeps(env: Env): SnapshotDeps {
       get: key => env.SNAPSHOT.get(key),
       put: (key, value) => env.SNAPSHOT.put(key, value),
     },
-    buildSite: async () => {
-      const [content, images, sermonCount, mannaCount] = await Promise.all([
+    buildSiteBase: async () => {
+      const [content, images, announcements] = await Promise.all([
         getSiteContent(env),
         getSetting<Record<string, string>>(env, 'images', {}),
-        env.DB.prepare('SELECT COUNT(*) AS count FROM sermons').first<{ count: number }>(),
-        env.DB.prepare('SELECT COUNT(*) AS count FROM daily_manna').first<{ count: number }>(),
+        listAnnouncements(env, addDays(todayInChurch(), -1)),
       ]);
-      return {
-        content,
-        images,
-        stats: {
-          sermonCount: Number(sermonCount?.count || 0),
-          mannaCount: Number(mannaCount?.count || 0),
-        },
-        builtAt: new Date().toISOString(),
-      } satisfies SiteSnapshot;
+      return { content, images, announcements };
     },
-    buildCatalogue: async () => {
-      const [sermons, manna] = await Promise.all([
-        env.DB.prepare(
-          "SELECT id, title_en, title_zh, date, youtube_id, hidden FROM sermons WHERE type = 'sermon' ORDER BY date DESC, id DESC",
-        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number }>(),
-        env.DB.prepare(
-          'SELECT id, title_en, title_zh, date, youtube_id, hidden FROM daily_manna ORDER BY date DESC, id DESC',
-        ).all<{ id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number }>(),
-      ]);
-      const toEntry = (type: CatalogueEntry['type']) => (row: {
-        id: string; title_en: string; title_zh: string; date: string; youtube_id: string | null; hidden: number;
-      }): CatalogueEntry => ({
-        id: row.id,
-        type,
-        titleEn: row.title_en,
-        titleZh: row.title_zh,
-        date: row.date,
-        youtubeId: row.youtube_id,
-        hidden: Boolean(row.hidden),
-      });
-      return [
-        ...(sermons.results ?? []).map(toEntry('sermon')),
-        ...(manna.results ?? []).map(toEntry('daily-manna')),
-      ];
+    buildList: async kind => {
+      if (kind === 'sermon') {
+        const rows = await env.DB.prepare("SELECT * FROM sermons WHERE type = 'sermon' ORDER BY date DESC, id DESC").all<SermonRow>();
+        return (rows.results ?? []).map(row => mapSermon(row) as unknown as ListEntry);
+      }
+      const rows = await env.DB.prepare('SELECT * FROM daily_manna ORDER BY date DESC, id DESC').all<DailyMannaRow>();
+      return (rows.results ?? []).map(row => mapDailyManna(row) as unknown as ListEntry);
     },
+    now: () => new Date().toISOString(),
   };
+}
+
+// ── 公告欄 ────────────────────────────────────────────────────────────────
+// 訪客讀的是網站快照（KV），這裡的查詢只在後台與快照重建時跑。
+
+type AnnouncementRow = {
+  id: string; title: string; body_html: string; event_date: string | null; show_until: string;
+  created_at: string; updated_at: string;
+};
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function mapAnnouncement(row: AnnouncementRow): Announcement {
+  return {
+    id: row.id,
+    title: row.title,
+    bodyHtml: row.body_html,
+    eventDate: row.event_date,
+    showUntil: row.show_until,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function listAnnouncements(env: Env, from?: string): Promise<Announcement[]> {
+  try {
+    const result = from
+      ? await env.DB.prepare('SELECT * FROM announcements WHERE show_until >= ? ORDER BY show_until').bind(from).all<AnnouncementRow>()
+      : await env.DB.prepare('SELECT * FROM announcements ORDER BY show_until DESC, created_at DESC').all<AnnouncementRow>();
+    return (result.results ?? []).map(mapAnnouncement);
+  } catch (err) {
+    // 表還沒建（migration 未跑）時不能拖垮網站快照
+    console.error('announcements unavailable', err);
+    return [];
+  }
+}
+
+function readAnnouncementPayload(payload: Record<string, unknown>): { title: string; bodyHtml: string; eventDate: string | null; showUntil: string } | string {
+  const title = String(payload.title || '').trim().slice(0, 200);
+  const bodyHtml = String(payload.bodyHtml || '').slice(0, 20000);
+  const eventDate = payload.eventDate ? String(payload.eventDate) : null;
+  const showUntil = String(payload.showUntil || '');
+  if (!title) return '請填寫標題';
+  if (eventDate && !ISO_DATE.test(eventDate)) return '活動日期格式不正確';
+  if (!ISO_DATE.test(showUntil)) return '請填寫顯示到的日期';
+  return { title, bodyHtml, eventDate, showUntil };
+}
+
+async function handleAdminAnnouncements(request: Request, env: Env, url: URL): Promise<Response | null> {
+  if (!url.pathname.startsWith('/api/admin/announcements')) return null;
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const id = decodeURIComponent(url.pathname.slice('/api/admin/announcements'.length).replace(/^\//, ''));
+
+  if (!id && request.method === 'GET') return json({ items: await listAnnouncements(env) });
+
+  if (!id && request.method === 'POST') {
+    const input = readAnnouncementPayload(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const now = new Date().toISOString();
+    const newId = crypto.randomUUID();
+    await env.DB.prepare(
+      'INSERT INTO announcements (id, title, body_html, event_date, show_until, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(newId, input.title, input.bodyHtml, input.eventDate, input.showUntil, auth.id, now, now).run();
+    const row = await env.DB.prepare('SELECT * FROM announcements WHERE id = ?').bind(newId).first<AnnouncementRow>();
+    return json(mapAnnouncement(row!), 201);
+  }
+
+  if (id && request.method === 'PUT') {
+    const input = readAnnouncementPayload(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const result = await env.DB.prepare(
+      'UPDATE announcements SET title = ?, body_html = ?, event_date = ?, show_until = ?, updated_at = ? WHERE id = ?',
+    ).bind(input.title, input.bodyHtml, input.eventDate, input.showUntil, new Date().toISOString(), id).run();
+    if (!result.meta.changes) return notFound('Announcement not found');
+    const row = await env.DB.prepare('SELECT * FROM announcements WHERE id = ?').bind(id).first<AnnouncementRow>();
+    return json(mapAnnouncement(row!));
+  }
+
+  if (id && request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM announcements WHERE id = ?').bind(id).run();
+    return json({ ok: true });
+  }
+
+  return null;
+}
+
+// ── 同工週報 ──────────────────────────────────────────────────────────────
+// 所有週報資料（清單、內文、附件）都在伺服器驗證通行證，不只擋畫面。
+
+type WeeklyAttachment = { key: string; name: string; size: number; type: string };
+type WeeklyRow = {
+  id: string; week_of: string; title: string; body_html: string; attachments: string;
+  created_at: string; updated_at: string;
+};
+
+const WEEKLY_COOKIE = 'weekly_access';
+const WEEKLY_UNLOCK_LIMIT = 5;
+
+function noStore(response: Response): Response {
+  response.headers.set('Cache-Control', 'private, no-store');
+  return response;
+}
+
+function parseAttachments(raw: string | null | undefined): WeeklyAttachment[] {
+  try {
+    const list = JSON.parse(raw || '[]');
+    return Array.isArray(list) ? list.filter(item => item && typeof item.key === 'string' && item.key.startsWith('weekly/')) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapWeekly(row: WeeklyRow) {
+  return {
+    id: row.id,
+    weekOf: row.week_of,
+    title: row.title,
+    bodyHtml: row.body_html,
+    attachments: parseAttachments(row.attachments),
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 週報密碼的雜湊，同時是通行證的簽章金鑰。沒有設定時為 null（週報關閉）。 */
+async function weeklySecret(env: Env): Promise<{ salt: string; hash: string } | null> {
+  const stored = await getSetting<{ salt?: string; hash?: string } | null>(env, 'weeklyPassword', null);
+  return stored?.salt && stored?.hash ? { salt: stored.salt, hash: stored.hash } : null;
+}
+
+async function hasWeeklyAccess(request: Request, env: Env): Promise<boolean> {
+  if (await getCurrentUser(request, env)) return true;
+  const secret = await weeklySecret(env);
+  return Boolean(secret && await verifyAccessToken(secret.hash, getCookie(request, WEEKLY_COOKIE)));
+}
+
+function weeklyCookie(request: Request, value: string, maxAge: number): string {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return `${WEEKLY_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${maxAge}`;
+}
+
+async function handleWeeklyUnlock(request: Request, env: Env): Promise<Response> {
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const rateKey = `weekly-unlock:${ip}:${Math.floor(Date.now() / 60_000)}`;
+  const attempts = Number(await env.SNAPSHOT.get(rateKey).catch(() => null)) || 0;
+  if (attempts >= WEEKLY_UNLOCK_LIMIT) return noStore(json({ ok: false, error: 'too_many' }, 429));
+
+  const payload = await readJson<{ password?: string }>(request).catch(() => ({} as { password?: string }));
+  const secret = await weeklySecret(env);
+  const ok = Boolean(secret && await verifyPassword(String(payload.password || ''), secret.salt, secret.hash));
+  if (!ok || !secret) {
+    await env.SNAPSHOT.put(rateKey, String(attempts + 1), { expirationTtl: 120 }).catch(() => undefined);
+    return noStore(json({ ok: false }, 401));
+  }
+  const response = noStore(json({ ok: true }));
+  response.headers.append('Set-Cookie', weeklyCookie(request, await issueAccessToken(secret.hash), ACCESS_TTL_DAYS * 86_400));
+  return response;
+}
+
+async function handleWeeklyPublic(request: Request, env: Env, url: URL): Promise<Response | null> {
+  if (!url.pathname.startsWith('/api/weekly')) return null;
+
+  if (url.pathname === '/api/weekly/unlock' && request.method === 'POST') return handleWeeklyUnlock(request, env);
+  if (url.pathname === '/api/weekly/lock' && request.method === 'POST') {
+    const response = noStore(json({ ok: true }));
+    response.headers.append('Set-Cookie', weeklyCookie(request, '', 0));
+    return response;
+  }
+  if (request.method !== 'GET') return null;
+  if (!(await hasWeeklyAccess(request, env))) return noStore(unauthorized());
+
+  if (url.pathname === '/api/weekly') {
+    const rows = await env.DB.prepare('SELECT id, week_of, title FROM weekly_reports ORDER BY week_of DESC').all<{ id: string; week_of: string; title: string }>();
+    return noStore(json({ items: (rows.results ?? []).map(r => ({ id: r.id, weekOf: r.week_of, title: r.title })) }));
+  }
+
+  if (url.pathname.startsWith('/api/weekly/files/')) {
+    const key = decodeURIComponent(url.pathname.slice('/api/weekly/files/'.length));
+    if (!key.startsWith('weekly/') || key.includes('..')) return noStore(notFound());
+    const object = await env.MEDIA_BUCKET.get(key);
+    if (!object) return noStore(notFound('File not found'));
+    const type = object.httpMetadata?.contentType || 'application/octet-stream';
+    const name = url.searchParams.get('name') || key.split('/').pop() || 'file';
+    const inline = type === 'application/pdf' || type.startsWith('image/');
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': type,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  }
+
+  const id = decodeURIComponent(url.pathname.slice('/api/weekly/'.length));
+  const row = await env.DB.prepare('SELECT * FROM weekly_reports WHERE id = ?').bind(id).first<WeeklyRow>();
+  return noStore(row ? json(mapWeekly(row)) : notFound('Report not found'));
+}
+
+function readWeeklyPayload(payload: Record<string, unknown>): { weekOf: string; title: string; bodyHtml: string; attachments: WeeklyAttachment[] } | string {
+  const rawWeek = String(payload.weekOf || '');
+  if (!ISO_DATE.test(rawWeek)) return '請選擇週次';
+  const title = String(payload.title || '').trim().slice(0, 200);
+  if (!title) return '請填寫標題';
+  const attachments = Array.isArray(payload.attachments)
+    ? (payload.attachments as WeeklyAttachment[])
+        .filter(item => item && typeof item.key === 'string' && item.key.startsWith('weekly/'))
+        .map(item => ({ key: item.key, name: String(item.name || '').slice(0, 200), size: Number(item.size) || 0, type: String(item.type || '') }))
+    : [];
+  return { weekOf: sundayOf(rawWeek), title, bodyHtml: String(payload.bodyHtml || '').slice(0, 100000), attachments };
+}
+
+async function deleteWeeklyFiles(env: Env, keys: string[]): Promise<void> {
+  await Promise.all(keys.filter(key => key.startsWith('weekly/')).map(key => env.MEDIA_BUCKET.delete(key).catch(err => console.error('weekly file delete failed', key, err))));
+}
+
+async function handleAdminWeekly(request: Request, env: Env, url: URL): Promise<Response | null> {
+  if (url.pathname === '/api/admin/weekly-password' && request.method === 'PUT') {
+    const auth = await requireUser(request, env, 'owner');
+    if (auth instanceof Response) return auth;
+    const { password } = await readJson<{ password?: string }>(request);
+    const next = String(password || '').trim();
+    if (next.length < 4) return badRequest('密碼至少 4 個字');
+    // 新雜湊也是新的通行證金鑰：所有已解鎖的裝置都要重新輸入
+    await putSetting(env, 'weeklyPassword', await hashPassword(next));
+    return noStore(json({ ok: true }));
+  }
+
+  if (!url.pathname.startsWith('/api/admin/weekly')) return null;
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+
+  if (url.pathname === '/api/admin/weekly/upload' && request.method === 'POST') {
+    const form = await request.formData();
+    const file = form.get('file');
+    if (!isUploadBlob(file)) return badRequest('請選擇檔案');
+    const problem = attachmentProblem(file.name, file.type, file.size);
+    if (problem === 'type') return badRequest('檔案類型不支援（只收 PDF、Word、圖片）');
+    if (problem === 'size') return json({ error: '檔案超過 20 MB' }, 413);
+    const key = `weekly/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+    await env.MEDIA_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type || 'application/octet-stream' } });
+    return noStore(json({ key, name: file.name, size: file.size, type: file.type }));
+  }
+
+  const id = decodeURIComponent(url.pathname.slice('/api/admin/weekly'.length).replace(/^\//, ''));
+
+  if (!id && request.method === 'POST') {
+    const input = readWeeklyPayload(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const existing = await env.DB.prepare('SELECT id FROM weekly_reports WHERE week_of = ?').bind(input.weekOf).first<{ id: string }>();
+    if (existing) return json({ error: '這一週已經有週報', id: existing.id }, 409);
+    const now = new Date().toISOString();
+    const newId = crypto.randomUUID();
+    await env.DB.prepare(
+      'INSERT INTO weekly_reports (id, week_of, title, body_html, attachments, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(newId, input.weekOf, input.title, input.bodyHtml, JSON.stringify(input.attachments), auth.id, now, now).run();
+    const row = await env.DB.prepare('SELECT * FROM weekly_reports WHERE id = ?').bind(newId).first<WeeklyRow>();
+    return noStore(json(mapWeekly(row!), 201));
+  }
+
+  if (id && request.method === 'PUT') {
+    const input = readWeeklyPayload(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const before = await env.DB.prepare('SELECT * FROM weekly_reports WHERE id = ?').bind(id).first<WeeklyRow>();
+    if (!before) return notFound('Report not found');
+    const clash = await env.DB.prepare('SELECT id FROM weekly_reports WHERE week_of = ? AND id != ?').bind(input.weekOf, id).first<{ id: string }>();
+    if (clash) return json({ error: '這一週已經有週報', id: clash.id }, 409);
+    await env.DB.prepare(
+      'UPDATE weekly_reports SET week_of = ?, title = ?, body_html = ?, attachments = ?, updated_at = ? WHERE id = ?',
+    ).bind(input.weekOf, input.title, input.bodyHtml, JSON.stringify(input.attachments), new Date().toISOString(), id).run();
+    const kept = new Set(input.attachments.map(item => item.key));
+    await deleteWeeklyFiles(env, parseAttachments(before.attachments).map(item => item.key).filter(key => !kept.has(key)));
+    const row = await env.DB.prepare('SELECT * FROM weekly_reports WHERE id = ?').bind(id).first<WeeklyRow>();
+    return noStore(json(mapWeekly(row!)));
+  }
+
+  if (id && request.method === 'DELETE') {
+    const before = await env.DB.prepare('SELECT attachments FROM weekly_reports WHERE id = ?').bind(id).first<{ attachments: string }>();
+    await env.DB.prepare('DELETE FROM weekly_reports WHERE id = ?').bind(id).run();
+    if (before) await deleteWeeklyFiles(env, parseAttachments(before.attachments).map(item => item.key));
+    return noStore(json({ ok: true }));
+  }
+
+  return null;
+}
+
+/**
+ * 桌面版 BOLCCOP Admin 的安裝檔：只給登入中的管理者下載（後台總覽頁的下載卡）。
+ * 檔案放 R2 `downloads/admin-desktop/`，`latest.json` 描述目前版本。
+ */
+async function handleAdminDesktopDownload(request: Request, env: Env, url: URL): Promise<Response | null> {
+  const prefix = '/api/admin/desktop/';
+  if (!url.pathname.startsWith(prefix) || (request.method !== 'GET' && request.method !== 'HEAD')) return null;
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const name = decodeURIComponent(url.pathname.slice(prefix.length));
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return notFound('Download not found');
+  const object = await env.MEDIA_BUCKET.get(`downloads/admin-desktop/${name}`);
+  if (!object) return notFound('Download not found');
+  const isManifest = name === 'latest.json';
+  const headers = new Headers({
+    'Content-Type': isManifest ? 'application/json; charset=utf-8' : 'application/zip',
+    'Content-Length': String(object.size),
+    'Cache-Control': 'private, no-store',
+  });
+  if (!isManifest) headers.set('Content-Disposition', `attachment; filename="${name}"`);
+  return new Response(request.method === 'HEAD' ? null : object.body, { headers });
 }
 
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
@@ -1446,17 +1730,19 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
     getCurrentUser(request, env),
   ]);
 
-  const [sermonsResult, dailyMannaResult] = await Promise.all([
-    env.DB.prepare("SELECT * FROM sermons WHERE type = 'sermon' ORDER BY date DESC").all<SermonRow>(),
-    env.DB.prepare('SELECT * FROM daily_manna ORDER BY date DESC').all<DailyMannaRow>(),
-  ]);
-
+  // 完整的講道／每日天言清單（4,400 列、2.4 MB）不再隨每次頁面載入送出：首頁只要
+  // recent 裡的最新幾筆，完整清單由需要的頁面向 /api/sermons/all 另外要，且可快取。
+  // sermons / dailyManna 留空陣列，讓部署前就開著的舊分頁不會因欄位消失而出錯。
   const payload: Record<string, unknown> = {
     content: snapshot.content,
     images: snapshot.images,
     stats: snapshot.stats,
-    sermons: (sermonsResult.results ?? []).map(mapSermon),
-    dailyManna: (dailyMannaResult.results ?? []).map(mapDailyManna),
+    recent: snapshot.recent,
+    // 舊快照沒有這個欄位：當成沒有公告，下次重建就補上
+    announcements: (snapshot as { announcements?: unknown[] }).announcements ?? [],
+    version: snapshot.builtAt,
+    sermons: [],
+    dailyManna: [],
     messages: [],
     prayerRequests: [],
     donations: [],
@@ -1464,20 +1750,32 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
   };
 
   if (currentUser) {
-    const [messagesResult, prayerResult, donationsResult, usersResult] = await Promise.all([
-      env.DB.prepare('SELECT * FROM messages ORDER BY date DESC').all<MessageRow>(),
-      env.DB.prepare('SELECT * FROM prayer_requests ORDER BY date DESC').all<PrayerRequestRow>(),
-      currentUser.role === 'owner'
-        ? env.DB.prepare('SELECT * FROM donations ORDER BY created_at DESC LIMIT 500').all<DonationRow>()
-        : Promise.resolve({ results: [] as DonationRow[] }),
-      currentUser.role === 'owner'
-        ? env.DB.prepare('SELECT * FROM users ORDER BY created_at ASC').all<UserRow>()
-        : Promise.resolve({ results: [] as UserRow[] }),
+    // 後台附帶的清單各自獨立：任何一個查詢失敗（例如 donations 還沒跑新 migration、
+    // 欄位對不上）只讓那一份變空並記錄，絕不能讓整個 bootstrap 回 500——
+    // 那會讓登入中的管理者整站都載不出內容。
+    const adminList = async <R, T>(label: string, run: () => Promise<{ results?: R[] }>, map: (row: R) => T): Promise<T[]> => {
+      try {
+        return ((await run()).results ?? []).map(map);
+      } catch (err) {
+        console.error(`bootstrap: ${label} unavailable`, err);
+        return [];
+      }
+    };
+    const isOwner = currentUser.role === 'owner';
+    const [messages, prayerRequests, donations, users] = await Promise.all([
+      adminList('messages', () => env.DB.prepare('SELECT * FROM messages ORDER BY date DESC').all<MessageRow>(), mapMessage),
+      adminList('prayer_requests', () => env.DB.prepare('SELECT * FROM prayer_requests ORDER BY date DESC').all<PrayerRequestRow>(), mapPrayerRequest),
+      isOwner
+        ? adminList('donations', () => env.DB.prepare('SELECT * FROM donations ORDER BY created_at DESC LIMIT 500').all<DonationRow>(), mapDonation)
+        : Promise.resolve([]),
+      isOwner
+        ? adminList('users', () => env.DB.prepare('SELECT * FROM users ORDER BY created_at ASC').all<UserRow>(), mapUser)
+        : Promise.resolve([]),
     ]);
-    payload.messages = (messagesResult.results ?? []).map(mapMessage);
-    payload.prayerRequests = (prayerResult.results ?? []).map(mapPrayerRequest);
-    payload.donations = (donationsResult.results ?? []).map(mapDonation);
-    payload.users = (usersResult.results ?? []).map(mapUser);
+    payload.messages = messages;
+    payload.prayerRequests = prayerRequests;
+    payload.donations = donations;
+    payload.users = users;
   }
 
   return json(payload);
@@ -1499,6 +1797,25 @@ async function handleSermonPage(env: Env, url: URL): Promise<Response> {
   const map = kind === 'sermon' ? mapSermon : mapDailyManna;
 
   return json({ items: page.items.map(row => map(row as never)), nextCursor: page.nextCursor });
+}
+
+/**
+ * 一種的完整清單。訪客讀 KV 快照（0 列 D1），網址帶版本號 v，快照一重建版本就變，
+ * 所以可以讓瀏覽器快取一整天。已登入的管理者直接查 D1，剛存的內容立刻看得到。
+ */
+async function handleSermonList(request: Request, env: Env, url: URL): Promise<Response> {
+  const kind = parseKind(url.searchParams.get('type'));
+  const currentUser = await getCurrentUser(request, env);
+  const deps = snapshotDeps(env);
+  const items = currentUser ? await deps.buildList(kind) : await readSermonList(deps, kind);
+  return new Response(JSON.stringify(items), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': currentUser
+        ? 'private, no-store'
+        : url.searchParams.get('v') ? 'public, max-age=86400' : 'public, max-age=60',
+    },
+  });
 }
 
 async function handleSermonCatalogue(env: Env): Promise<Response> {
@@ -4797,10 +5114,14 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       return handleImageObject(env, objectKey);
     }
 
-    // 以下三條必須排在 `/api/sermons/` 的 startsWith 判斷之前 ——
+    // 以下四條必須排在 `/api/sermons/` 的 startsWith 判斷之前 ——
     // 那一條沒有檢查 method，會把 GET /api/sermons/catalogue 一起吃掉。
     if (url.pathname === '/api/sermons/catalogue' && request.method === 'GET') {
       return handleSermonCatalogue(env);
+    }
+
+    if (url.pathname === '/api/sermons/all' && request.method === 'GET') {
+      return handleSermonList(request, env, url);
     }
 
     if (url.pathname === '/api/sermons' && request.method === 'GET') {
@@ -5128,6 +5449,14 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
 
     if (url.pathname === '/api/live-stream' && request.method === 'GET') {
       return handleLiveStreamPublic(env);
+    }
+
+    {
+      const bulletin = await handleAdminAnnouncements(request, env, url)
+        ?? await handleWeeklyPublic(request, env, url)
+        ?? await handleAdminWeekly(request, env, url)
+        ?? await handleAdminDesktopDownload(request, env, url);
+      if (bulletin) return bulletin;
     }
 
     if (url.pathname === '/api/admin/live-stream/config' && request.method === 'GET') {

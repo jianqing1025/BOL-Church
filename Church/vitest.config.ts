@@ -12,6 +12,7 @@ export default defineConfig({
       'mailbox/**/*.test.ts',
       'snapshot/**/*.test.ts',
       'giving/**/*.test.ts',
+      'bulletin/**/*.test.ts',
     ],
     environment: 'node',
   },

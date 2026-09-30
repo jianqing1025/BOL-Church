@@ -1,4 +1,5 @@
-import type { AdminRole, AdminUser, AnalyticsSummary, DesktopDownloadStats, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { Announcement, WeeklyAttachment, WeeklyReport, WeeklyReportSummary } from './data';
+import type { AdminRole, AdminUser, AnalyticsSummary, DesktopDownloadStats, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SermonKind, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage, LiveChatReactions } from './types';
 
 export interface LiveStreamSavePayload {
@@ -40,6 +41,16 @@ export interface SyncResultClient {
   errors: string[]; pages: number; hasMore: boolean; category: string;
 }
 
+/** 失敗的 API 呼叫：保留 HTTP 狀態與回應內容（例如 401 密碼錯、409 該週已有週報）。 */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly body: unknown) {
+    super(message);
+  }
+}
+
+export type AnnouncementInput = Pick<Announcement, 'title' | 'bodyHtml' | 'eventDate' | 'showUntil'>;
+export type WeeklyInput = Pick<WeeklyReport, 'weekOf' | 'title' | 'bodyHtml' | 'attachments'>;
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     headers: {
@@ -53,9 +64,11 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const raw = await response.text();
     let message = raw;
+    let body: unknown = null;
 
     try {
       const parsed = JSON.parse(raw) as { error?: string };
+      body = parsed;
       if (parsed?.error) {
         message = parsed.error;
       }
@@ -63,7 +76,7 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
       // Keep raw text when the response body is not JSON.
     }
 
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new ApiError(message || `Request failed: ${response.status}`, response.status, body);
   }
 
   if (response.status === 204) {
@@ -154,6 +167,34 @@ export const api = {
     request<AdminUser>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   saveContent: (content: SiteBootstrap['content']) =>
     request<{ ok: true }>('/api/content', { method: 'PUT', body: JSON.stringify(content) }),
+  adminAnnouncements: () => request<{ items: Announcement[] }>('/api/admin/announcements'),
+  createAnnouncement: (payload: AnnouncementInput) =>
+    request<Announcement>('/api/admin/announcements', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAnnouncement: (id: string, payload: AnnouncementInput) =>
+    request<Announcement>(`/api/admin/announcements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteAnnouncement: (id: string) =>
+    request<{ ok: true }>(`/api/admin/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  weeklyUnlock: (password: string) =>
+    request<{ ok: true }>('/api/weekly/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
+  weeklyLock: () => request<{ ok: true }>('/api/weekly/lock', { method: 'POST' }),
+  weeklyList: () => request<{ items: WeeklyReportSummary[] }>('/api/weekly'),
+  weeklyGet: (id: string) => request<WeeklyReport>(`/api/weekly/${encodeURIComponent(id)}`),
+  weeklyFileUrl: (file: WeeklyAttachment) => `/api/weekly/files/${encodeURIComponent(file.key)}?name=${encodeURIComponent(file.name)}`,
+  adminCreateWeekly: (payload: WeeklyInput) =>
+    request<WeeklyReport>('/api/admin/weekly', { method: 'POST', body: JSON.stringify(payload) }),
+  adminUpdateWeekly: (id: string, payload: WeeklyInput) =>
+    request<WeeklyReport>(`/api/admin/weekly/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  adminDeleteWeekly: (id: string) =>
+    request<{ ok: true }>(`/api/admin/weekly/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  adminUploadWeekly: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<WeeklyAttachment>('/api/admin/weekly/upload', { method: 'POST', body: form });
+  },
+  adminSetWeeklyPassword: (password: string) =>
+    request<{ ok: true }>('/api/admin/weekly-password', { method: 'PUT', body: JSON.stringify({ password }) }),
+  sermonList: (kind: SermonKind, version: string | null) =>
+    request<Sermon[]>(`/api/sermons/all?type=${kind}${version ? `&v=${encodeURIComponent(version)}` : ''}`),
   createSermon: (sermon: Omit<Sermon, 'id'>) =>
     request<Sermon>('/api/sermons', { method: 'POST', body: JSON.stringify(sermon) }),
   updateSermon: (id: string, sermon: Omit<Sermon, 'id'>) =>

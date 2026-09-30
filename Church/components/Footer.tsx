@@ -61,6 +61,9 @@ const Footer: React.FC = () => {
                         {t('footer.classicSite')}
                     </a>
                 </p>
+                <p className="mt-2 text-xs">
+                    <a href="/weekly" className="text-gray-400 underline-offset-4 hover:text-white hover:underline">{t('weekly.nav')}</a>
+                </p>
             </div>
         </footer>
     );

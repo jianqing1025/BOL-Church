@@ -10,6 +10,7 @@ const SNAPSHOT_ROUTES = [
   '/api/admin/sync-channels',
   '/api/admin/live-stream',
   '/api/live/refresh',
+  '/api/admin/announcements',
 ];
 
 export function shouldRebuildSnapshot(method: string, pathname: string, status: number): boolean {

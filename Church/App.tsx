@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
+import SiteLoadErrorBanner from './components/SiteLoadErrorBanner';
 import Hero from './components/Hero';
 import About from './components/About';
 import Events from './components/Events';
@@ -18,6 +19,8 @@ import ContactPage from './components/ContactPage';
 import AdminDashboard from './components/AdminDashboard';
 import PrayerRequestPage from './components/PrayerRequestPage';
 import PhotosPage from './components/photos/PhotosPage';
+import AnnouncementsPage from './components/AnnouncementsPage';
+import WeeklyReportPage from './components/WeeklyReportPage';
 import MeetingPage from './components/meeting/MeetingPage';
 import { DesktopShell } from './components/meeting/DesktopShell';
 import { ChurchDialogHost } from './components/ChurchDialog';
@@ -127,6 +130,12 @@ function App() {
       const subPage = validSubPages.find(p => p === subPageSegment) ?? 'kids';
       return <EventsPage activeSubPage={subPage} />;
     }
+    if (route === '/announcements' || route === '/announcements/') {
+      return <AnnouncementsPage />;
+    }
+    if (route === '/weekly' || route === '/weekly/') {
+      return <WeeklyReportPage />;
+    }
     if (route.startsWith('/giving/')) {
       const subPageSegment = route.split('/')[2] || 'why-we-give';
       const validSubPages: ReadonlyArray<GivingSubPage> = ['why-we-give', 'what-is-tithing', 'ways-to-give', 'other-ways-to-give'];
@@ -161,7 +170,7 @@ function App() {
 
   const isPhotosPage = route.startsWith('/photos');
   const isMeetingPage = route === '/meeting' || route === '/meeting/' || route.startsWith('/meeting/');
-  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/live') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !isMeetingPage && !isPhotosPage;
+  const isHomePage = !route.startsWith('/sermons') && !route.startsWith('/live') && !route.startsWith('/about') && !route.startsWith('/events') && !route.startsWith('/giving') && !route.startsWith('/contact') && !route.startsWith('/prayer-request') && !route.startsWith('/announcements') && !route.startsWith('/weekly') && !isMeetingPage && !isPhotosPage;
 
   // The in-room view is full-screen (rendered as its own fixed overlay), so the
   // church header/footer are hidden for it. Auth + room-picker keep the chrome.
@@ -177,6 +186,7 @@ function App() {
         {renderPage()}
       </main>
       {!meetingRoomActive && <Footer />}
+      {!meetingRoomActive && <SiteLoadErrorBanner />}
       <ChurchDialogHost />
     </div>
   );

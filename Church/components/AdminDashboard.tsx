@@ -12,6 +12,10 @@ import PhotoManager from './PhotoManager';
 import LiveStreamManager from './LiveStreamManager';
 import TextContentManager from './TextContentManager';
 import UserManager from './UserManager';
+import { AdminNavIcon } from './admin/AdminNavIcon';
+import AdminAppDownload from './admin/AdminAppDownload';
+import AnnouncementManager from './AnnouncementManager';
+import WeeklyReportManager from './WeeklyReportManager';
 import { api } from '../api';
 import type { AnalyticsSummary, DesktopDownloadStats, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
@@ -22,7 +26,7 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'announcements' | 'weekly' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
@@ -34,6 +38,8 @@ const sectionLabelKeys: Record<Section, string> = {
   'healing-prayer': 'admin.healingPrayer',
   testimony: 'admin.testimony',
   livestream: 'admin.livestream',
+  announcements: 'admin.announcements',
+  weekly: 'admin.weekly',
   manna: 'admin.manna',
   inbox: 'admin.inbox',
   prayer: 'admin.prayerRequest',
@@ -267,7 +273,17 @@ const AdminDashboard: React.FC = () => {
   const dateLocale = language === Language.ZH ? 'zh-TW' : 'en-US';
   const sectionLabel = (section: Section) => t(sectionLabelKeys[section]);
   const roleLabel = currentUser?.role === 'owner' ? t('admin.owner') : t('admin.adminRole');
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'photos', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'manna', 'users'];
+  // 後台的分頁圖示用紫色版，與桌面版 BOLCCOP Admin 一致；離開後台還原
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const previous = { href: link.href, type: link.type };
+    link.type = 'image/png';
+    link.href = '/admin-favicon.png';
+    return () => { link.href = previous.href; link.type = previous.type; };
+  }, []);
+
+  const primarySections: Section[] = ['overview', 'homepage', 'text', 'photos', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'announcements', 'weekly', 'manna', 'users'];
   const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
   const insightSections: Section[] = ['analytics'];
   const visiblePrimarySections = primarySections.filter(canAccessSection);
@@ -422,6 +438,8 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* 桌面版：左邊 Meeting Client 的累計下載，右邊 BOLCCOP Admin 的下載 */}
+      <div className="grid items-stretch gap-6 xl:grid-cols-[1.4fr_1fr]">
       {desktopDownloads && (
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -436,13 +454,11 @@ const AdminDashboard: React.FC = () => {
               {desktopDownloads.lastAt ? `${t('admin.desktopDownloadsLast')} ${formatDate(`${desktopDownloads.lastAt.replace(' ', 'T')}Z`, dateLocale)}` : ''}
             </div>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-5">
+          <div className="mt-5 grid grid-cols-3 gap-4">
             {([
               ['admin.desktopDownloadsTotal', desktopDownloads.total],
               ['admin.desktopDownloadsSetup', desktopDownloads.setup],
               ['admin.desktopDownloadsPortable', desktopDownloads.portable],
-              ['admin.desktopDownloads7', desktopDownloads.last7],
-              ['admin.desktopDownloads30', desktopDownloads.last30],
             ] as const).map(([key, value]) => (
               <div key={key} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <div className="text-xs font-semibold text-gray-500">{t(key)}</div>
@@ -478,6 +494,8 @@ const AdminDashboard: React.FC = () => {
           )}
         </div>
       )}
+      <AdminAppDownload />
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-lg bg-white p-6 shadow-sm">
@@ -1233,9 +1251,10 @@ const AdminDashboard: React.FC = () => {
                   {renderMiniRankList(t('admin.deviceTypes'), webAnalytics.deviceTypes)}
                 </div>
               </div>
-              <div className="rounded-lg bg-white p-5 shadow-sm">
+              {/* 效能：佔滿整排，每行四個數據（兩行） */}
+              <div className="rounded-lg bg-white p-5 shadow-sm xl:col-span-2">
                 <h3 className="text-lg font-bold text-gray-900">{t('admin.performance')}</h3>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                   {[
                     ['P50 page load', formatMs(webAnalytics.performance.pageLoadP50Ms)],
                     ['P75 page load', formatMs(webAnalytics.performance.pageLoadP75Ms)],
@@ -1333,6 +1352,10 @@ const AdminDashboard: React.FC = () => {
             <SermonManager entryType="sermon" category="testimony" />
           </div>
         );
+      case 'announcements':
+        return <AnnouncementManager />;
+      case 'weekly':
+        return <WeeklyReportManager />;
       case 'manna':
         return (
           <div className="rounded-lg bg-white p-6 shadow-sm">
@@ -1387,8 +1410,13 @@ const AdminDashboard: React.FC = () => {
     <div className="flex min-h-screen bg-gray-100">
       <aside className="sticky top-0 hidden h-screen w-72 flex-shrink-0 flex-col bg-gray-950 text-white lg:flex">
         <div className="border-b border-white/10 p-6">
-          <div className="text-xl font-bold">{t('admin.dashboardTitle')}</div>
-          <div className="mt-1 text-sm text-white/60">{t('admin.churchName')}</div>
+          <div className="flex items-center gap-3">
+            <img src="/admin-icon.png" alt="" width={40} height={40} className="h-10 w-10 shrink-0 rounded-xl" />
+            <div className="min-w-0">
+              <div className="text-xl font-bold">{t('admin.dashboardTitle')}</div>
+              <div className="mt-0.5 text-sm text-white/60">{t('admin.churchName')}</div>
+            </div>
+          </div>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
           {visiblePrimarySections.map(section => {
@@ -1402,7 +1430,7 @@ const AdminDashboard: React.FC = () => {
                   activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <span>{sectionLabel(section)}</span>
+                <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
                 {badge > 0 && (
                   <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
                 )}
@@ -1424,7 +1452,7 @@ const AdminDashboard: React.FC = () => {
                   activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <span>{sectionLabel(section)}</span>
+                <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
                 {badge > 0 && (
                   <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
                 )}
@@ -1440,11 +1468,11 @@ const AdminDashboard: React.FC = () => {
                 activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <span>{sectionLabel(section)}</span>
+              <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
             </button>
           ))}
-          <a href="/" className="block rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
-            {t('admin.backToWebsite')}
+          <a href="/" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
+            <AdminNavIcon name="back" />{t('admin.backToWebsite')}
           </a>
         </nav>
         <div className="mt-auto border-t border-white/10 p-4">
@@ -1523,7 +1551,7 @@ const AdminDashboard: React.FC = () => {
                     activeSection === section ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
                   }`}
                 >
-                  {sectionLabel(section)}
+                  <span className="flex items-center gap-1.5"><AdminNavIcon name={section} size={15} tinted={false} />{sectionLabel(section)}</span>
                 </button>
               ))}
               <button

@@ -222,11 +222,50 @@ export interface WebAnalyticsSummary {
   error?: string;
 }
 
+export type SermonKind = 'sermon' | 'daily-manna';
+
+export type { Announcement } from './bulletin/announcements';
+
+export interface WeeklyAttachment {
+  key: string;
+  name: string;
+  size: number;
+  type: string;
+}
+
+export interface WeeklyReportSummary {
+  id: string;
+  /** 該週週日 'YYYY-MM-DD' */
+  weekOf: string;
+  title: string;
+}
+
+export interface WeeklyReport extends WeeklyReportSummary {
+  bodyHtml: string;
+  attachments: WeeklyAttachment[];
+  updatedAt: string;
+}
+
+/** 首頁與直播頁要的最新幾筆（伺服器從快照算好，隱藏的不含）。 */
+export interface RecentSermons {
+  sermons: Sermon[];
+  dailyManna: Sermon[];
+  liveBroadcasts: Sermon[];
+}
+
+export const EMPTY_RECENT: RecentSermons = { sermons: [], dailyManna: [], liveBroadcasts: [] };
+
 export interface SiteBootstrap {
   content: typeof translations;
   images: Record<string, string>;
+  /** 完整清單不再隨 bootstrap 送出（恆為空陣列），改向 /api/sermons/all 另取。 */
   sermons: Sermon[];
   dailyManna: Sermon[];
+  recent?: RecentSermons;
+  /** 未到期（建置時）的公告；前端再依教會時區過濾當天到期的。 */
+  announcements?: import('./bulletin/announcements').Announcement[];
+  /** 快照版本：完整清單的網址帶上它，內容一變瀏覽器就會重新下載。 */
+  version?: string;
   messages: Message[];
   prayerRequests: PrayerRequest[];
   donations: Donation[];

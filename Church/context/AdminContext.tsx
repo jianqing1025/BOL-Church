@@ -1,14 +1,19 @@
-import React, { createContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useCallback, useState, useEffect, useRef, ReactNode } from 'react';
 import { produce } from 'immer';
 import { api } from '../api';
-import { DEFAULT_SITE_BOOTSTRAP, type AdminRole, type AdminUser, type Donation, type MailboxReply, type Message, type PrayerRequest, type Sermon } from '../data';
+import { DEFAULT_SITE_BOOTSTRAP, EMPTY_RECENT, type AdminRole, type AdminUser, type Donation, type MailboxReply, type Message, type PrayerRequest, type Announcement, type RecentSermons, type Sermon, type SermonKind, type SiteBootstrap } from '../data';
+import { loadSiteCache, saveSiteCache, withRetry } from '../services/siteCache';
 import { churchAlert } from '../components/ChurchDialog';
 
 interface AdminContextType {
   isAdminMode: boolean;
   currentUser: AdminUser | null;
   users: AdminUser[];
+  /** 還沒有任何可顯示的網站內容（沒有裝置快取，伺服器也還沒回來）。 */
   loading: boolean;
+  /** 載入網站內容失敗（已自動重試過一次），且裝置上也沒有快取可用。 */
+  loadError: boolean;
+  retryBootstrap: () => void;
   hasUnsavedContent: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -21,10 +26,17 @@ interface AdminContextType {
   updateImage: (key: string, url: string) => Promise<void>;
   deleteImage: (key: string) => Promise<void>;
   uploadImage: (key: string, file: Blob, fileName: string) => Promise<string>;
+  /** 最新幾筆，首頁與直播頁用；不需要下載完整清單。 */
+  recent: RecentSermons;
+  /** 公告（快照建置時未到期的）；顯示前再用 currentAnnouncements 依今天過濾。 */
+  announcements: Announcement[];
+  /** 完整清單：先呼叫 ensureList（或用 useSermonList）才會下載。 */
   sermons: Sermon[];
   setSermons: (sermons: Sermon[]) => void;
   dailyManna: Sermon[];
   setDailyManna: (sermons: Sermon[]) => void;
+  listStatus: Record<SermonKind, ListStatus>;
+  ensureList: (kind: SermonKind, force?: boolean) => Promise<void>;
   saveChanges: () => Promise<void>;
   messages: Message[];
   prayerRequests: PrayerRequest[];
@@ -50,6 +62,8 @@ interface AdminContextType {
   refreshBootstrap: () => Promise<void>;
 }
 
+export type ListStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 export const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
 // 在線直播開放給一般 Admin（contributor）——後端 live-stream 各端點本來就只要求 contributor，
@@ -69,55 +83,112 @@ const setNestedValue = (obj: any, path: string, value: string) => {
 
 export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
-  const [content, setContent] = useState(DEFAULT_SITE_BOOTSTRAP.content);
-  const [sermons, setSermons] = useState<Sermon[]>(DEFAULT_SITE_BOOTSTRAP.sermons);
-  const [dailyManna, setDailyManna] = useState<Sermon[]>(DEFAULT_SITE_BOOTSTRAP.dailyManna);
-  const [images, setImages] = useState<Record<string, string>>(DEFAULT_SITE_BOOTSTRAP.images);
+  // 上次成功載入的公開內容：有的話先用它畫出真實畫面，背景再更新
+  const [cached] = useState(() => loadSiteCache());
+  const [content, setContent] = useState((cached?.content as typeof DEFAULT_SITE_BOOTSTRAP.content) ?? DEFAULT_SITE_BOOTSTRAP.content);
+  const [images, setImages] = useState<Record<string, string>>(cached?.images ?? DEFAULT_SITE_BOOTSTRAP.images);
+  const [recent, setRecent] = useState<RecentSermons>((cached?.recent as RecentSermons) ?? EMPTY_RECENT);
+  const [version, setVersion] = useState<string | null>(cached?.version ?? null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>((cached?.announcements as Announcement[]) ?? []);
+  // 完整清單一開始是空的，不再先放寫死的範例講道
+  const [sermons, setSermons] = useState<Sermon[]>([]);
+  const [dailyManna, setDailyManna] = useState<Sermon[]>([]);
+  const [listStatus, setListStatus] = useState<Record<SermonKind, ListStatus>>({ sermon: 'idle', 'daily-manna': 'idle' });
   const [messages, setMessages] = useState<Message[]>([]);
   const [prayerRequests, setPrayerRequests] = useState<PrayerRequest[]>([]);
   const [donations, setDonations] = useState<Donation[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
+  const [loadError, setLoadError] = useState(false);
   const [hasUnsavedContent, setHasUnsavedContent] = useState(false);
 
-  const applyBootstrap = (data: typeof DEFAULT_SITE_BOOTSTRAP) => {
+  // 清單的狀態與版本放進 ref，讓 ensureList 維持同一個函式、又讀得到最新值
+  const listStatusRef = useRef(listStatus);
+  listStatusRef.current = listStatus;
+  const versionRef = useRef(version);
+  versionRef.current = version;
+  const hasDataRef = useRef(Boolean(cached));
+
+  const setOneStatus = (kind: SermonKind, status: ListStatus) => {
+    listStatusRef.current = { ...listStatusRef.current, [kind]: status };
+    setListStatus(listStatusRef.current);
+  };
+
+  const ensureList = useCallback(async (kind: SermonKind, force = false) => {
+    const status = listStatusRef.current[kind];
+    if (status === 'loading' || (status === 'ready' && !force)) return;
+    setOneStatus(kind, 'loading');
+    try {
+      const items = await withRetry(() => api.sermonList(kind, versionRef.current));
+      (kind === 'sermon' ? setSermons : setDailyManna)(items);
+      setOneStatus(kind, 'ready');
+    } catch (error) {
+      console.error('Failed to load sermon list', kind, error);
+      setOneStatus(kind, 'error');
+    }
+  }, []);
+
+  const applyBootstrap = (data: SiteBootstrap) => {
     setContent(data.content);
     setImages(data.images);
-    setSermons(data.sermons.filter(item => item.type === 'sermon'));
-    setDailyManna(data.dailyManna ?? data.sermons.filter(item => item.type === 'daily-manna'));
+    setRecent(data.recent ?? EMPTY_RECENT);
+    setAnnouncements(data.announcements ?? []);
+    setVersion(data.version ?? null);
     setMessages(data.messages);
     setPrayerRequests(data.prayerRequests);
     setDonations(data.donations);
     setCurrentUser(data.currentUser ?? null);
     setUsers(data.users ?? []);
     setHasUnsavedContent(false);
+    hasDataRef.current = true;
+    saveSiteCache({ content: data.content, images: data.images, stats: null, recent: data.recent ?? EMPTY_RECENT, announcements: data.announcements ?? [], version: data.version ?? null });
   };
 
+  // 管理者編輯後要看到剛存的清單：已下載過的清單一併重抓（登入者的清單直接查 D1）
   const refreshBootstrap = async () => {
     const data = await api.bootstrap();
     applyBootstrap(data);
+    const loaded = (Object.keys(listStatusRef.current) as SermonKind[]).filter(kind => listStatusRef.current[kind] !== 'idle');
+    await Promise.all(loaded.map(kind => ensureList(kind, true)));
   };
 
-  useEffect(() => {
-    let cancelled = false;
-
-    refreshBootstrap()
-      .then(() => {
-        if (cancelled) return;
-      })
+  const loadBootstrap = useCallback(() => {
+    setLoadError(false);
+    // 慢網路或一時連不上：自動再試一次；有裝置快取時畫面照常，只是背景沒更新到
+    withRetry(() => api.bootstrap())
+      .then(data => applyBootstrap(data))
       .catch(error => {
         console.error('Failed to load site data', error);
+        if (!hasDataRef.current) setLoadError(true);
       })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setLoading(false));
+  // applyBootstrap 只呼叫 setter，不依賴會變的值
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => { loadBootstrap(); }, [loadBootstrap]);
+
+  const retryBootstrap = () => {
+    setLoading(!hasDataRef.current);
+    loadBootstrap();
+  };
+
+  // 快照更新（版本變了）時，已下載過的公開清單跟著換新
+  const previousVersion = useRef(version);
+  useEffect(() => {
+    if (previousVersion.current === version) return;
+    previousVersion.current = version;
+    (Object.keys(listStatusRef.current) as SermonKind[])
+      .filter(kind => listStatusRef.current[kind] === 'ready')
+      .forEach(kind => void ensureList(kind, true));
+  }, [version, ensureList]);
+
+  // 後台要完整清單（統計、管理列表）：登入後就下載，且直接取最新
+  useEffect(() => {
+    if (!currentUser) return;
+    void ensureList('sermon', true);
+    void ensureList('daily-manna', true);
+  }, [currentUser?.id, ensureList]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -296,6 +367,8 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         currentUser,
         users,
         loading,
+        loadError,
+        retryBootstrap,
         hasUnsavedContent,
         login,
         logout,
@@ -308,10 +381,14 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateImage,
         deleteImage,
         uploadImage,
+        recent,
+        announcements,
         sermons,
         setSermons,
         dailyManna,
         setDailyManna,
+        listStatus,
+        ensureList,
         saveChanges,
         messages,
         prayerRequests,

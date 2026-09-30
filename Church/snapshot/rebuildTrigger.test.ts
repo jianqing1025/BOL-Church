@@ -15,6 +15,9 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels/abc/sync', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/live-stream/probe', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/live/refresh', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/announcements', 201)).toBe(true);
+    expect(shouldRebuildSnapshot('DELETE', '/api/admin/announcements/abc', 200)).toBe(true);
+    expect(shouldRebuildSnapshot('GET', '/api/admin/announcements', 200)).toBe(false);
   });
 
   it('讀取不重建', () => {

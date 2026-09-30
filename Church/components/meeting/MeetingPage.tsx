@@ -1,3 +1,4 @@
+import { DevSiteNotice } from './DevSiteNotice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
@@ -48,7 +49,7 @@ export const MeetingPage: React.FC<MeetingPageProps> = (props) => {
   if (guideBrowser) {
     return <MeetingBrowserGuide browser={guideBrowser} />;
   }
-  return <MeetingPageContent {...props} />;
+  return <><MeetingPageContent {...props} /><DevSiteNotice /></>;
 };
 
 const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {

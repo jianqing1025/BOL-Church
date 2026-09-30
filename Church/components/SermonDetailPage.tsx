@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { useAdmin } from '../hooks/useAdmin';
+import { useSermonList } from '../hooks/useSermonList';
+import { ListLoadError } from './ListPlaceholder';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
 import { FacebookIcon, XIcon } from './icons/Icons';
@@ -10,10 +11,23 @@ interface SermonDetailPageProps {
 }
 
 const SermonDetailPage: React.FC<SermonDetailPageProps> = ({ sermonId }) => {
-  const { sermons, dailyManna, loading } = useAdmin();
+  const sermonList = useSermonList('sermon');
+  const mannaList = useSermonList('daily-manna');
   const { t, language } = useLocalization();
+  const sermons = sermonList.items;
+  const dailyManna = mannaList.items;
+  const found = [...sermons, ...dailyManna].some(s => s.id === sermonId);
+  const pending = (status: string) => status === 'idle' || status === 'loading';
 
-  if (loading) {
+  if (!found && (sermonList.status === 'error' || mannaList.status === 'error')) {
+    return (
+      <div className="container mx-auto px-6 py-40">
+        <ListLoadError onRetry={() => { sermonList.retry(); mannaList.retry(); }} />
+      </div>
+    );
+  }
+
+  if (!found && (pending(sermonList.status) || pending(mannaList.status))) {
     return (
       <div className="container mx-auto px-6 py-40 text-center">
         <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>

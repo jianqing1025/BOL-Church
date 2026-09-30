@@ -117,6 +117,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
         { href: '/contact/contact-us', key: 'header.navContact' },
         { href: '/contact/join-us', key: 'contactPage.navJoinUs' },
         { href: '/contact/prayer-request', key: 'contactPage.navPrayerRequest' },
+        { href: '/announcements', key: 'announcements.nav' },
     ]},
   ];
 
