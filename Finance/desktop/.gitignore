@@ -1,0 +1,4 @@
+node_modules/
+release/
+# The app icon lives here; the repo-wide build/ ignore is for build output.
+!build/

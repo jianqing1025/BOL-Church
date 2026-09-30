@@ -1,0 +1,54 @@
+{
+  "name": "bolccop-finance-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "信望愛靈糧堂財務系統 Windows 桌面版",
+  "author": "BOLCCOP",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack:setup": "node build-setup.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "org.bolccop.finance",
+    "productName": "BOLCCOP Finance",
+    "executableName": "BOLCCOP-Finance",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "signAndEditExecutable": true
+    },
+    "compression": "maximum",
+    "electronLanguages": [
+      "zh-TW",
+      "zh-CN",
+      "en-US"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "信望愛財務系統",
+      "deleteAppDataOnUninstall": false,
+      "language": "1028",
+      "installerLanguages": [
+        "zh_TW"
+      ],
+      "runAfterFinish": true,
+      "include": "build/installer.nsh"
+    }
+  }
+}
