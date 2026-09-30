@@ -7,11 +7,12 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test policy.test.cjs agendaFolder.test.cjs",
+    "test": "node --test policy.test.cjs agendaFolder.test.cjs admin-policy.test.cjs",
     "smoke": "node smoke.cjs",
     "pack": "node build-zip.cjs",
     "pack:exe": "node build-zip.cjs --exe",
-    "pack:setup": "node build-zip.cjs --setup"
+    "pack:setup": "node build-zip.cjs --setup",
+    "pack:admin": "node build-admin.cjs"
   },
   "devDependencies": {
     "electron": "44.4.5",
