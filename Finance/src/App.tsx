@@ -3,7 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
 import { KpiCard, CategoryDoughnut, BudgetDoughnut, TrendLine, GroupedBar, CATEGORY_COLORS } from './components/dashboardCharts';
-import type { AppSettings, AuditLog, Expense, ExpenseCategory, ExpenseReceiptSlot, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
+import type { AppSettings, AuditLog, Expense, Reconciliation, ExpenseCategory, ExpenseReceiptSlot, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
 import { api } from './utils/api';
 import { exportBackup, importBackup, TABLE_LABELS } from './utils/backup';
@@ -19,7 +19,7 @@ import {
   normalizeTaxStatementSettings
 } from './shared/taxStatement';
 
-type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reports' | 'users' | 'account';
+type Page = 'dashboard' | 'members' | 'offerings' | 'expenses' | 'reconciliation' | 'reports' | 'users' | 'account';
 type AccountTab = 'profile' | 'password';
 type ExpenseEmailAction = {
   expenseId: string;
@@ -32,6 +32,7 @@ const PAGE_PATHS: Record<Page, string> = {
   members: '/members',
   offerings: '/offerings',
   expenses: '/expense',
+  reconciliation: '/reconciliation',
   reports: '/reports',
   users: '/users',
   account: '/account'
@@ -42,6 +43,7 @@ function routeFromLocation(): { page: Page; accountTab: AccountTab } {
   if (path === '/members') return { page: 'members', accountTab: 'profile' };
   if (path === '/offerings' || path === '/offering') return { page: 'offerings', accountTab: 'profile' };
   if (path === '/expense' || path === '/expenses' || path === '/expense-action') return { page: 'expenses', accountTab: 'profile' };
+  if (path === '/reconciliation') return { page: 'reconciliation', accountTab: 'profile' };
   if (path === '/reports' || path === '/report') return { page: 'reports', accountTab: 'profile' };
   if (path === '/users') return { page: 'users', accountTab: 'profile' };
   if (path === '/account/password') return { page: 'account', accountTab: 'password' };
@@ -335,7 +337,7 @@ function ClaimPage() {
     <main className="claim-page">
       <section className="claim-panel">
         <div className="claim-brand">
-          <div className="brand-mark">財</div>
+          <img className="brand-mark" src="/app-icon-192.png" alt="" />
           <div>
             <strong>信望愛靈糧堂</strong>
             <span>請款申請</span>
@@ -530,28 +532,72 @@ function SnapPage({ sessionId }: { sessionId: string }) {
   );
 }
 
+/** 手機上方導覽的圖示（線條圖，顏色由 CSS 依頁面決定；桌面側欄不顯示） */
+const NAV_ICON_PATHS: Partial<Record<Page, React.ReactNode>> = {
+  dashboard: <><path d="M3 3v18h18" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></>,
+  members: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
+  offerings: <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />,
+  expenses: <><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /><path d="M12 17.5v-11" /></>,
+  reconciliation: <><rect width="8" height="4" x="8" y="2" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="m9 14 2 2 4-4" /></>,
+  reports: <><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M16 13H8" /><path d="M16 17H8" /><path d="M10 9H8" /></>,
+  users: <><circle cx="18" cy="15" r="3" /><circle cx="9" cy="7" r="4" /><path d="M10 15H6a4 4 0 0 0-4 4v2" /><path d="m21.7 16.4-.9-.3" /><path d="m15.2 13.9-.9-.3" /><path d="m16.6 18.7.3-.9" /><path d="m19.1 12.2.3-.9" /><path d="m19.6 18.7-.4-1" /><path d="m16.8 12.3-.4-1" /><path d="m14.3 16.6 1-.4" /><path d="m20.7 13.8 1-.4" /></>
+};
+
+function NavIcon({ page }: { page: Page }) {
+  const paths = NAV_ICON_PATHS[page];
+  if (!paths) return null;
+  return (
+    <svg className="nav-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths}
+    </svg>
+  );
+}
+
+const NAV_COLLAPSED_KEY = 'finance.nav.collapsed';
+
+/** 手機上方導覽是否收起；記在這台裝置上，下次打開維持原樣 */
+function useNavCollapsed(): [boolean, (value: boolean) => void] {
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(NAV_COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  const update = (value: boolean) => {
+    setCollapsed(value);
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, value ? '1' : '0'); } catch { /* 無痕模式：只是不記住 */ }
+  };
+  return [collapsed, update];
+}
+
+// Windows 桌面版安裝檔（Finance/desktop 打包，放在 R2 公開網域）。桌面版裡不再顯示下載入口。
+const DESKTOP_SETUP_URL = 'https://church-finance.bolccop.org/downloads/finance-desktop/BOLCCOP-Finance-Setup-1.0.0-x64.zip';
+const IN_DESKTOP_APP = typeof navigator !== 'undefined' && navigator.userAgent.includes('BOLCCOP-Finance-Desktop');
+
 function Shell({ page, setPage, onOpenAccount }: {
   page: Page;
   setPage: (page: Page) => void;
   onOpenAccount: (tab: AccountTab) => void;
 }) {
   const { user, logout } = useAuth();
-  // Counter（點款人員）只記錄奉獻，導覽只留這一頁
-  const items: Array<[Page, string]> = user?.role === 'counter'
-    ? [['offerings', '奉獻記錄']]
+  // Counter（點款人員）只記錄奉獻，導覽只留這一頁。第三欄是小螢幕手機上的簡稱。
+  const items: Array<[Page, string, string]> = user?.role === 'counter'
+    ? [['offerings', '奉獻記錄', '奉獻']]
     : [
-        ['dashboard', '數據看板'],
-        ['members', '成員管理'],
-        ['offerings', '奉獻記錄'],
-        ['expenses', '支出管理'],
-        ['reports', '報表日誌']
+        ['dashboard', '數據看板', '數據'],
+        ['members', '成員管理', '成員'],
+        ['offerings', '奉獻記錄', '奉獻'],
+        ['expenses', '支出管理', '支出'],
+        ['reconciliation', '銀行對帳', '對帳'],
+        ['reports', '報表日誌', '報表']
       ];
-  if (user?.role === 'super_admin') items.push(['users', '用戶管理']);
+  if (user?.role === 'super_admin') items.push(['users', '用戶管理', '用戶']);
+  const current = items.find(([id]) => id === page);
+  const [navCollapsed, setNavCollapsed] = useNavCollapsed();
+  // 把手可以點，也可以拖：往上收起、往下拉出
+  const dragRef = useRef<{ y: number; moved: boolean } | null>(null);
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark">財</span>
+        <img className="brand-mark" src="/app-icon-192.png" alt="" />
         <div className="brand-text">
           <strong>信望愛靈糧堂</strong>
           <small><span className="desk-only">財務管理系統</span><span className="mob-only">財務系統</span></small>
@@ -567,13 +613,49 @@ function Shell({ page, setPage, onOpenAccount }: {
           </details>
         )}
       </div>
-      <nav>
-        {items.map(([id, label]) => (
-          <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>
-            {label}
+      <nav className={navCollapsed ? 'collapsed' : ''} aria-hidden={navCollapsed || undefined}>
+        {items.map(([id, label, short]) => (
+          <button key={id} className={`nav-${id} ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}>
+            <NavIcon page={id} />
+            <span className="nav-label">{label}</span>
+            <span className="nav-label-short">{short}</span>
           </button>
         ))}
       </nav>
+      <button
+        type="button"
+        className={`nav-handle mob-only ${navCollapsed ? 'collapsed' : ''}`}
+        aria-expanded={!navCollapsed}
+        aria-label={navCollapsed ? '展開選單' : '收起選單'}
+        onPointerDown={event => { dragRef.current = { y: event.clientY, moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={event => {
+          const drag = dragRef.current;
+          if (!drag || drag.moved) return;
+          const dy = event.clientY - drag.y;
+          if (Math.abs(dy) < 24) return;
+          drag.moved = true;
+          setNavCollapsed(dy < 0);
+        }}
+        onPointerUp={() => {
+          const drag = dragRef.current;
+          dragRef.current = null;
+          if (drag && !drag.moved) setNavCollapsed(!navCollapsed);
+        }}
+        onPointerCancel={() => { dragRef.current = null; }}
+      >
+        {navCollapsed && current && (
+          <span className={`nav-handle-current nav-${current[0]}`}>
+            <NavIcon page={current[0]} />
+            <span className="nav-label">{current[1]}</span>
+            <span className="nav-label-short">{current[2]}</span>
+          </span>
+        )}
+        <span className="nav-handle-grip" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d={navCollapsed ? 'm6 9 6 6 6-6' : 'm18 15-6-6-6 6'} />
+          </svg>
+        </span>
+      </button>
       {user && (
         <div className="sidebar-footer">
           <div className="app-version">Version: {APP_VERSION}</div>
@@ -588,6 +670,7 @@ function Shell({ page, setPage, onOpenAccount }: {
             <div className="user-card-pop">
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('profile'); }}>個人資料</button>
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('password'); }}>變更密碼</button>
+              {!IN_DESKTOP_APP && <a href={DESKTOP_SETUP_URL} onClick={event => event.currentTarget.closest('details')?.removeAttribute('open')}>下載 Windows 版</a>}
               <button type="button" className="danger" onClick={() => logout()}>登出</button>
             </div>
           </details>
@@ -1515,6 +1598,18 @@ const CROP_MIN_PX = 12;
 
 type CropRect = { x: number; y: number; w: number; h: number };
 
+/** 旋轉鍵的圖示：一張照片外加繞行的箭頭，線條粗一點、填滿按鈕。 */
+function RotateIcon({ direction }: { direction: 'left' | 'right' }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={direction === 'left' ? { transform: 'scaleX(-1)' } : undefined}>
+      <rect x="9" y="10" width="11" height="11" rx="2" />
+      <path d="M4 13V9.5A5.5 5.5 0 0 1 9.5 4H14" />
+      <path d="M11 1l3 3-3 3" />
+    </svg>
+  );
+}
+
 /**
  * 可縮放／拖曳的圖片檢視器：＋－按鈕、滾輪縮放、放大後拖曳平移、雙擊還原。
  * 傳入 onSave 時額外提供旋轉／裁剪：每次操作都把結果畫成新的 JPEG 當作預覽，
@@ -1713,65 +1808,85 @@ function ZoomableImage({ src, alt, onSave, saveLabel = '保存', saveWhenUnchang
 
   const canReset = edited || scale !== 1 || offset.x !== 0 || offset.y !== 0;
 
-  return (
-    <div className="zoom-viewer">
-      <div
-        ref={frameRef}
-        className={`zoom-frame ${scale > 1 ? 'zoomed' : ''} ${cropMode ? 'cropping' : ''}`}
-        onPointerDown={cropMode ? undefined : onPointerDown}
-        onPointerMove={cropMode ? undefined : onPointerMove}
-        onPointerUp={cropMode ? undefined : endDrag}
-        onPointerCancel={cropMode ? undefined : endDrag}
-        onDoubleClick={cropMode ? undefined : reset}
-      >
-        <img
-          ref={imgRef}
-          src={workingSrc}
-          alt={alt}
-          draggable={false}
-          style={{ transform: cropMode ? undefined : `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
-        />
-        {cropMode && imgBox && (
-          <div
-            className={`crop-layer ${cropRect ? 'has-rect' : ''}`}
-            style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}
-            onPointerDown={cropPointerDown}
-            onPointerMove={cropPointerMove}
-            onPointerUp={cropPointerUp}
-            onPointerCancel={cropPointerUp}
-          >
-            {cropRect
-              ? <div className="crop-rect" style={{ left: cropRect.x, top: cropRect.y, width: cropRect.w, height: cropRect.h }} />
-              : <span className="crop-hint">在圖上拖曳框選要保留的範圍</span>}
-          </div>
-        )}
+  const frame = (
+    <div
+      ref={frameRef}
+      className={`zoom-frame ${scale > 1 ? 'zoomed' : ''} ${cropMode ? 'cropping' : ''}`}
+      onPointerDown={cropMode ? undefined : onPointerDown}
+      onPointerMove={cropMode ? undefined : onPointerMove}
+      onPointerUp={cropMode ? undefined : endDrag}
+      onPointerCancel={cropMode ? undefined : endDrag}
+      onDoubleClick={cropMode ? undefined : reset}
+    >
+      <img
+        ref={imgRef}
+        src={workingSrc}
+        alt={alt}
+        draggable={false}
+        style={{ transform: cropMode ? undefined : `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
+      />
+      {cropMode && imgBox && (
+        <div
+          className={`crop-layer ${cropRect ? 'has-rect' : ''}`}
+          style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}
+          onPointerDown={cropPointerDown}
+          onPointerMove={cropPointerMove}
+          onPointerUp={cropPointerUp}
+          onPointerCancel={cropPointerUp}
+        >
+          {cropRect
+            ? <div className="crop-rect" style={{ left: cropRect.x, top: cropRect.y, width: cropRect.w, height: cropRect.h }} />
+            : <span className="crop-hint">在圖上拖曳框選要保留的範圍</span>}
+        </div>
+      )}
+    </div>
+  );
+
+  const zoomButtons = (
+    <>
+      <button type="button" onClick={() => zoomTo(scale - ZOOM_STEP)} disabled={cropMode || scale <= ZOOM_MIN} aria-label="縮小">－</button>
+      <span>{Math.round(scale * 100)}%</span>
+      <button type="button" onClick={() => zoomTo(scale + ZOOM_STEP)} disabled={cropMode || scale >= ZOOM_MAX} aria-label="放大">＋</button>
+    </>
+  );
+
+  // 只檢視：一列就放得下。可編輯：大小與旋轉在圖的上方，裁剪／還原／保存在下方，
+  // 手機上才不會被截斷。
+  if (!onSave) {
+    return (
+      <div className="zoom-viewer">
+        {frame}
+        <div className="zoom-controls">
+          {zoomButtons}
+          <button type="button" onClick={reset} disabled={busy || !canReset}>還原</button>
+        </div>
+        {error && <p className="zoom-error">{error}</p>}
       </div>
+    );
+  }
+
+  return (
+    <div className="zoom-viewer editing">
       <div className="zoom-controls">
-        <button type="button" onClick={() => zoomTo(scale - ZOOM_STEP)} disabled={cropMode || scale <= ZOOM_MIN} aria-label="縮小">－</button>
-        <span>{Math.round(scale * 100)}%</span>
-        <button type="button" onClick={() => zoomTo(scale + ZOOM_STEP)} disabled={cropMode || scale >= ZOOM_MAX} aria-label="放大">＋</button>
-        {onSave && (
-          cropMode ? (
-            <>
-              <span className="zoom-sep" />
-              <button type="button" className="primary" onClick={applyCrop} disabled={!cropRect || busy}>套用裁剪</button>
-              <button type="button" onClick={() => { setCropMode(false); setCropRect(null); }} disabled={busy}>取消裁剪</button>
-            </>
-          ) : (
-            <>
-              <span className="zoom-sep" />
-              <button type="button" onClick={() => rotate(-90)} disabled={busy} title="向左旋轉 90°" aria-label="向左旋轉">⟲</button>
-              <button type="button" onClick={() => rotate(90)} disabled={busy} title="向右旋轉 90°" aria-label="向右旋轉">⟳</button>
-              <button type="button" onClick={() => { reset(); setCropMode(true); }} disabled={busy}>裁剪</button>
-            </>
-          )
+        {zoomButtons}
+        <span className="zoom-sep" />
+        <button type="button" className="rotate-btn" onClick={() => rotate(-90)} disabled={busy || cropMode} title="向左旋轉 90°" aria-label="向左旋轉"><RotateIcon direction="left" /></button>
+        <button type="button" className="rotate-btn" onClick={() => rotate(90)} disabled={busy || cropMode} title="向右旋轉 90°" aria-label="向右旋轉"><RotateIcon direction="right" /></button>
+      </div>
+      {frame}
+      <div className="zoom-controls">
+        {cropMode ? (
+          <>
+            <button type="button" className="primary" onClick={applyCrop} disabled={!cropRect || busy}>套用裁剪</button>
+            <button type="button" onClick={() => { setCropMode(false); setCropRect(null); }} disabled={busy}>取消裁剪</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => { reset(); setCropMode(true); }} disabled={busy}>裁剪</button>
         )}
-        <button type="button" onClick={onSave ? revertEdits : reset} disabled={busy || !canReset}>還原</button>
-        {onSave && (
-          <button type="button" className="primary" onClick={save} disabled={busy || (!edited && !saveWhenUnchanged)}>
-            {busy ? '處理中…' : saveLabel}
-          </button>
-        )}
+        <button type="button" onClick={revertEdits} disabled={busy || !canReset}>還原</button>
+        <button type="button" className="primary" onClick={save} disabled={busy || (!edited && !saveWhenUnchanged)}>
+          {busy ? '處理中…' : saveLabel}
+        </button>
       </div>
       {error && <p className="zoom-error">{error}</p>}
     </div>
@@ -2315,32 +2430,62 @@ type PrintPeriod = 'week' | 'month' | 'year';
 type PrintRange = { start: string; end: string; label: string };
 type PrintGroup = { name: string; rows: string[][]; count: number; total: number };
 
-const PRINT_PERIOD_LABELS: Record<PrintPeriod, string> = { week: '本週', month: '本月', year: '本年' };
+const PRINT_PERIOD_LABELS: Record<PrintPeriod, string> = { week: '週', month: '月', year: '年' };
+
+type PrintOption = { value: string; label: string; range: PrintRange; periodLabel: string };
 
 function isoDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-/** 列印期間一律以今天為準，與工具列的年度下拉無關。週日起算至週六。 */
-function printRange(period: PrintPeriod, today = new Date()): PrintRange {
-  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  let start: Date;
-  let end: Date;
-  if (period === 'week') {
-    start = new Date(base);
-    start.setDate(base.getDate() - base.getDay());
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-  } else if (period === 'month') {
-    start = new Date(base.getFullYear(), base.getMonth(), 1);
-    end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-  } else {
-    start = new Date(base.getFullYear(), 0, 1);
-    end = new Date(base.getFullYear(), 11, 31);
-  }
+function toRange(start: Date, end: Date): PrintRange {
   const from = isoDate(start);
   const to = isoDate(end);
   return { start: from, end: to, label: `${from} ～ ${to}` };
+}
+
+const monthDay = (date: Date) => `${date.getMonth() + 1}/${date.getDate()}`;
+
+/**
+ * 可列印的期間：今年的每一週（週日起算至週六，跨年那週也算今年的第 1 週）、
+ * 今年的每個月、以及有資料的每一年。回傳的 current 是今天所在的那一項。
+ */
+function printOptions(period: PrintPeriod, years: string[], today = new Date()): { options: PrintOption[]; current: string } {
+  const year = today.getFullYear();
+  if (period === 'week') {
+    const first = new Date(year, 0, 1);
+    first.setDate(first.getDate() - first.getDay());
+    const options: PrintOption[] = [];
+    let current = '';
+    const todayIso = isoDate(today);
+    for (let n = 1, start = first; start.getFullYear() <= year; n += 1) {
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      const range = toRange(start, end);
+      const value = String(n);
+      if (todayIso >= range.start && todayIso <= range.end) current = value;
+      options.push({ value, label: `第 ${n} 週（${monthDay(start)}–${monthDay(end)}）`, range, periodLabel: `${year}年第${n}週` });
+      start = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+    }
+    return { options, current: current || options[options.length - 1].value };
+  }
+  if (period === 'month') {
+    const options = Array.from({ length: 12 }, (_, m) => ({
+      value: String(m + 1),
+      label: `${m + 1} 月`,
+      range: toRange(new Date(year, m, 1), new Date(year, m + 1, 0)),
+      periodLabel: `${year}年${m + 1}月`,
+    }));
+    return { options, current: String(today.getMonth() + 1) };
+  }
+  const all = Array.from(new Set([...years, String(year)])).sort().reverse();
+  const options = all.map(y => ({
+    value: y,
+    label: `${y} 年`,
+    range: toRange(new Date(Number(y), 0, 1), new Date(Number(y), 11, 31)),
+    periodLabel: `${y}年`,
+  }));
+  return { options, current: String(year) };
 }
 
 function escapeHtmlText(value: string): string {
@@ -2462,9 +2607,11 @@ function churchInfoForPrint(settings: AppSettings) {
   };
 }
 
-function PrintPreviewModal({ title, fileBase, build, onClose }: {
+function PrintPreviewModal({ title, fileBase, years, build, onClose }: {
   title: string;
   fileBase: string;
+  /** 有資料的年份，給「年」的下拉選單 */
+  years: string[];
   build: (range: PrintRange, periodLabel: string) => string;
   onClose: () => void;
 }) {
@@ -2472,8 +2619,11 @@ function PrintPreviewModal({ title, fileBase, build, onClose }: {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const range = printRange(period);
-  const html = build(range, PRINT_PERIOD_LABELS[period]);
+  const { options, current } = useMemo(() => printOptions(period, years), [period, years]);
+  const [picked, setPicked] = useState<Partial<Record<PrintPeriod, string>>>({});
+  const selected = options.find(option => option.value === picked[period]) ?? options.find(option => option.value === current)!;
+  const range = selected.range;
+  const html = build(range, selected.periodLabel);
 
   const downloadPdf = async () => {
     if (downloading) return;
@@ -2526,6 +2676,11 @@ function PrintPreviewModal({ title, fileBase, build, onClose }: {
               {PRINT_PERIOD_LABELS[key]}
             </button>
           ))}
+          <select value={selected.value} onChange={event => setPicked(prev => ({ ...prev, [period]: event.target.value }))} aria-label="選擇期間">
+            {options.map(option => (
+              <option key={option.value} value={option.value}>{option.label}{option.value === current ? '（目前）' : ''}</option>
+            ))}
+          </select>
           <span className="print-range">{range.label}</span>
         </div>
         <iframe ref={iframeRef} className="print-preview-frame" srcDoc={html} title={title} />
@@ -2634,6 +2789,7 @@ function OfferingsPage() {
         <PrintPreviewModal
           title="奉獻明細表"
           fileBase="奉獻明細表"
+          years={years}
           build={buildPrintSheet}
           onClose={() => setPrintOpen(false)}
         />
@@ -2711,7 +2867,7 @@ function OfferingsPage() {
         <div className="paginated-table-scroll">
         <table className="offerings-table">
         <thead>
-          <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th onClick={cycleAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{amtSort === 'desc' ? ' ↓' : amtSort === 'asc' ? ' ↑' : ''}</th><th className="desk-only">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
+          <tr><th className="desk-only">日期</th><th>成員</th><th className="desk-only">分類</th><th className="desk-only">方式</th><th onClick={cycleAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{amtSort === 'desc' ? ' ↓' : amtSort === 'asc' ? ' ↑' : ''}</th><th className="desk-only col-optional">備註</th><th className="desk-only">憑證</th><th>操作</th></tr>
         </thead>
         <tbody>
           {pager.pageItems.map(item => (
@@ -2721,7 +2877,7 @@ function OfferingsPage() {
               <td data-label="分類">{item.categoryName || '-'}</td>
               <td data-label="方式">{item.methodName || '-'}</td>
               <td data-label="金額">{currency(item.amount)}</td>
-              <td data-label="備註" className="offering-notes-col">{isDesktop ? item.notes : <span className="clamp-2" onClick={() => setDetail(item)}>{item.notes}</span>}</td>
+              <td data-label="備註" className="offering-notes-col col-optional">{isDesktop ? item.notes : <span className="clamp-2" onClick={() => setDetail(item)}>{item.notes}</span>}</td>
               <td data-label="憑證">{(item.receiptUrls?.length ?? 0) > 0 ? <button style={{ background: 'none', border: 'none', color: 'var(--accent, #4f7df3)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => setLightbox(item)}>查看憑證{(item.receiptUrls?.length ?? 0) > 1 ? ` (${item.receiptUrls!.length})` : ''}</button> : <span style={{ color: '#aaa' }}>—</span>}</td>
               <td className="actions"><button onClick={() => setDetail(item)}>詳情</button>{canEdit && <><button onClick={() => setEditing(item)}>編輯</button><button onClick={() => setDeletingOffering(item)}>刪除</button></>}</td>
             </tr>
@@ -2868,6 +3024,7 @@ function ExpensesPage() {
         <PrintPreviewModal
           title="支出明細表"
           fileBase="支出明細表"
+          years={years}
           build={buildPrintSheet}
           onClose={() => setPrintOpen(false)}
         />
@@ -2991,7 +3148,7 @@ function ExpensesPage() {
         <table className="expenses-table">
         <thead>
           <tr>
-            <th>日期</th><th>描述</th><th>分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th><th className="expense-receipt-col">憑證</th>
+            <th>日期</th><th>描述</th><th className="col-optional">分類</th><th>付款人</th><th onClick={cycleExpAmt} title="點擊排序" style={{ cursor: 'pointer', userSelect: 'none' }}>金額{expAmtSort === 'desc' ? ' ↓' : expAmtSort === 'asc' ? ' ↑' : ''}</th><th className="expense-receipt-col">憑證</th>
             <th>狀態</th><th>開票</th><th>入賬</th><th></th>
           </tr>
         </thead>
@@ -3016,7 +3173,7 @@ function ExpensesPage() {
               <tr key={item.id}>
                 <td data-label="日期">{shortDate(item.date)}</td>
                 <td data-label="描述" className="expense-description-col">{isDesktop ? item.description : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{item.description}</span>}</td>
-                <td data-label="分類" className="expense-category-col">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{(item.categoryId && categoryShortById.get(item.categoryId)) || item.categoryName || '-'}</span>}</td>
+                <td data-label="分類" className="expense-category-col col-optional">{isDesktop ? (item.categoryName || '-') : <span className="clamp-2" onClick={() => setDetailExpense(item)}>{(item.categoryId && categoryShortById.get(item.categoryId)) || item.categoryName || '-'}</span>}</td>
                 <td data-label="付款人">{paidByLabel(item)}</td>
                 <td data-label="金額">{currency(item.amount)}</td>
                 <td data-label="憑證" className="expense-receipt-col">
@@ -3607,6 +3764,7 @@ const auditEntityLabels: Record<string, string> = {
   offering: '奉獻',
   expense: '支出',
   tax_statement: '報稅文件',
+  reconciliation: '銀行對帳',
   settings: '帳單設定',
   user: '用戶'
 };
@@ -4383,6 +4541,272 @@ function AnnualTaxReportSection() {
         />
       )}
     </Panel>
+  );
+}
+
+type ReconRow = {
+  periodType: 'month' | 'year';
+  period: string;
+  label: string;
+  count: number;
+  total: number;
+  record: Reconciliation | null;
+};
+
+/** 'YYYY-MM-DD' → '7/29'。直接切字串，避免 new Date() 當成 UTC 而在美西少一天 */
+const monthSlashDay = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+
+const reconKey = (type: 'month' | 'year', period: string) => `${type}:${period}`;
+
+/** 存入減奉獻：0 為相符；未填存入時為 null */
+function reconDiff(total: number, deposit: number | null | undefined): number | null {
+  return deposit === null || deposit === undefined ? null : Math.round((deposit - total) * 100) / 100;
+}
+
+function ReconStatus({ diff }: { diff: number | null }) {
+  if (diff === null) return <span className="recon-status pending">未對帳</span>;
+  if (diff === 0) return <span className="recon-status ok">相符</span>;
+  if (diff > 0) return <span className="recon-status over">多 {currency(diff)}</span>;
+  return <span className="recon-status off">差 −{currency(Math.abs(diff))}</span>;
+}
+
+/**
+ * 對帳：按月或按年，把系統記錄的奉獻（筆數、金額）與銀行實際存入金額對照，
+ * 並可附上對帳單照片與備註。
+ */
+function ReconciliationPage() {
+  const { offerings } = useFinance();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('super_admin', 'finance_admin', 'dev');
+  const [mode, setMode] = useState<'month' | 'year'>('month');
+  const [records, setRecords] = useState<Reconciliation[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ReconRow | null>(null);
+  const [galleryUrls, setGalleryUrls] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    api.reconciliations()
+      .then(result => setRecords(result.items))
+      .catch(caught => setLoadError(caught instanceof Error ? caught.message : '載入對帳資料失敗'));
+  }, []);
+
+  const thisYear = String(new Date().getFullYear());
+  const years = useMemo(() => {
+    const set = new Set<string>([thisYear]);
+    for (const item of offerings) if (item.date) set.add(item.date.slice(0, 4));
+    for (const item of records ?? []) set.add(item.period.slice(0, 4));
+    return Array.from(set).sort().reverse();
+  }, [offerings, records, thisYear]);
+  const [year, setYear] = useState(thisYear);
+
+  const recordByKey = useMemo(
+    () => new Map((records ?? []).map(item => [reconKey(item.periodType, item.period), item])),
+    [records]
+  );
+
+  const rows: ReconRow[] = useMemo(() => {
+    const sums = new Map<string, { count: number; total: number }>();
+    for (const item of offerings) {
+      const key = mode === 'month' ? item.date.slice(0, 7) : item.date.slice(0, 4);
+      const sum = sums.get(key) ?? { count: 0, total: 0 };
+      sum.count += 1;
+      sum.total += item.amount;
+      sums.set(key, sum);
+    }
+    const periods = mode === 'month'
+      ? Array.from({ length: 12 }, (_, m) => `${year}-${String(m + 1).padStart(2, '0')}`)
+      : years;
+    return periods.map(period => ({
+      periodType: mode,
+      period,
+      label: mode === 'month' ? `${Number(period.slice(5))} 月` : `${period} 年`,
+      count: sums.get(period)?.count ?? 0,
+      total: Math.round((sums.get(period)?.total ?? 0) * 100) / 100,
+      record: recordByKey.get(reconKey(mode, period)) ?? null
+    }));
+  }, [offerings, mode, year, years, recordByKey]);
+
+  // 年度對帳時，各月已填的存入合計可作為參考
+  const monthDepositSum = (y: string) => (records ?? [])
+    .filter(item => item.periodType === 'month' && item.period.startsWith(`${y}-`))
+    .reduce((sum, item) => sum + (item.depositAmount ?? 0), 0);
+
+  const totals = rows.reduce((acc, row) => ({
+    count: acc.count + row.count,
+    total: acc.total + row.total,
+    deposit: acc.deposit + (row.record?.depositAmount ?? 0)
+  }), { count: 0, total: 0, deposit: 0 });
+
+  const onSaved = (item: Reconciliation) => {
+    setRecords(prev => [...(prev ?? []).filter(r => reconKey(r.periodType, r.period) !== reconKey(item.periodType, item.period)), item]);
+    setEditing(null);
+  };
+
+  return (
+    <section className="page">
+      <PageTitle title="銀行對帳" subtitle="按月、按年核對奉獻記錄與銀行存入金額" />
+      <Toolbar>
+        <div className="recon-tabs">
+          <button type="button" className={mode === 'month' ? 'primary' : ''} onClick={() => setMode('month')}>月度對帳</button>
+          <button type="button" className={mode === 'year' ? 'primary' : ''} onClick={() => setMode('year')}>年度對帳</button>
+        </div>
+        {mode === 'month' && (
+          <select value={year} onChange={event => setYear(event.target.value)} aria-label="年度">
+            {years.map(y => <option key={y} value={y}>{y} 年</option>)}
+          </select>
+        )}
+      </Toolbar>
+      {loadError && <p className="error">{loadError}</p>}
+      <div className="recon-wrap">
+        <table className="recon-table">
+          <thead>
+            <tr><th>期間</th><th>奉獻筆數</th><th>奉獻金額</th><th>存入金額</th><th>狀態</th><th>附件</th><th>備註</th><th></th></tr>
+          </thead>
+          <tbody>
+            {rows.map(row => {
+              const deposit = row.record?.depositAmount ?? null;
+              const receipts = row.record?.receiptUrls ?? [];
+              return (
+                <tr key={row.period} className={canEdit ? 'recon-clickable' : ''} onClick={canEdit ? () => setEditing(row) : undefined}>
+                  <td data-label="期間"><strong>{row.label}</strong></td>
+                  <td data-label="奉獻筆數">{row.count}</td>
+                  <td data-label="奉獻金額">{currency(row.total)}</td>
+                  <td data-label="存入金額">
+                    {deposit === null ? '—' : currency(deposit)}
+                    {row.record?.depositDate && <small className="recon-date">{monthSlashDay(row.record.depositDate)} 存入</small>}
+                  </td>
+                  <td data-label="狀態"><ReconStatus diff={reconDiff(row.total, deposit)} /></td>
+                  <td data-label="附件" onClick={event => event.stopPropagation()}>
+                    {receipts.length > 0
+                      ? <button type="button" className="recon-link" onClick={() => setGalleryUrls(receipts)}>查看（{receipts.length}）</button>
+                      : <span className="recon-muted">—</span>}
+                  </td>
+                  <td data-label="備註" className="recon-notes">{row.record?.notes || ''}</td>
+                  <td className="actions">
+                    {canEdit && <button type="button" onClick={event => { event.stopPropagation(); setEditing(row); }}>{row.record ? '編輯' : '對帳'}</button>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {mode === 'month' && (
+            <tfoot>
+              <tr>
+                <td data-label="期間"><strong>{year} 合計</strong></td>
+                <td data-label="奉獻筆數">{totals.count}</td>
+                <td data-label="奉獻金額">{currency(totals.total)}</td>
+                <td data-label="存入金額">{currency(totals.deposit)}</td>
+                <td colSpan={4} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      {editing && (
+        <ReconciliationForm
+          row={editing}
+          monthDepositSum={editing.periodType === 'year' ? monthDepositSum(editing.period) : null}
+          onClose={() => setEditing(null)}
+          onSaved={onSaved}
+        />
+      )}
+      {galleryUrls && (
+        <GalleryModal
+          title="對帳附件"
+          items={galleryUrls.map(url => ({ url, slot: 'submit' as const }))}
+          onClose={() => setGalleryUrls(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
+  row: ReconRow;
+  /** 年度對帳才有：各月已填的存入合計 */
+  monthDepositSum: number | null;
+  onClose: () => void;
+  onSaved: (item: Reconciliation) => void;
+}) {
+  const initialDeposit = row.record?.depositAmount ?? null;
+  const [deposit, setDeposit] = useState(initialDeposit === null ? '' : String(initialDeposit));
+  const [depositDate, setDepositDate] = useState(row.record?.depositDate ?? '');
+  const [notes, setNotes] = useState(row.record?.notes ?? '');
+  const [receiptUrls, setReceiptUrls] = useState<string[]>(row.record?.receiptUrls ?? []);
+  const [uploading, setUploading] = useState(false);
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const entityId = `${row.periodType}-${row.period}`;
+  const title = row.periodType === 'month'
+    ? `${row.period.slice(0, 4)} 年 ${Number(row.period.slice(5))} 月對帳`
+    : `${row.period} 年度對帳`;
+  const diff = reconDiff(row.total, deposit === '' ? null : Number(deposit));
+
+  async function handleFiles(files: File[]) {
+    setUploading(true);
+    try {
+      setReceiptUrls(await uploadReceiptFiles(files, 'reconciliations', entityId, receiptUrls));
+    } finally {
+      setUploading(false);
+    }
+  }
+  // 掃碼上傳是一張張非同步回來的，必須用函式式更新
+  const addUrls = (incoming: string[]) => setReceiptUrls(prev => [...prev, ...incoming].slice(0, MAX_RECEIPTS));
+
+  const submit = async () => {
+    setError(null);
+    try {
+      onSaved(await api.saveReconciliation({
+        periodType: row.periodType,
+        period: row.period,
+        depositAmount: deposit === '' ? null : Number(deposit),
+        depositDate: depositDate || null,
+        notes,
+        receiptUrls
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '保存失敗');
+    }
+  };
+
+  const footer = (
+    <>
+      <UploadMenu count={receiptUrls.length} uploading={uploading} onFiles={handleFiles} onUrls={addUrls} />
+      <button className="primary">保存</button>
+    </>
+  );
+
+  return (
+    <>
+      <FormModal title={title} onClose={onClose} onSubmit={submit} footer={footer}>
+        <div className="form-wide recon-summary">
+          <div><small>奉獻筆數</small><strong>{row.count}</strong></div>
+          <div><small>奉獻金額</small><strong>{currency(row.total)}</strong></div>
+          {monthDepositSum !== null && <div><small>各月存入合計</small><strong>{currency(monthDepositSum)}</strong></div>}
+          <div><small>狀態</small><strong><ReconStatus diff={diff} /></strong></div>
+        </div>
+        <div className="form-wide recon-deposit-row">
+          <label>存入金額<input type="number" min="0" step="0.01" value={deposit} onChange={event => setDeposit(event.target.value)} placeholder="銀行實際存入" /></label>
+          <label>存入日期<input type="date" value={depositDate} onChange={event => setDepositDate(event.target.value)} /></label>
+        </div>
+        <label className="form-wide">備註<textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="例如：差額原因、存款日期、對帳單編號" /></label>
+        <div className="form-wide form-receipts">
+          <small>附件（{receiptUrls.length}／{MAX_RECEIPTS}）</small>
+          <ReceiptStrip urls={receiptUrls} onOpen={setGalleryAt} />
+        </div>
+        {error && <p className="error form-wide" style={{ margin: 0 }}>{error}</p>}
+      </FormModal>
+      {galleryAt !== null && receiptUrls.length > 0 && (
+        <GalleryModal
+          title="對帳附件"
+          items={receiptUrls.map(url => ({ url, slot: 'submit' as const }))}
+          startIndex={galleryAt}
+          onClose={() => setGalleryAt(null)}
+          upload={async file => (await api.upload(file, 'reconciliations', entityId)).url}
+          onChange={async next => setReceiptUrls(next.map(item => item.url))}
+        />
+      )}
+    </>
   );
 }
 
@@ -5271,6 +5695,7 @@ export default function App() {
     if (effectivePage === 'members') return <MembersPage />;
     if (effectivePage === 'offerings') return <OfferingsPage />;
     if (effectivePage === 'expenses') return <ExpensesPage />;
+    if (effectivePage === 'reconciliation') return <ReconciliationPage />;
     if (effectivePage === 'reports') return <ReportsPage />;
     if (effectivePage === 'users') return <UsersPage />;
     if (effectivePage === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;

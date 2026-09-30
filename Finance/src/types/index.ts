@@ -65,6 +65,20 @@ export interface OfferingMethod {
   createdAt: string;
 }
 
+/** 對帳：某月（'YYYY-MM'）或某年（'YYYY'）的銀行實際存入金額與附件 */
+export interface Reconciliation {
+  id: string;
+  periodType: 'month' | 'year';
+  period: string;
+  depositAmount: number | null;
+  /** 'YYYY-MM-DD' */
+  depositDate: string | null;
+  notes: string;
+  receiptUrls: string[];
+  updatedByName: string;
+  updatedAt: string;
+}
+
 export interface Offering {
   id: string;
   memberId: string | null;

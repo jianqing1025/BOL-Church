@@ -1,4 +1,4 @@
-import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ExpenseReceiptSlot, ImportSummary, LookupData, Member, Offering, Role, User, UserAccount } from '../types';
+import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ExpenseReceiptSlot, ImportSummary, LookupData, Member, Offering, Reconciliation, Role, User, UserAccount } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -97,6 +97,9 @@ export const api = {
     form.append('file', file);
     return request<{ key: string; url: string }>('/api/public/claim-upload', { method: 'POST', body: form });
   },
+  reconciliations: () => request<{ items: Reconciliation[] }>('/api/reconciliations'),
+  saveReconciliation: (payload: Pick<Reconciliation, 'periodType' | 'period' | 'depositAmount' | 'depositDate' | 'notes' | 'receiptUrls'>) =>
+    request<Reconciliation>('/api/reconciliations', { method: 'PUT', body: JSON.stringify(payload) }),
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
   backupExport: () => request<BackupData>('/api/backup/export'),
   backupImport: (data: BackupData) =>

@@ -924,6 +924,27 @@ async function listOfferings(env: Env, testFlag: number, ownerId?: string) {
   return json({ items: (result.results || []).map(mapOffering), total: result.results?.length || 0 });
 }
 
+function mapReconciliation(row: any) {
+  return {
+    id: row.id,
+    periodType: row.period_type as 'month' | 'year',
+    period: row.period,
+    depositAmount: row.deposit_amount === null || row.deposit_amount === undefined ? null : Number(row.deposit_amount),
+    depositDate: row.deposit_date || null,
+    notes: row.notes || '',
+    receiptUrls: parseReceiptUrls(row.receipt_urls, null),
+    updatedByName: row.updated_by_name || '',
+    updatedAt: row.updated_at
+  };
+}
+
+function reconciliationSummary(item: ReturnType<typeof mapReconciliation> | null) {
+  if (!item) return '對帳';
+  const amount = item.depositAmount === null ? '未填存入' : `存入 $${item.depositAmount.toFixed(2)}`;
+  const date = item.depositDate ? ` ｜ 存入日期 ${item.depositDate}` : '';
+  return `對帳 ${item.period} ｜ ${amount}${date} ｜ 附件 ${item.receiptUrls.length} 張`;
+}
+
 async function getOffering(env: Env, offeringId: string) {
   const row = await env.DB.prepare(
     `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
@@ -1511,6 +1532,44 @@ const worker: ExportedHandler<Env> = {
             after: created
           });
           return json(created, 201);
+        }
+
+        if (url.pathname === '/api/reconciliations' && request.method === 'GET') {
+          const rows = await env.DB.prepare('SELECT * FROM reconciliations WHERE is_test = ? ORDER BY period_type, period').bind(testFlag).all<any>();
+          return json({ items: (rows.results ?? []).map(mapReconciliation) });
+        }
+
+        if (url.pathname === '/api/reconciliations' && request.method === 'PUT') {
+          if (!canManageFinance(user.role)) return error('Forbidden', 403);
+          const payload = await readJson<any>(request);
+          const periodType = payload.periodType === 'year' ? 'year' : payload.periodType === 'month' ? 'month' : '';
+          const period = String(payload.period || '');
+          if (!periodType || !(periodType === 'month' ? /^\d{4}-(0[1-9]|1[0-2])$/ : /^\d{4}$/).test(period)) return error('對帳期間不正確');
+          const raw = payload.depositAmount;
+          const depositAmount = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+          if (depositAmount !== null && (!Number.isFinite(depositAmount) || depositAmount < 0)) return error('存入金額不正確');
+          const depositDate = payload.depositDate ? String(payload.depositDate) : null;
+          if (depositDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(depositDate)) return error('存入日期不正確');
+          const [receiptJson] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, null));
+          const beforeRow = await env.DB.prepare('SELECT * FROM reconciliations WHERE period_type = ? AND period = ? AND is_test = ?').bind(periodType, period, testFlag).first<any>();
+          const before = beforeRow ? mapReconciliation(beforeRow) : null;
+          const itemId = beforeRow?.id || id();
+          await env.DB.prepare(
+            `INSERT INTO reconciliations (id, period_type, period, deposit_amount, deposit_date, notes, receipt_urls, is_test, updated_by, updated_by_name, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(period_type, period, is_test) DO UPDATE SET deposit_amount = excluded.deposit_amount, deposit_date = excluded.deposit_date, notes = excluded.notes,
+               receipt_urls = excluded.receipt_urls, updated_by = excluded.updated_by, updated_by_name = excluded.updated_by_name, updated_at = excluded.updated_at`
+          ).bind(itemId, periodType, period, depositAmount, depositDate, cleanPublicText(payload.notes, 2000), receiptJson, testFlag, user.id, user.name, now(), now()).run();
+          const saved = mapReconciliation(await env.DB.prepare('SELECT * FROM reconciliations WHERE id = ?').bind(itemId).first<any>());
+          await recordAudit(env, user, {
+            action: before ? 'update' : 'create',
+            entityType: 'reconciliation',
+            entityId: itemId,
+            entitySummary: reconciliationSummary(saved),
+            before,
+            after: saved
+          });
+          return json(saved);
         }
 
         if (url.pathname === '/api/offerings' && request.method === 'POST') {

@@ -298,12 +298,14 @@ td small {
   white-space: nowrap;
 }
 
+/* 描述／分類／備註是最會吃寬度的欄。min-width 放寬，讓表格在視窗變窄
+   （含瀏覽器縮放）時先壓縮這幾欄，而不是把操作鍵擠成直排。 */
 .expenses-table th:nth-child(2),
 .expenses-table td:nth-child(2),
 .expenses-table .expense-description-col {
-  width: 50ch;
-  min-width: 25ch;
-  max-width: 50ch;
+  width: 34ch;
+  min-width: 16ch;
+  max-width: 44ch;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -313,9 +315,9 @@ td small {
 .expenses-table th:nth-child(3),
 .expenses-table td:nth-child(3),
 .expenses-table .expense-category-col {
-  width: 50ch;
-  min-width: 25ch;
-  max-width: 50ch;
+  width: 28ch;
+  min-width: 14ch;
+  max-width: 40ch;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -325,13 +327,42 @@ td small {
 .offerings-table th:nth-child(6),
 .offerings-table td:nth-child(6),
 .offerings-table .offering-notes-col {
-  width: 50ch;
-  min-width: 50ch;
+  width: 40ch;
+  min-width: 18ch;
   max-width: 50ch;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.35;
+}
+
+/* 分類／方式這類短標籤不該被折成一字一行 */
+.offerings-table th:nth-child(3),
+.offerings-table td:nth-child(3),
+.offerings-table th:nth-child(4),
+.offerings-table td:nth-child(4) {
+  white-space: nowrap;
+}
+
+/* 操作鍵永遠橫排；欄寬不足時由上面那幾欄讓位 */
+.offerings-table td.actions,
+.expenses-table td.actions {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.offerings-table td.actions button,
+.expenses-table td.actions button {
+  flex-shrink: 0;
+}
+
+/* 桌面表格但視窗不夠寬（多半是瀏覽器縮放）：先收掉佔位最大的欄。
+   ≤920px 會切換成卡片式版面，那裡這些欄仍然完整顯示。 */
+@media (min-width: 921px) and (max-width: 1400px) {
+  .offerings-table .col-optional,
+  .expenses-table .col-optional {
+    display: none;
+  }
 }
 
 .page-title-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
@@ -389,14 +420,10 @@ td small {
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
+  flex: 0 0 auto;
   width: 42px;
   height: 42px;
-  place-items: center;
-  border-radius: 8px;
-  background: #f7c948;
-  color: #172033;
-  font-weight: 900;
 }
 
 .brand small,
@@ -432,6 +459,22 @@ td small {
   background: #26344f;
   color: #fff;
 }
+
+/* 導覽圖示：桌面側欄在文字前，手機上方導覽在文字上（見 920px 以下） */
+.sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.sidebar nav .nav-icon { display: block; flex-shrink: 0; width: 20px; height: 20px; }
+.sidebar nav .nav-label-short { display: none; }
+.sidebar nav .nav-dashboard .nav-icon { color: #a78bfa; }
+.sidebar nav .nav-members .nav-icon { color: #60a5fa; }
+.sidebar nav .nav-offerings .nav-icon { color: #f87171; }
+.sidebar nav .nav-expenses .nav-icon { color: #fb923c; }
+.sidebar nav .nav-reconciliation .nav-icon { color: #34d399; }
+.sidebar nav .nav-reports .nav-icon { color: #2dd4bf; }
+.sidebar nav .nav-users .nav-icon { color: #fbbf24; }
 
 .sidebar-footer {
   margin-top: auto;
@@ -561,7 +604,8 @@ td small {
   bottom: auto;
 }
 
-.user-card-pop button {
+.user-card-pop button,
+.user-card-pop a {
   background: transparent;
   color: #c9d4e4;
   text-align: left;
@@ -570,7 +614,12 @@ td small {
   font-weight: 600;
 }
 
-.user-card-pop button:hover {
+.user-card-pop a {
+  text-decoration: none;
+}
+
+.user-card-pop button:hover,
+.user-card-pop a:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
@@ -1840,10 +1889,26 @@ td small {
     overflow: visible;
   }
 
+  /* 上方導覽：圖示＋文字，一列四個（六、七項就是上四下二／三），不會變三行 */
   .sidebar nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    overflow-x: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.25rem;
+    overflow: visible;
   }
+
+  .sidebar nav button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.5rem 0.2rem;
+    text-align: center;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .sidebar nav .nav-icon { width: 24px; height: 24px; }
 
   .user-card,
   .sidebar-footer {
@@ -2125,7 +2190,40 @@ td small {
   font-size: 0.9rem;
 }
 
-/* 縮放控制列與編輯控制列之間的分隔 */
+/* 可編輯時：大小／旋轉在圖上方，裁剪／還原／保存在下方 */
+.zoom-viewer.editing {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.zoom-controls {
+  flex-wrap: wrap;
+}
+
+/* 上方那列（大小＋旋轉）永遠一行：在相簿兩側箭頭之間也只有約 240px 寬 */
+.zoom-viewer.editing > .zoom-controls:first-child {
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+.zoom-viewer.editing > .zoom-controls:first-child span:not(.zoom-sep) {
+  min-width: 3rem;
+}
+
+.zoom-controls .rotate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.25rem;
+  padding: 0;
+  color: #334155;
+}
+
+.zoom-controls .rotate-btn:disabled {
+  color: #b6c0cc;
+}
+
+/* 縮放控制列與編輯控制列之間的分隔（要蓋過上面 .zoom-controls span 的寬度） */
+.zoom-controls .zoom-sep,
 .zoom-sep {
   width: 1px;
   min-width: 1px;
@@ -2936,4 +3034,192 @@ td small {
 .combobox-menu li.combobox-empty {
   color: #98a2b3;
   cursor: default;
+}
+
+/* ── 對帳 ───────────────────────────────────────────── */
+.recon-tabs { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.recon-tabs button { white-space: nowrap; }
+.recon-tabs + select { width: auto; min-width: 8rem; }
+
+.recon-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.recon-table td,
+.recon-table th { white-space: nowrap; }
+.recon-table td.recon-notes { white-space: normal; max-width: 32ch; color: #475569; }
+.recon-table tbody tr.recon-clickable { cursor: pointer; }
+.recon-table tbody tr.recon-clickable:hover { background: #f8fafc; }
+.recon-table tfoot td { font-weight: 700; border-top: 2px solid #e2e8f0; background: #f8fafc; }
+
+.recon-status {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.recon-status.ok { background: #e6f6ec; color: #1d8a4a; }
+.recon-status.off { background: #fdecec; color: #c0392b; }
+.recon-status.over { background: #e8f0fe; color: #1d4ed8; }
+.recon-status.pending { background: #f1f5f9; color: #64748b; }
+
+.recon-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent, #4f7df3);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.recon-muted { color: #aab4c3; }
+.recon-date { display: block; margin-top: 0.1rem; font-size: 0.75rem; color: #64748b; }
+
+/* 存入金額與存入日期並排，手機上也不換行 */
+.form-grid .recon-deposit-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.recon-deposit-row input { min-width: 0; width: 100%; }
+
+.recon-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.recon-summary small { display: block; font-size: 0.75rem; color: #64748b; }
+.recon-summary strong { font-size: 1.05rem; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+/* 手機：每個期間一張卡，期間在左上、存入金額在右上 */
+@media (max-width: 920px) {
+  .recon-wrap { overflow: visible; background: none; box-shadow: none; }
+  .recon-table thead { display: none; }
+  .recon-table,
+  .recon-table tbody,
+  .recon-table tfoot { display: block; }
+  .recon-table tbody tr,
+  .recon-table tfoot tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem 0.6rem;
+    margin-bottom: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid #e3e8f0;
+    border-radius: 12px;
+    background: #fff;
+  }
+  .recon-table td {
+    display: block;
+    padding: 0;
+    border: none;
+    white-space: normal;
+    background: none;
+  }
+  .recon-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #6b7280;
+  }
+  .recon-table td[data-label="期間"]::before { content: none; }
+  .recon-table td[data-label="期間"] { grid-column: 1 / 3; grid-row: 1; font-size: 1.05rem; }
+  .recon-table td[data-label="狀態"] { grid-column: 3; grid-row: 1; text-align: right; }
+  .recon-table td[data-label="狀態"]::before { content: none; }
+  .recon-table td.recon-notes { grid-column: 1 / -1; max-width: none; }
+  .recon-table td.recon-notes:empty { display: none; }
+  .recon-table td[data-label="奉獻筆數"] { grid-column: 1; grid-row: 2; }
+  .recon-table td[data-label="奉獻金額"] { grid-column: 2; grid-row: 2; }
+  .recon-table td[data-label="存入金額"] { grid-column: 3; grid-row: 2; }
+  .recon-table td[data-label="附件"] { grid-column: 1 / 3; grid-row: 3; }
+  .recon-table td.actions { grid-column: 3; grid-row: 3; align-self: end; text-align: right; }
+  .recon-table td.recon-notes { grid-row: 4; }
+  .recon-table td.actions:empty,
+  .recon-table tfoot td:not([data-label]) { display: none; }
+  .recon-table tfoot tr { background: #f8fafc; }
+  .recon-table tfoot td { padding: 0; border-top: none; background: none; }
+}
+
+/* 收起時把手上的頁名：平常顯示全名，小螢幕手機改簡稱（見下方） */
+.nav-handle .nav-label-short { display: none; }
+
+/* 小螢幕手機：導覽改用兩個字的簡稱 */
+@media (max-width: 480px) {
+  .sidebar nav .nav-label,
+  .nav-handle .nav-label { display: none; }
+  .sidebar nav .nav-label-short,
+  .nav-handle .nav-label-short { display: inline; }
+}
+
+/* 手機上方導覽的收起／拉出把手 */
+
+@media (max-width: 920px) {
+  .sidebar { gap: 0.9rem; }
+
+  .sidebar nav {
+    max-height: 16rem;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+  }
+
+  .sidebar nav.collapsed {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    margin-bottom: -0.9rem;
+  }
+
+  /* 把手不佔版面：掛在深色頂欄的下緣，像一個小拉片 */
+  .nav-handle {
+    position: absolute;
+    left: 50%;
+    bottom: 1px;
+    transform: translate(-50%, 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: auto;
+    min-width: 3.2rem;
+    margin: 0;
+    padding: 0.05rem 0.9rem 0.25rem;
+    border: none;
+    border-radius: 0 0 12px 12px;
+    background: #172033;
+    color: #8193ad;
+    touch-action: none;
+    cursor: pointer;
+  }
+
+  .nav-handle:hover { background: #172033; color: #fff; }
+
+  .nav-handle.collapsed { color: #c9d4e4; }
+
+  .nav-handle-current {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .nav-handle-current .nav-icon { width: 16px; height: 16px; }
+  .nav-handle-current.nav-dashboard .nav-icon { color: #a78bfa; }
+  .nav-handle-current.nav-members .nav-icon { color: #60a5fa; }
+  .nav-handle-current.nav-offerings .nav-icon { color: #f87171; }
+  .nav-handle-current.nav-expenses .nav-icon { color: #fb923c; }
+  .nav-handle-current.nav-reconciliation .nav-icon { color: #34d399; }
+  .nav-handle-current.nav-reports .nav-icon { color: #2dd4bf; }
+  .nav-handle-current.nav-users .nav-icon { color: #fbbf24; }
+
+  .nav-handle-grip { display: inline-flex; }
+  .nav-handle-grip svg { width: 16px; height: 16px; }
 }

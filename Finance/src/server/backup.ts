@@ -21,6 +21,7 @@ const BACKUP_TABLES = [
   'expense_categories',
   'expenses',
   'expense_summary',
+  'reconciliations',
   'app_settings',
   'audit_logs'
 ] as const;
