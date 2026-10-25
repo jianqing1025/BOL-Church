@@ -33,6 +33,8 @@ if (process.isMainFrame) {
       pickVideo: () => ipcRenderer.invoke('agenda:pickVideo'),
       videoExists: file => ipcRenderer.invoke('agenda:videoExists', file),
       videoUrl: file => `meeting-file://video/?p=${encodeURIComponent(file)}`,
+      // This shell keeps every item's file (a PowerPoint too); older ones pruned all but pictures and films.
+      keepsAllFiles: true,
     },
     onCloseRequest: callback => {
       closeHandlers++;

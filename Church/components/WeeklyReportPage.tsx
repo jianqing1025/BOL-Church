@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PageHeader from './PageHeader';
 import { useLocalization } from '../hooks/useLocalization';
 import { api, ApiError } from '../api';
@@ -27,7 +27,13 @@ function useNoIndex() {
 const WeeklyReportPage: React.FC = () => {
   const { t } = useLocalization();
   useNoIndex();
-  const [state, setState] = useState<'checking' | 'locked' | 'open'>('checking');
+  // 解鎖時伺服器會另外設一個可讀的 weekly_hint cookie：沒有它就直接顯示密碼框，
+  // 不必等網路；背景仍會確認一次（登入中的管理者不用密碼也能看）。
+  const [state, setState] = useState<'checking' | 'locked' | 'open'>(() =>
+    typeof document !== 'undefined' && document.cookie.includes('weekly_hint=1') ? 'checking' : 'locked');
+  // t 每次 render 都是新的函式，放進依賴會讓清單一直重抓；用 ref 讀最新的就好
+  const tRef = useRef(t);
+  tRef.current = t;
   const [items, setItems] = useState<WeeklyReportSummary[]>([]);
   const [selected, setSelected] = useState<WeeklyReport | null>(null);
   const [password, setPassword] = useState('');
@@ -40,9 +46,9 @@ const WeeklyReportPage: React.FC = () => {
       setSelected(await api.weeklyGet(id));
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) setState('locked');
-      else setError(t('weekly.loadFailed'));
+      else setError(tRef.current('weekly.loadFailed'));
     }
-  }, [t]);
+  }, []);
 
   const loadList = useCallback(async () => {
     try {
@@ -52,10 +58,11 @@ const WeeklyReportPage: React.FC = () => {
       if (result.items[0]) await open(result.items[0].id);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) setState('locked');
-      else { setState('locked'); setError(t('weekly.loadFailed')); }
+      else { setState('locked'); setError(tRef.current('weekly.loadFailed')); }
     }
-  }, [open, t]);
+  }, [open]);
 
+  // 進頁面只查一次；之後只有解鎖成功才再查
   useEffect(() => { void loadList(); }, [loadList]);
 
   const unlock = async (event: React.FormEvent) => {

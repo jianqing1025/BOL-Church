@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd } from './liveStats';
+import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd, pickLiveVideo } from './liveStats';
 
 describe('nextPeak', () => {
   it('returns current when no prior peak', () => {
@@ -59,5 +59,26 @@ describe('decideStreamEnd', () => {
   });
   it('is ended when nothing was live', () => {
     expect(decideStreamEnd({ searchVideoId: null, prevVideoId: null, prevIsLive: false, actualEndTime: null })).toBe('ended');
+  });
+});
+
+describe('pickLiveVideo', () => {
+  it('finds the stream really on air behind ones that already ended (2026-10-25: Live, Live, Live 2)', () => {
+    expect(pickLiveVideo([
+      { videoId: 'plpI0-rXPLo', actualStartTime: '2026-10-25T17:08:44Z', actualEndTime: '2026-10-25T17:15:38Z' },
+      { videoId: 'Lyn8GoQA9gM', actualStartTime: '2026-10-25T17:17:13Z', actualEndTime: '2026-10-25T17:19:03Z' },
+      { videoId: 'xoM6L3N3BS4', actualStartTime: '2026-10-25T17:19:29Z', actualEndTime: null },
+    ])).toBe('xoM6L3N3BS4');
+  });
+  it('is null when everything found has ended, or has not started yet', () => {
+    expect(pickLiveVideo([{ videoId: 'A', actualStartTime: '2026-10-25T17:00:00Z', actualEndTime: '2026-10-25T17:10:00Z' }])).toBeNull();
+    expect(pickLiveVideo([{ videoId: 'U', actualStartTime: null, actualEndTime: null }])).toBeNull();
+    expect(pickLiveVideo([])).toBeNull();
+  });
+  it('takes the latest start when two are on air', () => {
+    expect(pickLiveVideo([
+      { videoId: 'early', actualStartTime: '2026-10-25T17:00:00Z', actualEndTime: null },
+      { videoId: 'late', actualStartTime: '2026-10-25T17:20:00Z', actualEndTime: null },
+    ])).toBe('late');
   });
 });

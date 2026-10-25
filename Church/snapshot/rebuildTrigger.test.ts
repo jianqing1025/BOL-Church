@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldRebuildSnapshot } from './rebuildTrigger';
+import { shouldRebuildSnapshot, snapshotRebuildScope } from './rebuildTrigger';
 
 describe('shouldRebuildSnapshot', () => {
   it('內容管理的寫入要重建', () => {
@@ -13,8 +13,6 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/admin/daily-manna/abc/move', 200)).toBe(true);
     expect(shouldRebuildSnapshot('PATCH', '/api/admin/daily-manna/abc/visibility', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels/abc/sync', 200)).toBe(true);
-    expect(shouldRebuildSnapshot('POST', '/api/admin/live-stream/probe', 200)).toBe(true);
-    expect(shouldRebuildSnapshot('POST', '/api/live/refresh', 200)).toBe(true);
     expect(shouldRebuildSnapshot('POST', '/api/admin/announcements', 201)).toBe(true);
     expect(shouldRebuildSnapshot('DELETE', '/api/admin/announcements/abc', 200)).toBe(true);
     expect(shouldRebuildSnapshot('GET', '/api/admin/announcements', 200)).toBe(false);
@@ -39,7 +37,44 @@ describe('shouldRebuildSnapshot', () => {
     expect(shouldRebuildSnapshot('POST', '/api/live/join', 200)).toBe(false);
   });
 
+  it('直播的探測與刷新不從路由重建：改動講道時在改動點就地重建', () => {
+    // 公開按鈕，任何訪客都能按；以前每按一次就整份重建
+    expect(shouldRebuildSnapshot('POST', '/api/live/refresh', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/live-stream/probe', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('PUT', '/api/admin/live-stream/config', 200)).toBe(false);
+  });
+
+  it('頻道設定的增刪改不動清單，只有實際同步才重建', () => {
+    expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('PUT', '/api/admin/sync-channels/abc', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('DELETE', '/api/admin/sync-channels/abc', 200)).toBe(false);
+    expect(shouldRebuildSnapshot('POST', '/api/admin/sync-channels/abc/test', 200)).toBe(false);
+  });
+
   it('不會被前綴相近的路徑誤觸', () => {
     expect(shouldRebuildSnapshot('POST', '/api/contentious', 200)).toBe(false);
+  });
+});
+
+describe('snapshotRebuildScope', () => {
+  it('文字、圖片、公告只重建網站快照，清單沿用', () => {
+    expect(snapshotRebuildScope('PUT', '/api/content', 200)).toBe('site');
+    expect(snapshotRebuildScope('POST', '/api/images/upload', 200)).toBe('site');
+    expect(snapshotRebuildScope('DELETE', '/api/admin/announcements/abc', 200)).toBe('site');
+  });
+
+  it('只動一張表的寫入只重讀那張表', () => {
+    expect(snapshotRebuildScope('PUT', '/api/sermons/abc', 200)).toBe('sermon');
+    expect(snapshotRebuildScope('PATCH', '/api/admin/sermons/abc/visibility', 200)).toBe('sermon');
+    expect(snapshotRebuildScope('POST', '/api/daily-manna', 201)).toBe('daily-manna');
+    expect(snapshotRebuildScope('PATCH', '/api/admin/daily-manna/abc/visibility', 200)).toBe('daily-manna');
+  });
+
+  it('跨兩張表的寫入重建全部', () => {
+    expect(snapshotRebuildScope('POST', '/api/admin/sermons/abc/move', 200)).toBe('all');
+    expect(snapshotRebuildScope('POST', '/api/admin/daily-manna/abc/move', 200)).toBe('all');
+    expect(snapshotRebuildScope('POST', '/api/admin/sermons/sync-youtube', 200)).toBe('all');
+    expect(snapshotRebuildScope('POST', '/api/admin/sermons/backfill-metadata', 200)).toBe('all');
+    expect(snapshotRebuildScope('POST', '/api/admin/sync-channels/abc/sync', 200)).toBe('all');
   });
 });

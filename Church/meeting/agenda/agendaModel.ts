@@ -1,5 +1,5 @@
 import { findBibleBook, localizeBookName } from '../../constants/bibleBooks';
-import { findMeetingRoom, localizeMeetingRoomText, MEETING_ROOMS } from '../../constants/meetingRooms';
+import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
 import type { Language } from '../../types';
 import type { Agenda, AgendaItem, ScriptureItem } from './types';
 
@@ -43,7 +43,7 @@ export function referencedFileIds(list: readonly Agenda[]): Set<string> {
   const ids = new Set<string>();
   for (const agenda of list) {
     for (const item of agenda.items) {
-      if ((item.kind === 'image' || item.kind === 'localVideo') && item.fileId) ids.add(item.fileId);
+      if ('fileId' in item && item.fileId) ids.add(item.fileId);
     }
   }
   return ids;
@@ -80,13 +80,14 @@ export function fromTemplate(template: Agenda, now: Date): Agenda {
 
 /**
  * The corner of every slide: the church, then the room the agenda was made for
- * (「信望愛靈糧堂 · 禱告會」). Copies made from a room template before the room
+ * (「信望愛靈糧堂 · 琴爐卷禱告會」). Copies made from a room template before the room
  * was recorded are known by their note, which the template sets to the room's name.
  */
-export function slideFooter(agenda: Agenda | null, church: string, language: Language): string {
+export function slideFooter(agenda: Agenda | null, church: string, language: Language, rooms: readonly MeetingRoom[] = MEETING_ROOMS): string {
   if (!agenda) return church;
   const note = agenda.note.trim();
-  const room = findMeetingRoom(agenda.roomId) ?? MEETING_ROOMS.find((r) => note === r.name.zh || note === r.name.en);
+  const room = (agenda.roomId ? rooms.find((r) => r.id === agenda.roomId) : undefined)
+    ?? rooms.find((r) => note === r.name.zh || note === r.name.en || r.formerNames?.includes(note));
   return room ? `${church} · ${localizeMeetingRoomText(room.name, language)}` : church;
 }
 
@@ -97,7 +98,7 @@ export function scriptureLabel(item: ScriptureItem, language: Language): string 
   return `${name} ${item.chapter}:${range}`;
 }
 
-export interface ItemFallbacks { text: string; image: string; youtube: string; localVideo: string }
+export interface ItemFallbacks { text: string; image: string; youtube: string; localVideo: string; ppt: string }
 
 /** What a list row calls an item. */
 export function itemLabel(item: AgendaItem, language: Language, fallbacks: ItemFallbacks): string {
@@ -113,10 +114,15 @@ export function itemLabel(item: AgendaItem, language: Language, fallbacks: ItemF
  * A passage as a slide: its reference on top, then each verse on its own
  * line led by its number. `verses` is the whole chapter (index 0 = verse 1).
  */
-export function scriptureSlide(item: ScriptureItem, verses: readonly string[], language: Language): { title: string; body: string } {
+/** 投影片上每一節一行：「16　神愛世人…」。 */
+export function scriptureVerseLines(item: ScriptureItem, verses: readonly string[]): string[] {
   const lines: string[] = [];
   for (let n = item.fromVerse; n <= Math.min(item.toVerse, verses.length); n++) lines.push(`${n}　${verses[n - 1]}`);
-  return { title: scriptureLabel(item, language), body: lines.join('\n') };
+  return lines;
+}
+
+export function scriptureSlide(item: ScriptureItem, verses: readonly string[], language: Language): { title: string; body: string } {
+  return { title: scriptureLabel(item, language), body: scriptureVerseLines(item, verses).join('\n') };
 }
 
 /** A title cut to `max` characters, with "..." when anything was cut. Counts characters, not UTF-16 units. */

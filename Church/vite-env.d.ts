@@ -13,6 +13,11 @@ interface DesktopAgendaBridge {
   pickVideo: () => Promise<{ path: string; name: string; size: number } | null>;
   videoExists: (path: string) => Promise<boolean>;
   videoUrl: (path: string) => string;
+  /**
+   * Added in desktop 1.3: prune keeps the file of every kind of item. An older
+   * shell would delete an imported PowerPoint, so the page does not offer one there.
+   */
+  keepsAllFiles?: boolean;
 }
 
 interface Window {

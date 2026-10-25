@@ -40,3 +40,19 @@ export function decideStreamEnd(params: {
   }
   return 'ended';
 }
+
+export interface LiveCandidate { videoId: string; actualStartTime: string | null; actualEndTime: string | null }
+
+/**
+ * search.list(eventType=live) 會把剛結束的直播繼續當直播返回好一陣子，而且排在前面：
+ * 第一場停播、第二場重開時，第一筆往往是已結束的那支，真正在播的在後面。
+ * 所以要看全部候選：已開始、尚未結束的才算在播；同時有多支就取最晚開播的。
+ */
+export function pickLiveVideo(candidates: readonly LiveCandidate[]): string | null {
+  let best: LiveCandidate | null = null;
+  for (const c of candidates) {
+    if (!c.actualStartTime || c.actualEndTime) continue;
+    if (!best || Date.parse(c.actualStartTime) > Date.parse(best.actualStartTime!)) best = c;
+  }
+  return best?.videoId ?? null;
+}

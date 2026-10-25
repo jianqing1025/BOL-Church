@@ -68,3 +68,11 @@ Migration helper scripts:
 - Convert export JSON into D1 seed SQL: `npm run firebase:sql`
 
 If Firebase rules do not allow the export script, run the export after temporarily granting read access or using an authenticated Firebase session with the same collections.
+
+## Manual VPS database switch
+
+The VPS has full SQLite snapshots of both D1 databases used by this Worker: `bol-church` and `Church-Photos`. Their files are `/var/lib/church-standby/bol-church.sqlite3` and `/var/lib/church-photos-standby/photos.sqlite3`. `DB_BACKEND = "vps"` is currently deployed because the D1 read limit was reached.
+
+To switch this Worker to the VPS, set `DB_BACKEND = "vps"` in `wrangler.toml` and run `npx wrangler deploy` from `Church`. This switches both `DB` and `PHOTOS_DB`, including scheduled Worker jobs. Set it back to `"d1"` and redeploy to return to Cloudflare. R2 media and photo files remain in Cloudflare buckets.
+
+Each VPS copy is a snapshot and writes go only to the selected backend. There is no live replication or automatic reverse sync, so switching back to D1 after VPS writes requires syncing those changes first.

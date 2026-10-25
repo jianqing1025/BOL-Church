@@ -105,7 +105,7 @@ const WeeklyReportManager: React.FC = () => {
       <div className="rounded-lg bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">同工週報</h2>
+            <h2 className="text-2xl font-bold text-gray-900">週報</h2>
             <p className="text-sm text-gray-600">每週一份，同工以密碼在 <a className="text-blue-600 underline" href="/weekly" target="_blank" rel="noopener">/weekly</a> 閱讀。</p>
           </div>
           {!draft && <button type="button" onClick={() => void newThisWeek()} className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">新增本週週報</button>}

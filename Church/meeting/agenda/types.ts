@@ -14,7 +14,13 @@ export interface YouTubeItem { id: string; kind: 'youtube'; title: string; video
  */
 export interface LocalVideoItem { id: string; kind: 'localVideo'; title: string; fileId: string; fileName: string; size: number; path?: string }
 
-export type AgendaItem = TextItem | ImageItem | ScriptureItem | YouTubeItem | LocalVideoItem;
+/**
+ * An imported PowerPoint (.pptx), kept whole and drawn by our own renderer
+ * (meeting/agenda/pptx). `pages` counts slides and their clicks, for the list.
+ */
+export interface PptItem { id: string; kind: 'ppt'; title: string; fileId: string; fileName: string; size: number; pages: number }
+
+export type AgendaItem = TextItem | ImageItem | ScriptureItem | YouTubeItem | LocalVideoItem | PptItem;
 export type AgendaItemKind = AgendaItem['kind'];
 
 export interface Agenda {
@@ -29,6 +35,8 @@ export interface Agenda {
   template?: boolean;
   /** The room whose template it came from: named in the slides' corner. */
   roomId?: string;
+  /** 投影片模板 (see slideThemes); unset is the original deep blue. */
+  theme?: string;
 }
 
 /** An image or video body, stored apart so opening a list never loads a film. */
@@ -40,4 +48,7 @@ export interface StoredFile {
 }
 
 export const MAX_VIDEO_BYTES = 2 * 1024 ** 3;
+/** A deck is read into memory whole to be shown; films inside it are left out. */
+export const MAX_PPT_BYTES = 500 * 1024 ** 2;
+export const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 export const MAX_IMAGE_EDGE = 3840;

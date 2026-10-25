@@ -52,9 +52,9 @@ STRIPE_FEE_PERCENT = "2.2"
 STRIPE_FEE_FIXED_CENTS = "30"
 
 # Live stream probe — UTC SUN 17:00–22:00 every 5 min covers PT SUN 09:00–14:00 year-round.
-# Multi-channel upload sync — every 4 hours
+# Hourly: multi-channel YouTube upload scan + rotating metadata refresh (one cron does both)
 [triggers]
-crons = ["*/5 17-22 * * SUN", "0 */4 * * *"]
+crons = ["*/5 17-21 * * SUN", "0 * * * *"]
 
 # Meeting v2 secrets (set via `wrangler secret put` in prod, .dev.vars locally):
 #   CHAT_PASSWORD, ALLOWED_ORIGIN, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET

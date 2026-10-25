@@ -28,6 +28,8 @@ interface AdminContextType {
   uploadImage: (key: string, file: Blob, fileName: string) => Promise<string>;
   /** 最新幾筆，首頁與直播頁用；不需要下載完整清單。 */
   recent: RecentSermons;
+  /** 網站快照的版本（重建時間）；向伺服器要分頁時帶上，版本沒變就能用瀏覽器快取。 */
+  version: string | null;
   /** 公告（快照建置時未到期的）；顯示前再用 currentAnnouncements 依今天過濾。 */
   announcements: Announcement[];
   /** 完整清單：先呼叫 ensureList（或用 useSermonList）才會下載。 */
@@ -382,6 +384,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         deleteImage,
         uploadImage,
         recent,
+        version,
         announcements,
         sermons,
         setSermons,

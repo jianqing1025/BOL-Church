@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
-import { MEETING_ROOMS, livekitRoomName } from '../constants/meetingRooms';
+import { livekitRoomName } from '../constants/meetingRooms';
+import { loadMeetingRooms } from './roomStore';
 import { validateAuth, validateJoin, validateVideo } from './meetingValidation';
 import { createLiveKitToken } from './livekitToken';
 import {
@@ -16,7 +17,12 @@ export interface MeetingEnv extends LiveKitProjectEnv {
   CHAT_ROOM: DurableObjectNamespace;
   CHAT_PASSWORD?: string;
   ALLOWED_ORIGIN?: string;
+  /** Where the back office keeps the rooms; without it the built-in list is used. */
+  DB?: D1Database;
 }
+
+/** How long a room list (with its head-counts) is shared before rooms are asked again. */
+const ROOMS_CACHE_SECONDS = 15;
 
 function corsHeaders(env: MeetingEnv): Record<string, string> {
   return {
@@ -56,7 +62,7 @@ async function roomLiveKitProject(
     const res = await stub.fetch('https://meeting-room.local/livekit-project', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ proposed, day }),
+      body: JSON.stringify({ proposed, day, roomId }),
     });
     if (!res.ok) return proposed;
     const body = await res.json().catch(() => ({})) as { project?: unknown };
@@ -80,13 +86,31 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
   }
 
   if (path === '/api/meeting/rooms' && request.method === 'GET') {
+    // Every answer asks each room's Durable Object for its head-count, and the
+    // account's daily allowance of those is shared; so one answer serves every
+    // room list at this edge for a few seconds.
+    const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+    const key = new Request(new URL('/api/meeting/rooms', url.origin).toString());
+    // Only the stored copy carries a max-age: on a response to the browser the
+    // zone's Browser Cache TTL would raise it to hours, freezing the head-counts.
+    const forBrowser = (res: Response) => {
+      const out = new Response(res.body, res);
+      out.headers.delete('Cache-Control');
+      return out;
+    };
+    const hit = await cache?.match(key).catch(() => undefined);
+    if (hit) return forBrowser(hit);
     const rooms = await Promise.all(
-      MEETING_ROOMS.map(async (room) => ({
+      (await loadMeetingRooms(env.DB)).map(async (room) => ({
         ...room,
         activeCount: await readActiveCount(env, room.id),
       })),
     );
-    return jsonCors(env, { rooms });
+    const response = jsonCors(env, { rooms });
+    const stored = response.clone();
+    stored.headers.set('Cache-Control', `public, max-age=${ROOMS_CACHE_SECONDS}`);
+    await cache?.put(key, stored).catch(() => undefined);
+    return response;
   }
 
   if (path === '/api/meeting/verify' && request.method === 'POST') {
@@ -98,7 +122,7 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
 
   if (path === '/api/meeting/livekit-token' && request.method === 'POST') {
     const body = await request.json().catch(() => ({})) as { roomId?: string; name?: string; password?: string };
-    const v = validateVideo({ roomId: body.roomId, name: body.name, password: body.password }, env.CHAT_PASSWORD);
+    const v = validateVideo({ roomId: body.roomId, name: body.name, password: body.password }, env.CHAT_PASSWORD, await loadMeetingRooms(env.DB));
     if (v.ok === false) return jsonCors(env, { error: v.error }, v.status);
     // The church's own server is preferred; the cloud projects catch the
     // meeting when it is unreachable, alternating by date between themselves.
@@ -136,6 +160,7 @@ export async function handleMeeting(request: Request, env: MeetingEnv, url: URL)
     const v = validateJoin(
       { roomId: url.searchParams.get('roomId'), name: url.searchParams.get('name'), password: url.searchParams.get('password') },
       env.CHAT_PASSWORD,
+      await loadMeetingRooms(env.DB),
     );
     if (v.ok === false) return jsonCors(env, { error: v.error }, v.status);
 

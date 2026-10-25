@@ -15,6 +15,7 @@ import UserManager from './UserManager';
 import { AdminNavIcon } from './admin/AdminNavIcon';
 import AdminAppDownload from './admin/AdminAppDownload';
 import AnnouncementManager from './AnnouncementManager';
+import MeetingRoomManager from './MeetingRoomManager';
 import WeeklyReportManager from './WeeklyReportManager';
 import { api } from '../api';
 import type { AnalyticsSummary, DesktopDownloadStats, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
@@ -26,7 +27,7 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'announcements' | 'weekly' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'meeting-rooms' | 'announcements' | 'weekly' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
@@ -38,6 +39,7 @@ const sectionLabelKeys: Record<Section, string> = {
   'healing-prayer': 'admin.healingPrayer',
   testimony: 'admin.testimony',
   livestream: 'admin.livestream',
+  'meeting-rooms': 'admin.meetingRooms',
   announcements: 'admin.announcements',
   weekly: 'admin.weekly',
   manna: 'admin.manna',
@@ -283,11 +285,15 @@ const AdminDashboard: React.FC = () => {
     return () => { link.href = previous.href; link.type = previous.type; };
   }, []);
 
-  const primarySections: Section[] = ['overview', 'homepage', 'text', 'photos', 'sermons', 'worship-praise', 'healing-prayer', 'testimony', 'livestream', 'announcements', 'weekly', 'manna', 'users'];
-  const activitySections: Section[] = ['inbox', 'prayer', 'giving'];
-  const insightSections: Section[] = ['analytics'];
-  const visiblePrimarySections = primarySections.filter(canAccessSection);
-  const visibleMobileSections = [...primarySections, ...activitySections, ...insightSections].filter(canAccessSection);
+  // 側欄分組，組與組之間一條分割線：網站內容／講道與線上聚會／來信與奉獻／分析與用戶。
+  const navGroups: Section[][] = [
+    ['overview', 'homepage', 'text', 'photos', 'weekly', 'announcements'],
+    ['sermons', 'worship-praise', 'healing-prayer', 'testimony', 'manna', 'livestream', 'meeting-rooms'],
+    ['inbox', 'prayer', 'giving'],
+    ['analytics', 'users'],
+  ];
+  const visibleNavGroups = navGroups.map(group => group.filter(canAccessSection)).filter(group => group.length > 0);
+  const visibleMobileSections = visibleNavGroups.flat();
 
   useEffect(() => {
     if (isAdminMode && !canAccessSection(activeSection)) {
@@ -1352,6 +1358,8 @@ const AdminDashboard: React.FC = () => {
             <SermonManager entryType="sermon" category="testimony" />
           </div>
         );
+      case 'meeting-rooms':
+        return <MeetingRoomManager />;
       case 'announcements':
         return <AnnouncementManager />;
       case 'weekly':
@@ -1419,57 +1427,32 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
-          {visiblePrimarySections.map(section => {
-            const badge = section === 'text' && hasUnsavedContent ? 1 : 0;
+          {visibleNavGroups.map((group, index) => (
+            <React.Fragment key={group[0]}>
+              {index > 0 && <div className="my-4 border-t border-white/25" />}
+              {group.map(section => {
+                const badge =
+                  section === 'text' && hasUnsavedContent ? 1 :
+                  section === 'inbox' ? unreadMessages :
+                  section === 'prayer' ? newPrayerRequests :
+                  0;
 
-            return (
-              <button
-                key={section}
-                onClick={() => setActiveSection(section)}
-                className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
-                  activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
-                {badge > 0 && (
-                  <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
-                )}
-              </button>
-            );
-          })}
-          <div className="my-4 border-t border-white/25" />
-          {activitySections.filter(canAccessSection).map(section => {
-            const badge =
-              section === 'inbox' ? unreadMessages :
-              section === 'prayer' ? newPrayerRequests :
-              0;
-
-            return (
-              <button
-                key={section}
-                onClick={() => setActiveSection(section)}
-                className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
-                  activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
-                {badge > 0 && (
-                  <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
-                )}
-              </button>
-            );
-          })}
-          <div className="my-4 border-t border-white/25" />
-          {insightSections.filter(canAccessSection).map(section => (
-            <button
-              key={section}
-              onClick={() => setActiveSection(section)}
-              className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
-                activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
-            </button>
+                return (
+                  <button
+                    key={section}
+                    onClick={() => setActiveSection(section)}
+                    className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
+                      activeSection === section ? 'bg-blue-600 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-3"><AdminNavIcon name={section} />{sectionLabel(section)}</span>
+                    {badge > 0 && (
+                      <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">{badge}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </React.Fragment>
           ))}
           <a href="/" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">
             <AdminNavIcon name="back" />{t('admin.backToWebsite')}

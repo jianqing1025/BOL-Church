@@ -1,0 +1,22 @@
+[Unit]
+Description=Church Photos standby SQLite API
+After=network.target
+
+[Service]
+Type=simple
+User=finance-db
+Group=finance-db
+Environment=STANDBY_DB_PATH=/var/lib/church-photos-standby/photos.sqlite3
+Environment=STANDBY_TOKEN_PATH=/etc/church-photos-standby/token
+Environment=STANDBY_PORT=8790
+ExecStart=/usr/bin/python3 /opt/finance-standby/db_api.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/church-photos-standby
+
+[Install]
+WantedBy=multi-user.target

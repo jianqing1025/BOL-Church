@@ -11,13 +11,19 @@ import {
   type RoomVideoMessage,
   type ServerMessage,
 } from './chatProtocol';
-import { isLiveKitProjectKey, stickyProject, type StickyProject } from './livekitProject';
+import { isLiveKitProjectKey, projectByKey, stickyProject, type LiveKitProjectEnv, type StickyProject } from './livekitProject';
+import { GHOST_CHECK_INTERVAL_MS, GHOST_GRACE_MS, listLiveKitParticipants, removeLiveKitParticipant, selectGhosts } from './ghostReaper';
+import { livekitRoomName } from '../constants/meetingRooms';
 import { toggleReaction } from './reactions';
 
 interface Session { id: string; name: string; isHost: boolean; lastSeen: number; heartbeat: boolean; }
 
 /** Durable storage key for the room's LiveKit server (see decideLiveKitProject). */
 const LIVEKIT_PROJECT_KEY = 'livekitProject';
+/** Which room this object is — an id made from a name cannot be turned back into it. */
+const ROOM_ID_KEY = 'roomId';
+/** When each video participant was first seen missing from the chat room (see ghostReaper). */
+const ABSENT_SINCE_KEY = 'ghostAbsentSince';
 
 /**
  * One instance per room (addressed via idFromName(roomId)). Password and roomId
@@ -71,7 +77,7 @@ export class ChatRoom {
    */
   private roomVideo: { videoId: string; playing: boolean; seconds: number; leaderId: string } | null = null;
 
-  constructor(private state: DurableObjectState, _env: unknown) {}
+  constructor(private state: DurableObjectState, private env: LiveKitProjectEnv = {}) {}
 
   /**
    * Which LiveKit server this room is on.
@@ -87,7 +93,7 @@ export class ChatRoom {
    * this object, and a meeting must not be re-decided underneath itself.
    */
   private async decideLiveKitProject(request: Request): Promise<Response> {
-    const body = await request.json().catch(() => ({})) as { proposed?: unknown; day?: unknown };
+    const body = await request.json().catch(() => ({})) as { proposed?: unknown; day?: unknown; roomId?: unknown };
     if (!isLiveKitProjectKey(body.proposed) || typeof body.day !== 'number') {
       return Response.json({ project: null }, { status: 400 });
     }
@@ -101,7 +107,53 @@ export class ChatRoom {
       activeCount: this.sessions.size,
     });
     await this.state.storage.put(LIVEKIT_PROJECT_KEY, { project, day: body.day, lastIssuedAt: now });
+    // Someone is about to be in this room's video: start looking out for ghosts.
+    if (typeof body.roomId === 'string') {
+      await this.state.storage.put(ROOM_ID_KEY, body.roomId);
+      if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(now + GHOST_CHECK_INTERVAL_MS);
+    }
     return Response.json({ project });
+  }
+
+  /**
+   * Removes video participants that have been missing from this chat room for
+   * the grace period — tiles with nobody behind them. Runs every minute while
+   * the room's video has anyone in it, and stops once it is empty.
+   */
+  async alarm(): Promise<void> {
+    const roomId = await this.state.storage.get<string>(ROOM_ID_KEY);
+    const stored = await this.state.storage.get<StickyProject>(LIVEKIT_PROJECT_KEY);
+    const project = stored ? projectByKey(this.env, stored.project) : null;
+    if (!roomId || !project) return;
+    const roomName = livekitRoomName(roomId);
+    const again = () => this.state.storage.setAlarm(Date.now() + GHOST_CHECK_INTERVAL_MS);
+
+    let participants;
+    try {
+      participants = await listLiveKitParticipants(project, roomName);
+    } catch (error) {
+      console.warn(`ghost check: could not list ${roomName}`, error);
+      await again();
+      return;
+    }
+    if (participants.length === 0) {
+      await this.state.storage.delete(ABSENT_SINCE_KEY);
+      return;
+    }
+
+    const present = new Set([...this.sessions.values()].map((s) => s.id));
+    const previous = (await this.state.storage.get<Record<string, number>>(ABSENT_SINCE_KEY)) ?? {};
+    const { ghosts, absentSince } = selectGhosts(participants, present, previous, Date.now(), GHOST_GRACE_MS);
+    for (const identity of ghosts) {
+      try {
+        await removeLiveKitParticipant(project, roomName, identity);
+        console.log(`ghost check: removed ${identity} from ${roomName}`);
+      } catch (error) {
+        console.warn(`ghost check: could not remove ${identity} from ${roomName}`, error);
+      }
+    }
+    await this.state.storage.put(ABSENT_SINCE_KEY, absentSince);
+    await again();
   }
 
   async fetch(request: Request): Promise<Response> {

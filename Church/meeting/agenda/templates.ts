@@ -1,3 +1,4 @@
+import { findMeetingRoom } from '../../constants/meetingRooms';
 import { localDateString, newAgenda, newId, nextWeekday, shortTitle } from './agendaModel';
 import type { Agenda, AgendaItem } from './types';
 
@@ -9,8 +10,8 @@ import type { Agenda, AgendaItem } from './types';
 
 interface Passage { bookId: number; chapter: number; fromVerse: number; toVerse: number }
 
+/** The room's name comes from the room list, so a rename reaches the templates too. */
 interface RoomTemplate {
-  name: string;
   /** 0 = Sunday. */
   weekday: number;
   passages: Passage[];
@@ -21,7 +22,6 @@ const unsplash = (id: string) => `https://images.unsplash.com/photo-${id}?w=1920
 
 const ROOMS: Record<string, RoomTemplate> = {
   'bible-study-1': {
-    name: '聯合小組查經',
     weekday: 2,
     passages: [
       { bookId: 43, chapter: 3, fromVerse: 16, toVerse: 17 },   // 約翰福音
@@ -31,7 +31,6 @@ const ROOMS: Record<string, RoomTemplate> = {
     image: { url: unsplash('1529070538774-1843cb3265df'), caption: '一同查考神的話' },
   },
   prayer: {
-    name: '禱告會',
     weekday: 3,
     passages: [
       { bookId: 50, chapter: 4, fromVerse: 6, toVerse: 7 },     // 腓立比書
@@ -41,7 +40,6 @@ const ROOMS: Record<string, RoomTemplate> = {
     image: { url: unsplash('1543702404-38c2035462ad'), caption: '同心合意地禱告' },
   },
   'bible-study-3': {
-    name: '姐妹小組查經',
     weekday: 2,
     passages: [
       { bookId: 20, chapter: 31, fromVerse: 25, toVerse: 26 },  // 箴言
@@ -51,7 +49,6 @@ const ROOMS: Record<string, RoomTemplate> = {
     image: { url: unsplash('1445445290350-18a3b86e0b5a'), caption: '在主的話語中得安息' },
   },
   'bible-study-2': {
-    name: '弟兄小組查經',
     weekday: 2,
     passages: [
       { bookId: 6, chapter: 1, fromVerse: 9, toVerse: 9 },      // 約書亞記
@@ -108,9 +105,12 @@ export interface TemplatePlan {
   images: { itemId: string; url: string }[];
 }
 
-export function buildRoomTemplate(roomId: string, now: Date, random: () => number = Math.random): TemplatePlan {
-  const room = ROOMS[roomId];
-  if (!room) throw new Error(`No template for room ${roomId}`);
+/** `roomName` is what the back office calls the room now; the built-in name stands in without it. */
+export function buildRoomTemplate(roomId: string, now: Date, random: () => number = Math.random, roomName?: string): TemplatePlan {
+  const template = ROOMS[roomId];
+  const name = roomName ?? findMeetingRoom(roomId)?.name.zh;
+  if (!template || !name) throw new Error(`No template for room ${roomId}`);
+  const room = { ...template, name };
   const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length) % list.length];
 
   const meeting = nextWeekday(now, room.weekday);

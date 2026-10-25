@@ -5,9 +5,6 @@ export const MARGIN_X = 154; // 8%
 export const MARGIN_Y = 110;
 export const FOOTER_SPACE = 70;
 export const TITLE_PX = 72;
-export const BODY_MAX_PX = 48;
-export const BODY_MIN_PX = 32;
-export const LINE_HEIGHT = 1.7;
 export const TITLE_GAP = 44;
 
 /** Width of `text` at `px` pixels. The canvas supplies the real one. */
@@ -36,25 +33,82 @@ export function wrapText(text: string, maxWidth: number, px: number, measure: Me
   return lines;
 }
 
-export interface TextSlideLayout {
+// 經文與文字投影片：字要大到坐在後排、或手機縮小後都看得清楚——最小比標題
+// （TITLE_PX）再大一號，放不下時分頁，而不是再縮小或被截掉。
+export const SCRIPTURE_STEP_PX = 8;
+export const SCRIPTURE_MIN_PX = TITLE_PX + SCRIPTURE_STEP_PX;
+export const SCRIPTURE_MAX_PX = SCRIPTURE_MIN_PX + 2 * SCRIPTURE_STEP_PX;
+export const SCRIPTURE_LINE_HEIGHT = 1.5;
+
+export interface ScripturePage {
   titleLines: string[];
   bodyLines: string[];
   bodyPx: number;
-  /** True when even the smallest size runs off the slide — suggest splitting. */
-  overflow: boolean;
+  /**
+   * The same text as whole paragraphs (verses), for a reader that wraps on its
+   * own — an exported PowerPoint. A verse cut across pages is split with it.
+   */
+  paragraphs: string[];
 }
 
-export function layoutTextSlide(title: string, body: string, measure: Measure): TextSlideLayout {
+interface Line { text: string; /** Begins a verse rather than continuing one. */ start: boolean }
+
+/** Wrapped lines back into their paragraphs; a space only where Latin words met. */
+function joinParagraphs(lines: readonly Line[]): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.start || !out.length) { out.push(line.text); continue; }
+    const prev = out[out.length - 1];
+    out[out.length - 1] = prev + (/[A-Za-z0-9,.;:!?)]$/.test(prev) && /^[A-Za-z0-9(]/.test(line.text) ? ' ' : '') + line.text;
+  }
+  return out;
+}
+
+const page = (titleLines: string[], lines: Line[], bodyPx: number): ScripturePage =>
+  ({ titleLines, bodyLines: lines.map((l) => l.text), bodyPx, paragraphs: joinParagraphs(lines) });
+
+/**
+ * 一段經文的投影片（可能多頁）。整段放得下就用最大的字；放不下先縮到最小，
+ * 再放不下就按節分頁，標題加「（1/3）」。只有單一節本身長過一頁時才會切開那一節。
+ */
+export function layoutScripturePages(title: string, verses: readonly string[], measure: Measure): ScripturePage[] {
   const width = SLIDE_WIDTH - 2 * MARGIN_X;
   const available = SLIDE_HEIGHT - 2 * MARGIN_Y - FOOTER_SPACE;
-  const titleLines = title.trim() ? wrapText(title.trim(), width, TITLE_PX, measure) : [];
-  const titleHeight = titleLines.length ? titleLines.length * TITLE_PX * 1.3 + TITLE_GAP : 0;
-  const trimmed = body.trim();
-  for (let px = BODY_MAX_PX; px >= BODY_MIN_PX; px -= 2) {
-    const bodyLines = trimmed ? wrapText(trimmed, width, px, measure) : [];
-    if (titleHeight + bodyLines.length * px * LINE_HEIGHT <= available) {
-      return { titleLines, bodyLines, bodyPx: px, overflow: false };
+  const titleLinesFor = (text: string) => (text.trim() ? wrapText(text.trim(), width, TITLE_PX, measure) : []);
+  const titleHeight = (lines: string[]) => (lines.length ? lines.length * TITLE_PX * 1.3 + TITLE_GAP : 0);
+  const wrapVerse = (verse: string, px: number): Line[] => wrapText(verse, width, px, measure).map((text, i) => ({ text, start: i === 0 }));
+
+  const titleLines = titleLinesFor(title);
+  for (let px = SCRIPTURE_MAX_PX; px >= SCRIPTURE_MIN_PX; px -= SCRIPTURE_STEP_PX) {
+    const bodyLines = verses.flatMap(verse => wrapVerse(verse, px));
+    if (titleHeight(titleLines) + bodyLines.length * px * SCRIPTURE_LINE_HEIGHT <= available) {
+      return [page(titleLines, bodyLines, px)];
     }
   }
-  return { titleLines, bodyLines: wrapText(trimmed, width, BODY_MIN_PX, measure), bodyPx: BODY_MIN_PX, overflow: true };
+
+  // 分頁：每頁容量以最寬的頁碼（99/99）估，確保加上頁碼後的標題也放得下
+  const px = SCRIPTURE_MIN_PX;
+  const capacity = Math.max(1, Math.floor((available - titleHeight(titleLinesFor(`${title}（99/99）`))) / (px * SCRIPTURE_LINE_HEIGHT)));
+  const pages: Line[][] = [];
+  let current: Line[] = [];
+  for (const verse of verses) {
+    let lines = wrapVerse(verse, px);
+    if (current.length + lines.length > capacity && current.length) {
+      pages.push(current);
+      current = [];
+    }
+    while (lines.length > capacity) {
+      pages.push(lines.slice(0, capacity));
+      lines = lines.slice(capacity);
+    }
+    current.push(...lines);
+  }
+  if (current.length) pages.push(current);
+  return pages.map((lines, i) => page(titleLinesFor(`${title}（${i + 1}/${pages.length}）`), lines, px));
+}
+
+/** 一張文字投影片：和經文一樣大的字，放不下時在段落之間分頁。 */
+export function layoutTextPages(title: string, body: string, measure: Measure): ScripturePage[] {
+  const trimmed = body.trim();
+  return layoutScripturePages(title, trimmed ? trimmed.split('\n') : [], measure);
 }

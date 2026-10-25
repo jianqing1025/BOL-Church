@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { findMeetingRoom } from '../../constants/meetingRooms';
 import { buildRoomTemplate, TEMPLATE_ROOM_IDS } from './templates';
 
 describe('buildRoomTemplate', () => {
@@ -22,6 +23,20 @@ describe('buildRoomTemplate', () => {
     expect(first.kind === 'text' && first.body).toContain('2026年9月29日（週二）');
     expect(first.kind === 'text' && first.body).toContain('信望愛靈糧堂');
     expect(buildRoomTemplate('prayer', new Date(2026, 8, 24)).agenda.date).toBe('2026-09-30');
+  });
+
+  it('takes the name the back office gave the room', () => {
+    const first = buildRoomTemplate('prayer', new Date(2026, 8, 24), Math.random, '週三禱告會').agenda.items[0];
+    expect(first.kind === 'text' && first.title).toBe('週三禱告會');
+  });
+
+  it('titles each template with the room’s current name', () => {
+    for (const roomId of TEMPLATE_ROOM_IDS) {
+      const { agenda } = buildRoomTemplate(roomId, new Date(2026, 8, 24));
+      const first = agenda.items[0];
+      expect(first.kind === 'text' && first.title).toBe(findMeetingRoom(roomId)?.name.zh);
+      expect(agenda.note).toBe(findMeetingRoom(roomId)?.name.zh);
+    }
   });
 
   it('picks two different songs, with titles cut to 20 characters', () => {

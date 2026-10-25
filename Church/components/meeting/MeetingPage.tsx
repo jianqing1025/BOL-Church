@@ -2,7 +2,10 @@ import { DevSiteNotice } from './DevSiteNotice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
-import { localizeMeetingRoomText, MEETING_ROOMS, type MeetingRoom } from '../../constants/meetingRooms';
+import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
+import { useMeetingRooms } from '../../hooks/useMeetingRooms';
+import { refreshMeetingRooms, type RoomWithActivity } from '../../meeting/meetingRoomsStore';
+import { browserPollerEnv, startActivePoller } from '../../meeting/activePoller';
 import {
   forgetEveryone,
   forgetPassword,
@@ -31,7 +34,6 @@ import { MeetingBrowserGuide } from './MeetingBrowserGuide';
 import { detectMeetingInAppBrowser } from '../../meeting/inAppBrowser';
 
 export type Stage = 'auth' | 'pick' | 'room';
-type RoomWithActivity = MeetingRoom & { activeCount?: number };
 
 interface MeetingPageProps {
   /** Reports the current stage so the shell can hide chrome for the in-room view. */
@@ -67,7 +69,7 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [members, setMembers] = useState<PresenceUser[]>([]);
   const [ownUserId, setOwnUserId] = useState<string | null>(null);
-  const [pickerRooms, setPickerRooms] = useState<readonly RoomWithActivity[]>(MEETING_ROOMS);
+  const pickerRooms = useMeetingRooms();
   /** Id of the room whose Host box is ticked; you can only host the room you enter. */
   const [hostFor, setHostFor] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
@@ -110,27 +112,10 @@ const MeetingPageContent: React.FC<MeetingPageProps> = ({ onStageChange }) => {
 
   useEffect(() => {
     if (stage !== 'pick') return;
-    let cancelled = false;
-
-    const loadRooms = async () => {
-      try {
-        const res = await fetch('/api/meeting/rooms');
-        if (!res.ok) return;
-        const body = await res.json() as { rooms?: RoomWithActivity[] };
-        if (!cancelled && Array.isArray(body.rooms)) {
-          setPickerRooms(body.rooms);
-        }
-      } catch {
-        // Keep the built-in room list when the API is unavailable locally.
-      }
-    };
-
-    void loadRooms();
-    const interval = window.setInterval(() => void loadRooms(), 10000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    // Keeps the remembered (or built-in) list when the API is unavailable.
+    // Each refresh asks every room how many are in it — a Durable Object
+    // request apiece — so it only runs while someone is looking at the list.
+    return startActivePoller(() => void refreshMeetingRooms().catch(() => undefined), { intervalMs: 30_000, idleMs: 5 * 60_000 }, browserPollerEnv());
   }, [stage]);
 
   /**

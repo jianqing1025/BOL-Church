@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { MEETING_ROOMS } from '../constants/meetingRooms';
 import { validateAuth, validateJoin, validateVideo } from './meetingValidation';
 
 const PW = '110550';
@@ -35,5 +36,15 @@ describe('validateVideo', () => {
     const r = validateVideo({ roomId: 'lobby', name: 'A', password: PW }, PW);
     expect(r.ok).toBe(false);
     if (r.ok === false) expect(r.status).toBe(400);
+  });
+});
+
+describe('rooms from the back office', () => {
+  const added = { ...MEETING_ROOMS[0], id: 'room-1a2b3c4d' };
+  it('admits a room the back office added and refuses one it deleted', () => {
+    const rooms = [added];
+    expect(validateJoin({ roomId: 'room-1a2b3c4d', name: 'A', password: PW }, PW, rooms).ok).toBe(true);
+    expect(validateVideo({ roomId: 'room-1a2b3c4d', name: 'A', password: PW }, PW, rooms).ok).toBe(true);
+    expect(validateJoin({ roomId: 'prayer', name: 'A', password: PW }, PW, rooms).ok).toBe(false);
   });
 });

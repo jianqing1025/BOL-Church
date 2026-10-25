@@ -59,9 +59,9 @@ export async function migrateBrowserAgendas(from: AgendaStore, to: AgendaStore):
       if (file) files.set(fileId, await to.putFile(file.blob));
     }
     const items = agenda.items
-      .map((item) => ((item.kind === 'image' || item.kind === 'localVideo') && item.fileId ? { ...item, fileId: files.get(item.fileId) ?? '' } : item))
-      // A picture or film whose file did not make it across is dropped, not left pointing nowhere.
-      .filter((item) => !((item.kind === 'image' || (item.kind === 'localVideo' && !item.path)) && !item.fileId));
+      .map((item) => ('fileId' in item && item.fileId ? { ...item, fileId: files.get(item.fileId) ?? '' } : item))
+      // A picture, deck or film whose file did not make it across is dropped, not left pointing nowhere.
+      .filter((item) => !((item.kind === 'image' || item.kind === 'ppt' || (item.kind === 'localVideo' && !item.path)) && !item.fileId));
     await to.save({ ...agenda, items });
     moved++;
   }

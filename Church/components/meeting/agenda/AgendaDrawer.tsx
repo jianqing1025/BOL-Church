@@ -7,6 +7,7 @@ import type { Agenda, AgendaItem } from '../../../meeting/agenda/types';
 import type { AgendaPresenter } from '../../../hooks/useAgendaPresenter';
 import { AgendaItemList, KIND_ICON, useItemFallbacks } from './AgendaItemList';
 import { NewAgendaMenu } from './NewAgendaMenu';
+import { useMeetingRooms } from '../../../hooks/useMeetingRooms';
 import { storeErrorKey, useAgendaSaver } from './useAgendaSaver';
 
 /**
@@ -16,6 +17,7 @@ import { storeErrorKey, useAgendaSaver } from './useAgendaSaver';
  */
 export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPresenter }> = ({ store, presenter }) => {
   const { language, t } = useLocalization();
+  const rooms = useMeetingRooms();
   const fallbacks = useItemFallbacks();
   const [agendas, setAgendas] = useState<Agenda[]>([]);
   /** The host's own templates, offered under 新增. */
@@ -37,7 +39,7 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
 
   const agenda = agendas.find((a) => a.id === selectedId) ?? null;
   const items: AgendaItem[] = agenda?.items ?? [];
-  const footer = slideFooter(agenda, t('header.logo'), language);
+  const look = { footer: slideFooter(agenda, t('header.logo'), language, rooms), theme: agenda?.theme };
   const activeIndex = items.findIndex((i) => i.id === presenter.activeId);
   const replace = (next: Agenda) => setAgendas((list) => list.map((a) => (a.id === next.id ? next : a)));
 
@@ -95,7 +97,7 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
               message={message} onMessage={setMessage}
               onItemEdited={(item) => {
                 // The slide on screen follows its text as it is typed.
-                if (item.id === presenter.activeId && (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture')) void presenter.share(item, footer);
+                if (item.id === presenter.activeId && (item.kind === 'text' || item.kind === 'image' || item.kind === 'scripture')) void presenter.share(item, look);
               }}
               onBeforeRemove={async (itemId) => { if (itemId === presenter.activeId) await presenter.stop(); }} />
           </div>
@@ -112,12 +114,27 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
             <div key={item.id} className={`flex items-center gap-2 border-b border-white/5 px-3 py-2.5 ${active ? 'bg-amber-400/10 ring-2 ring-inset ring-amber-400' : ''}`}>
               <span className={active ? 'text-amber-300' : 'text-gray-400'}>{KIND_ICON[item.kind]}</span>
               <span className="min-w-0 flex-1 truncate text-sm text-gray-100">{itemLabel(item, language, fallbacks)}</span>
-              {active ? (
+              {active && presenter.page ? (
+                // 多頁經文或文字：用上一頁／下一頁取代「停止」
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" onClick={() => presenter.turnPage(-1)} disabled={presenter.page.index === 0}
+                    aria-label={t('meeting.agendaPrevPage')} title={t('meeting.agendaPrevPage')}
+                    className="flex items-center rounded-md bg-amber-400 px-1.5 py-1 text-gray-900 disabled:opacity-40">
+                    <ChevronLeft size={15} />
+                  </button>
+                  <span className="min-w-[2.5rem] text-center text-xs font-semibold tabular-nums text-amber-300">{presenter.page.index + 1}/{presenter.page.count}</span>
+                  <button type="button" onClick={() => presenter.turnPage(1)} disabled={presenter.page.index === presenter.page.count - 1}
+                    aria-label={t('meeting.agendaNextPage')} title={t('meeting.agendaNextPage')}
+                    className="flex items-center rounded-md bg-amber-400 px-1.5 py-1 text-gray-900 disabled:opacity-40">
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              ) : active ? (
                 <button type="button" onClick={() => void presenter.stop()} className="flex shrink-0 items-center gap-1 rounded-md bg-amber-400 px-2 py-1 text-xs font-semibold text-gray-900">
                   <Square size={11} fill="currentColor" />{t('meeting.agendaStop')}
                 </button>
               ) : (
-                <button type="button" onClick={() => void presenter.share(item, footer)} aria-label={t('meeting.agendaShare')}
+                <button type="button" onClick={() => void presenter.share(item, look)} aria-label={t('meeting.agendaShare')}
                   className="flex shrink-0 items-center rounded-md px-2 py-1 text-blue-300 hover:bg-white/10 hover:text-white">
                   <Play size={15} fill="currentColor" />
                 </button>
@@ -129,11 +146,11 @@ export const AgendaDrawer: React.FC<{ store: AgendaStore; presenter: AgendaPrese
 
       {!editing && items.length > 0 && (
         <div className="flex shrink-0 gap-2 border-t border-white/10 p-3">
-          <button type="button" disabled={activeIndex <= 0} onClick={() => void presenter.step(items, -1, footer)}
+          <button type="button" disabled={activeIndex <= 0 && !(presenter.page && presenter.page.index > 0)} onClick={() => void presenter.step(items, -1, look)}
             className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/15 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-30">
             <ChevronLeft size={16} />{t('meeting.agendaPrev')}
           </button>
-          <button type="button" disabled={activeIndex >= items.length - 1 && activeIndex !== -1} onClick={() => void presenter.step(items, 1, footer)}
+          <button type="button" disabled={activeIndex >= items.length - 1 && activeIndex !== -1 && !(presenter.page && presenter.page.index < presenter.page.count - 1)} onClick={() => void presenter.step(items, 1, look)}
             className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/15 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-30">
             {t('meeting.agendaNext')}<ChevronRight size={16} />
           </button>

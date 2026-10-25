@@ -3,6 +3,7 @@
 import { DEFAULT_SERMONS, type AdminRole, type WebAnalyticsRange } from './data';
 import { isReactionEmoji } from './meeting/reactions';
 import { translations } from './constants/translations';
+import { APP_VERSION } from './constants/appVersion';
 import {
   buildClassifier,
   classifySermonCategory,
@@ -13,7 +14,7 @@ import {
   type SyncTarget,
   type TrainingRow,
 } from './sync/classifier';
-import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd } from './live/liveStats';
+import { nextPeak, computeTotalOnline, boostLowOnlineTotal, decideStreamEnd, pickLiveVideo } from './live/liveStats';
 import { qualifiesAsLiveBroadcast, pickDayRepresentative } from './live/liveArchive';
 import { extractGeo, buildReplyEmail, DEFAULT_REPLY_TEMPLATE, type MailboxKind } from './mailbox/mailbox';
 import { threadReplyAddress, parseThreadFromRecipients, extractInboundBody, stripQuotedReply, verifySvixSignature } from './mailbox/inbound';
@@ -25,15 +26,22 @@ import {
   readCatalogue,
   readSermonList,
   rebuildSnapshots,
+  readMannaIndex,
+  scopeCovers,
+  mergeScopes,
+  MANNA_PAGE_SIZE,
+  type RebuildScope,
   type SiteSnapshot,
   type ListEntry,
   type SnapshotDeps,
 } from './snapshot/snapshot';
-import { shouldRebuildSnapshot } from './snapshot/rebuildTrigger';
+import { snapshotRebuildScope } from './snapshot/rebuildTrigger';
 import { addDays, todayInChurch, type Announcement } from './bulletin/announcements';
+import { loadMeetingRooms, newMeetingRoomId, readMeetingRoomInput } from './meeting/roomStore';
 import { attachmentProblem, issueAccessToken, sundayOf, verifyAccessToken, ACCESS_TTL_DAYS } from './bulletin/weekly';
 import { decodeCursor } from './snapshot/cursor';
-import { buildKeysetQuery, normalizeLimit, slicePage, type SermonKind } from './snapshot/pagination';
+import { buildKeysetQuery, buildMannaPageQuery, normalizeLimit, slicePage, type SermonKind } from './snapshot/pagination';
+import { VpsDatabase } from './vpsDb';
 
 type Env = {
   DB: D1Database;
@@ -80,7 +88,24 @@ type Env = {
   LIVEKIT_API_KEY_SELF?: string;
   LIVEKIT_API_SECRET_SELF?: string;
   LIVEKIT_ACTIVE?: string;
+  DB_BACKEND?: string;
+  VPS_DB_URL?: string;
+  VPS_DB_TOKEN?: string;
+  VPS_PHOTOS_DB_URL?: string;
+  VPS_PHOTOS_DB_TOKEN?: string;
 };
+
+function withDatabaseBackend(environment: Env): Env {
+  if (environment.DB_BACKEND !== 'vps') return environment;
+  if (!environment.VPS_DB_URL || !environment.VPS_DB_TOKEN || !environment.VPS_PHOTOS_DB_URL || !environment.VPS_PHOTOS_DB_TOKEN) {
+    throw new Error('VPS database backend is not configured');
+  }
+  return {
+    ...environment,
+    DB: new VpsDatabase(environment.VPS_DB_URL, environment.VPS_DB_TOKEN) as unknown as D1Database,
+    PHOTOS_DB: new VpsDatabase(environment.VPS_PHOTOS_DB_URL, environment.VPS_PHOTOS_DB_TOKEN) as unknown as D1Database
+  };
+}
 
 type LocalizedText = { en: string; zh: string };
 
@@ -1318,8 +1343,10 @@ async function ensureSeedData(env: Env): Promise<void> {
   await ensureDefaultOwner(env);
   await ensureCategoryColumn(env);
 
-  const contentRowCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM site_content').first<{ count: number }>();
-  if (!contentRowCount || Number(contentRowCount.count) === 0) {
+  // 只需要知道表是不是空的：COUNT(*) 會把整張表讀一遍（講道 1,200 列、每日天言 3,200 列），
+  // LIMIT 1 只讀一列。這段每小時跟著同步跑一次。
+  const hasContent = await env.DB.prepare('SELECT 1 AS found FROM site_content LIMIT 1').first();
+  if (!hasContent) {
     const legacyContent = await getSetting(env, 'website_content', translations);
     await putSiteContent(env, legacyContent);
   }
@@ -1329,8 +1356,8 @@ async function ensureSeedData(env: Env): Promise<void> {
     await putSetting(env, 'images', {});
   }
 
-  const sermonCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM sermons').first<{ count: number }>();
-  if (!sermonCount || Number(sermonCount.count) === 0) {
+  const hasSermons = await env.DB.prepare('SELECT 1 AS found FROM sermons LIMIT 1').first();
+  if (!hasSermons) {
     for (const sermon of DEFAULT_SERMONS.filter(item => item.type === 'sermon')) {
       await env.DB.prepare(
         `INSERT INTO sermons (
@@ -1359,8 +1386,8 @@ async function ensureSeedData(env: Env): Promise<void> {
     }
   }
 
-  const mannaCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM daily_manna').first<{ count: number }>();
-  if (!mannaCount || Number(mannaCount.count) === 0) {
+  const hasManna = await env.DB.prepare('SELECT 1 AS found FROM daily_manna LIMIT 1').first();
+  if (!hasManna) {
     for (const sermon of DEFAULT_SERMONS.filter(item => item.type === 'daily-manna')) {
       await env.DB.prepare(
         `INSERT INTO daily_manna (
@@ -1388,6 +1415,66 @@ async function ensureSeedData(env: Env): Promise<void> {
   }
 }
 
+// ── 快照重建的防抖 ────────────────────────────────────────────────────────
+// 後台批次操作（一次搬移、隱藏、改講員 50 筆）會同時送出 50 個寫入，以前每個都整份重建：
+// 50 × 每日天言 3,224 列。現在每次寫入只留下標記，等 8 秒沒有新的寫入才重建一次。
+//
+// 標記放在 Cache API（每個資料中心各一份、免費、不佔 KV 每日 1,000 次寫入的額度）。
+// 它不保證一致，所以規則只往「多重建」那邊錯：讀不到標記、或最新標記沒涵蓋我的範圍，就自己重建。
+// workers.dev 上 Cache API 什麼都不存，那裡等於每個寫入照舊各自重建。
+const SNAPSHOT_REBUILD_DEBOUNCE_MS = 8_000;
+// 寫入後 KV 要等防抖、重建，再加上 KV 全球傳播（最長約 60 秒）才會是新的
+const SNAPSHOT_SETTLE_MS = 75_000;
+
+type SnapshotRebuildMarker = { token: string; scope: RebuildScope; at: number };
+
+// tsconfig 同時載入 DOM 型別，它的 CacheStorage 沒有 Workers 的 caches.default
+const edgeCache = () => (caches as unknown as { default: Cache }).default;
+
+function snapshotMarkerKey(request: Request): Request {
+  return new Request(new URL('/__internal/snapshot-rebuild-marker', request.url).toString());
+}
+
+async function readSnapshotMarker(request: Request): Promise<SnapshotRebuildMarker | null> {
+  try {
+    const cached = await edgeCache().match(snapshotMarkerKey(request));
+    return cached ? await cached.json<SnapshotRebuildMarker>() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function markSnapshotDirty(request: Request, scope: RebuildScope): Promise<SnapshotRebuildMarker> {
+  const previous = await readSnapshotMarker(request);
+  // 前一個寫入還在等：把它的範圍併進來，由最後一個寫入一起重建
+  const stillPending = previous && Date.now() - previous.at < SNAPSHOT_REBUILD_DEBOUNCE_MS + 5_000;
+  const marker: SnapshotRebuildMarker = {
+    token: crypto.randomUUID(),
+    scope: stillPending ? mergeScopes(previous.scope, scope) : scope,
+    at: Date.now(),
+  };
+  try {
+    await edgeCache().put(snapshotMarkerKey(request), new Response(JSON.stringify(marker), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=300' },
+    }));
+  } catch { /* 寫不進去就退回每個寫入各自重建 */ }
+  return marker;
+}
+
+async function debouncedSnapshotRebuild(env: Env, request: Request, marker: SnapshotRebuildMarker): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, SNAPSHOT_REBUILD_DEBOUNCE_MS));
+  const latest = await readSnapshotMarker(request);
+  // 之後有新的寫入、而且它的範圍涵蓋我的：交給它重建
+  if (latest && latest.token !== marker.token && latest.at >= marker.at && scopeCovers(latest.scope, marker.scope)) return;
+  await rebuildSnapshots(snapshotDeps(env), marker.scope);
+}
+
+/** 這個資料中心最近有寫入、KV 可能還是舊的。 */
+async function snapshotMayBeStale(request: Request): Promise<boolean> {
+  const marker = await readSnapshotMarker(request);
+  return Boolean(marker && Date.now() - marker.at < SNAPSHOT_SETTLE_MS);
+}
+
 // 把 Env 轉成 snapshot 模組要的介面。昂貴查詢只集中在這裡。
 function snapshotDeps(env: Env): SnapshotDeps {
   return {
@@ -1412,6 +1499,7 @@ function snapshotDeps(env: Env): SnapshotDeps {
       return (rows.results ?? []).map(row => mapDailyManna(row) as unknown as ListEntry);
     },
     now: () => new Date().toISOString(),
+    codeVersion: APP_VERSION,
   };
 }
 
@@ -1459,6 +1547,59 @@ function readAnnouncementPayload(payload: Record<string, unknown>): { title: str
   if (eventDate && !ISO_DATE.test(eventDate)) return '活動日期格式不正確';
   if (!ISO_DATE.test(showUntil)) return '請填寫顯示到的日期';
   return { title, bodyHtml, eventDate, showUntil };
+}
+
+/** 後台的線上查經房間：新增、改名稱／時間／圖片、排序、刪除。 */
+async function handleAdminMeetingRooms(request: Request, env: Env, url: URL): Promise<Response | null> {
+  const prefix = '/api/admin/meeting-rooms';
+  if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) return null;
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+  const id = decodeURIComponent(url.pathname.slice(prefix.length).replace(/^\//, ''));
+  const list = async () => json({ rooms: await loadMeetingRooms(env.DB) });
+
+  if (!id && request.method === 'GET') return list();
+
+  if (!id && request.method === 'POST') {
+    const input = readMeetingRoomInput(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const now = new Date().toISOString();
+    const last = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM meeting_rooms').first<{ n: number }>();
+    await env.DB.prepare(
+      'INSERT INTO meeting_rooms (id, name_zh, name_en, schedule_zh, schedule_en, image_url, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(newMeetingRoomId(), input.nameZh, input.nameEn, input.scheduleZh, input.scheduleEn, input.imageUrl, (last?.n ?? 0) + 1, now, now).run();
+    return list();
+  }
+
+  // 排序：依傳來的 id 順序重寫 sort_order。
+  if (id === 'order' && request.method === 'PUT') {
+    const { ids } = await readJson<{ ids?: unknown }>(request);
+    if (!Array.isArray(ids) || ids.some((value) => typeof value !== 'string')) return badRequest('排序資料不正確');
+    const now = new Date().toISOString();
+    await env.DB.batch((ids as string[]).map((roomId, index) =>
+      env.DB.prepare('UPDATE meeting_rooms SET sort_order = ?, updated_at = ? WHERE id = ?').bind(index + 1, now, roomId)));
+    return list();
+  }
+
+  if (id && request.method === 'PUT') {
+    const input = readMeetingRoomInput(await readJson<Record<string, unknown>>(request));
+    if (typeof input === 'string') return badRequest(input);
+    const result = await env.DB.prepare(
+      'UPDATE meeting_rooms SET name_zh = ?, name_en = ?, schedule_zh = ?, schedule_en = ?, image_url = ?, updated_at = ? WHERE id = ?',
+    ).bind(input.nameZh, input.nameEn, input.scheduleZh, input.scheduleEn, input.imageUrl, new Date().toISOString(), id).run();
+    if (!result.meta.changes) return notFound('Room not found');
+    return list();
+  }
+
+  if (id && request.method === 'DELETE') {
+    // 表空了網站會退回內建清單——刪光反而讓舊房間全部回來，所以至少留一間。
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM meeting_rooms').first<{ n: number }>();
+    if ((count?.n ?? 0) <= 1) return badRequest('至少要保留一間房間');
+    await env.DB.prepare('DELETE FROM meeting_rooms WHERE id = ?').bind(id).run();
+    return list();
+  }
+
+  return null;
 }
 
 async function handleAdminAnnouncements(request: Request, env: Env, url: URL): Promise<Response | null> {
@@ -1554,6 +1695,12 @@ function weeklyCookie(request: Request, value: string, maxAge: number): string {
   return `${WEEKLY_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${maxAge}`;
 }
 
+/** 前端讀得到的提示：只表示「這台裝置解鎖過」，本身不給任何權限（權限只看 HttpOnly 的通行證）。 */
+function weeklyHintCookie(request: Request, on: boolean): string {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return `weekly_hint=${on ? '1' : ''}; Path=/; SameSite=Lax${secure}; Max-Age=${on ? ACCESS_TTL_DAYS * 86_400 : 0}`;
+}
+
 async function handleWeeklyUnlock(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const rateKey = `weekly-unlock:${ip}:${Math.floor(Date.now() / 60_000)}`;
@@ -1569,6 +1716,7 @@ async function handleWeeklyUnlock(request: Request, env: Env): Promise<Response>
   }
   const response = noStore(json({ ok: true }));
   response.headers.append('Set-Cookie', weeklyCookie(request, await issueAccessToken(secret.hash), ACCESS_TTL_DAYS * 86_400));
+  response.headers.append('Set-Cookie', weeklyHintCookie(request, true));
   return response;
 }
 
@@ -1579,6 +1727,7 @@ async function handleWeeklyPublic(request: Request, env: Env, url: URL): Promise
   if (url.pathname === '/api/weekly/lock' && request.method === 'POST') {
     const response = noStore(json({ ok: true }));
     response.headers.append('Set-Cookie', weeklyCookie(request, '', 0));
+    response.headers.append('Set-Cookie', weeklyHintCookie(request, false));
     return response;
   }
   if (request.method !== 'GET') return null;
@@ -1801,19 +1950,63 @@ async function handleSermonPage(env: Env, url: URL): Promise<Response> {
 
 /**
  * 一種的完整清單。訪客讀 KV 快照（0 列 D1），網址帶版本號 v，快照一重建版本就變，
- * 所以可以讓瀏覽器快取一整天。已登入的管理者直接查 D1，剛存的內容立刻看得到。
+ * 所以可以讓瀏覽器快取一整天。
+ * 已登入的管理者平常也讀 KV：以前每次登入、每次重抓都直接查 D1（每日天言一次 3,224 列）。
+ * 只有這個資料中心剛寫入過、KV 可能還沒更新時才查 D1，剛存的內容立刻看得到。
  */
 async function handleSermonList(request: Request, env: Env, url: URL): Promise<Response> {
   const kind = parseKind(url.searchParams.get('type'));
   const currentUser = await getCurrentUser(request, env);
   const deps = snapshotDeps(env);
-  const items = currentUser ? await deps.buildList(kind) : await readSermonList(deps, kind);
+  const items = currentUser && await snapshotMayBeStale(request)
+    ? await deps.buildList(kind)
+    : await readSermonList(deps, kind);
   return new Response(JSON.stringify(items), {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': currentUser
         ? 'private, no-store'
         : url.searchParams.get('v') ? 'public, max-age=86400' : 'public, max-age=60',
+    },
+  });
+}
+
+/**
+ * 公開每日天言頁的一頁（50 筆）。只向 D1 要這一頁：從快照索引裡記的頁首游標往下取 50 筆，
+ * 不必下載三千多筆的完整清單，也不用 OFFSET 把前面幾頁讀一遍。總數、年份與頁數都在索引裡。
+ * 網址帶的版本號 v 等於索引版本時，這一頁的內容在下次重建前不會變，瀏覽器可以快取一整天。
+ */
+async function handleMannaPage(env: Env, url: URL): Promise<Response> {
+  const index = await readMannaIndex(snapshotDeps(env));
+  const yearParam = url.searchParams.get('year');
+  const year = yearParam && /^\d{4}$/.test(yearParam) ? yearParam : null;
+  const yearEntry = year ? index.years.find(item => item.year === year) : null;
+  const starts = year ? (yearEntry?.pages ?? []) : index.pages;
+  const total = year ? (yearEntry?.count ?? 0) : index.total;
+  const totalPages = Math.max(1, starts.length);
+  const requested = Math.floor(Number(url.searchParams.get('page')));
+  const page = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), totalPages) : 1;
+
+  let items: ReturnType<typeof mapDailyManna>[] = [];
+  const start = decodeCursor(starts[page - 1]);
+  if (start) {
+    const { sql, binds } = buildMannaPageQuery(start, year, MANNA_PAGE_SIZE);
+    const rows = await env.DB.prepare(sql).bind(...binds).all<DailyMannaRow>();
+    items = (rows.results ?? []).map(mapDailyManna);
+  }
+
+  const v = url.searchParams.get('v');
+  return new Response(JSON.stringify({
+    items,
+    page,
+    totalPages,
+    total,
+    pageSize: MANNA_PAGE_SIZE,
+    years: index.years.map(({ year: y, count }) => ({ year: y, count })),
+  }), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': v && v === index.version ? 'public, max-age=86400' : 'public, max-age=60',
     },
   });
 }
@@ -3061,28 +3254,32 @@ type YouTubeSearchResponse = {
   error?: { message?: string; code?: number };
 };
 
-async function probeYouTubeLive(row: LiveStreamConfigRow): Promise<{ videoId: string | null; error: string | null }> {
+/**
+ * 頻道「目前在播」的候選影片。search.list 會把剛結束的直播繼續列在前面好一陣子，
+ * 所以取多筆（同樣 100 units），由 liveStreamingDetails 判斷哪支真的在播（見 pickLiveVideo）。
+ */
+async function probeYouTubeLive(row: LiveStreamConfigRow): Promise<{ videoIds: string[]; error: string | null }> {
   if (!row.channel_id || !row.api_key) {
-    return { videoId: null, error: 'channel_id or api_key missing' };
+    return { videoIds: [], error: 'channel_id or api_key missing' };
   }
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'id');
   url.searchParams.set('channelId', row.channel_id);
   url.searchParams.set('eventType', 'live');
   url.searchParams.set('type', 'video');
-  url.searchParams.set('maxResults', '1');
+  url.searchParams.set('maxResults', '5');
   url.searchParams.set('key', row.api_key);
 
   try {
     const response = await fetch(url.toString());
     const data = await response.json<YouTubeSearchResponse>();
     if (!response.ok || data.error) {
-      return { videoId: null, error: data.error?.message ?? `HTTP ${response.status}` };
+      return { videoIds: [], error: data.error?.message ?? `HTTP ${response.status}` };
     }
-    const videoId = data.items?.[0]?.id?.videoId ?? null;
-    return { videoId, error: null };
+    const videoIds = (data.items ?? []).map((item) => item.id?.videoId).filter((id): id is string => !!id);
+    return { videoIds, error: null };
   } catch (err) {
-    return { videoId: null, error: err instanceof Error ? err.message : String(err) };
+    return { videoIds: [], error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -3110,10 +3307,16 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
   // 進入直播窗口前 24h，把回放期的 manual override 清掉，讓自動偵測能跑
   config = await clearExpiredManualOverride(env, config);
   if (!force) {
-    if (!config.enabled || config.manual_video_id) {
+    if (!config.enabled) {
       return getLiveStreamStateRow(env);
     }
-    if (!withinServiceWindow(config, new Date())) {
+    // 回放（manual_video_id）只在直播窗口外擋住偵測：第一場結束、歸檔成回放後，
+    // 同一個窗口裡重新開播的第二場也要偵測得到。直播中本來就優先於回放顯示。
+    const inWindow = withinServiceWindow(config, new Date());
+    if (config.manual_video_id && !inWindow) {
+      return getLiveStreamStateRow(env);
+    }
+    if (!inWindow) {
       // 即使在窗口外，仍然檢查是否有待歸檔的視頻（直播窗口剛結束、VOD 還在處理中）
       const prev = await getLiveStreamStateRow(env);
       if (prev.video_id && !prev.is_live) {
@@ -3122,15 +3325,24 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
       return getLiveStreamStateRow(env);
     }
   }
-  const result = await probeYouTubeLive(config);
+  const probe = await probeYouTubeLive(config);
   const prev = await getLiveStreamStateRow(env);
 
-  // 本次判定對象：search 有回就是它，沒回就沿用上次那支（可能只是 search 漏檢）。
-  // 對它取一次 liveStreamingDetails（1 unit），同時供「是否已結束」與並發數使用。
+  // search 回的每一支、加上上次那支，一次 videos.list（1 unit）取 liveStreamingDetails：
+  // 已開始、未結束的才是在播的（search 常把剛結束的排在前面）。
+  const lookup = [...new Set([...probe.videoIds, ...(prev.video_id ? [prev.video_id] : [])])];
+  const detailsById = await fetchLiveStreamingDetailsBatch(config.api_key, lookup);
+  const onAir = pickLiveVideo(probe.videoIds.map((id) => ({
+    videoId: id,
+    actualStartTime: detailsById.get(id)?.actualStartTime ?? null,
+    actualEndTime: detailsById.get(id)?.actualEndTime ?? null,
+  })));
+  // search 回了東西卻沒有一支在播 → 都已結束；以第一支代表「search 有回」交給 decideStreamEnd。
+  const result = { videoId: onAir ?? probe.videoIds[0] ?? null, error: probe.error };
+
+  // 本次判定對象：在播的那支；沒有就沿用上次那支（可能只是 search 漏檢）。
   const candidateVideoId = result.videoId ?? prev.video_id ?? null;
-  const details = candidateVideoId
-    ? await fetchLiveStreamingDetails(config.api_key, candidateVideoId)
-    : { concurrentViewers: null, actualEndTime: null };
+  const details = (candidateVideoId && detailsById.get(candidateVideoId)) || { concurrentViewers: null, actualEndTime: null };
 
   // search.list 兩個方向都不可靠 → 一律以 actualEndTime 為準（見 decideStreamEnd）
   const decision = decideStreamEnd({
@@ -3176,6 +3388,11 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
   if (videoIdToArchive) {
     await tryArchiveAndNotify(env, config, videoIdToArchive);
   }
+  // 兩次偵測之間上一場結束、下一場已開播：上一場不會再經過上面的邊沿，在這裡歸檔
+  // （VOD 還在處理就作罷，每小時的同步與對帳會再把它撈回直播列表）。
+  if (isNewVideo && prev.video_id) {
+    await tryArchiveAndNotify(env, config, prev.video_id);
+  }
 
   // 直播中:更新并发与峰值(新视频从 0 起算)
   if (liveVideoId) {
@@ -3194,8 +3411,13 @@ async function runProbeIfDue(env: Env, force: boolean): Promise<LiveStreamStateR
 
   // 強制檢查（後台「立即重新檢查」＝直播頁刷新鈕）順手對帳最近幾天的直播列表，
   // 讓「當天最長那場」的修正不必等下一次 uploads 同步。純 D1，不花 YouTube quota。
+  // 對帳改了講道才重建（路由出口不再為探測與刷新重建，見 rebuildTrigger）。
   if (force) {
-    try { await reconcileRecentLiveBroadcastDays(env); } catch { /* ignore */ }
+    try {
+      if (await reconcileRecentLiveBroadcastDays(env) > 0) {
+        await rebuildSnapshots(snapshotDeps(env), 'sermon').catch(err => console.error('snapshot rebuild failed', err));
+      }
+    } catch { /* ignore */ }
   }
 
   return getLiveStreamStateRow(env);
@@ -3253,7 +3475,7 @@ const LIVE_RECONCILE_WINDOW_DAYS = 14;
  *   - 其餘達標的同日條目維持原樣，該留的留
  * 回傳當天的代表 videoId，供回放指標使用。
  */
-async function reconcileLiveBroadcastDay(env: Env, date: string): Promise<string | null> {
+async function reconcileLiveBroadcastDay(env: Env, date: string, stats?: { changed: number }): Promise<string | null> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   await ensureCategoryColumn(env);
   await ensureHiddenColumns(env);
@@ -3291,7 +3513,10 @@ async function reconcileLiveBroadcastDay(env: Env, date: string): Promise<string
     stmts.push(env.DB.prepare("UPDATE sermons SET category = 'live-broadcast', updated_at = ? WHERE id = ?").bind(nowIso, repRow.id));
   }
 
-  if (stmts.length > 0) await env.DB.batch(stmts);
+  if (stmts.length > 0) {
+    await env.DB.batch(stmts);
+    if (stats) stats.changed += stmts.length;
+  }
   return representative;
 }
 
@@ -3318,17 +3543,20 @@ async function setReplayVideoForDay(env: Env, date: string, videoId: string, opt
  * 掃最近幾天有直播的日子重新對帳。正式崇拜的 VOD 常常在直播結束好幾小時後才進 uploads，
  * 而且自學習分類器會把它判成主日崇拜——靠這步在每次同步後把當天最長的那支撈回直播列表。
  */
-async function reconcileRecentLiveBroadcastDays(env: Env, days = LIVE_RECONCILE_WINDOW_DAYS): Promise<void> {
+/** 回傳改動了幾列講道：有改才需要重建快照。 */
+async function reconcileRecentLiveBroadcastDays(env: Env, days = LIVE_RECONCILE_WINDOW_DAYS): Promise<number> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const res = await env.DB.prepare(
     "SELECT DISTINCT date FROM sermons WHERE date >= ? AND category = 'live-broadcast' ORDER BY date ASC"
   ).bind(since).all<{ date: string }>();
+  const stats = { changed: 0 };
   for (const row of res.results || []) {
     try {
-      const representative = await reconcileLiveBroadcastDay(env, row.date);
+      const representative = await reconcileLiveBroadcastDay(env, row.date, stats);
       if (representative) await setReplayVideoForDay(env, row.date, representative);
     } catch { /* 單日失敗不擋其他天 */ }
   }
+  return stats.changed;
 }
 
 async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoId: string): Promise<void> {
@@ -3384,7 +3612,7 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
       // 歸檔會改動 sermons。這個函式也走 GET /api/live-stream 的心跳路徑，
       // 而 router 出口的觸發判斷對所有 GET 一律不重建（那是刻意的）。
       // 所以在改動點就地重建，不依賴那份路由前綴清單 —— 它已經漏掉過四條路由。
-      await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
+      await rebuildSnapshots(snapshotDeps(env), 'sermon').catch(err => console.error('snapshot rebuild failed', err));
       return;
     }
 
@@ -3439,7 +3667,7 @@ async function tryArchiveAndNotify(env: Env, config: LiveStreamConfigRow, videoI
     // 歸檔會改動 sermons。這個函式也走 GET /api/live-stream 的心跳路徑，
     // 而 router 出口的觸發判斷對所有 GET 一律不重建（那是刻意的）。
     // 所以在改動點就地重建，不依賴那份路由前綴清單 —— 它已經漏掉過四條路由。
-    await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
+    await rebuildSnapshots(snapshotDeps(env), 'sermon').catch(err => console.error('snapshot rebuild failed', err));
   } catch (err) {
     // 不影響 cron 主流程
     console.error('Archive sermon failed', err);
@@ -3616,7 +3844,7 @@ async function buildClassifierFromDb(env: Env): Promise<ClassifierModel> {
 
 async function syncChannelUploads(
   env: Env,
-  opts: { channel: { channelId: string; apiKey: string }; target?: SyncTarget; model?: ClassifierModel }
+  opts: { channel: { channelId: string; apiKey: string }; target?: SyncTarget; getModel?: () => Promise<ClassifierModel> }
 ): Promise<SyncResult> {
   const target: SyncTarget = opts.target || 'all';
   const result: SyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], pages: 0, hasMore: false, category: target };
@@ -3646,7 +3874,11 @@ async function syncChannelUploads(
     return result;
   }
 
-  const model = opts.model || await buildClassifierFromDb(env);
+  // 分類器要讀兩張表的全部標題（約 4,400 列）。每小時掃一次多半沒有新影片，所以用到才建：
+  // 目標是細分類時要先分類才能過濾；其他目標等確定有新的講道影片才分類。
+  let modelPromise: Promise<ClassifierModel> | null = null;
+  const getModel = () => (modelPromise ??= opts.getModel ? opts.getModel() : buildClassifierFromDb(env));
+  const categoryNeededToFilter = target !== 'all' && target !== 'sermon' && target !== 'daily-manna';
 
   let pageToken: string | undefined = undefined;
   const MAX_PAGES = 5;
@@ -3675,7 +3907,7 @@ async function syncChannelUploads(
 
     type ItemMeta = {
       videoId: string; date: string; entryType: 'sermon' | 'daily-manna';
-      finalTitle: string; category: SermonCategoryDb; imageUrl: string | null;
+      finalTitle: string; category: SermonCategoryDb | null; imageUrl: string | null;
     };
     const metas: ItemMeta[] = [];
     for (const item of data.items || []) {
@@ -3686,9 +3918,9 @@ async function syncChannelUploads(
       const date = publishedAt.slice(0, 10);
       const entryType = inferEntryTypeFromTitle(rawTitle);
       const finalTitle = buildFinalTitle(rawTitle, date, entryType);
-      const category = classifySermonCategory(model, finalTitle);
-      // 按目标过滤：只处理命中目标的条目
-      if (!matchesTarget(entryType, category, target)) continue;
+      const category = categoryNeededToFilter ? classifySermonCategory(await getModel(), finalTitle) : null;
+      // 按目标过滤：只处理命中目标的条目（all / sermon / daily-manna 只看類型，不看分類）
+      if (!matchesTarget(entryType, category ?? 'sunday-worship', target)) continue;
       const thumbnails = item.snippet?.thumbnails;
       const imageUrl = thumbnails?.maxres?.url || thumbnails?.high?.url || thumbnails?.default?.url || null;
       metas.push({ videoId, date, entryType, finalTitle, category, imageUrl });
@@ -3735,6 +3967,12 @@ async function syncChannelUploads(
         : existingManna.has(meta.videoId);
       if (isExisting) { reachedExistingContent = true; plannedSkips++; break; }
       newMetas.push(meta);
+    }
+
+    const unclassified = newMetas.filter(meta => meta.entryType === 'sermon' && meta.category === null);
+    if (unclassified.length > 0) {
+      const model = await getModel();
+      for (const meta of unclassified) meta.category = classifySermonCategory(model, meta.finalTitle);
     }
 
     const videoMetaMap = newMetas.length > 0
@@ -3809,9 +4047,11 @@ async function syncAllChannels(env: Env, opts?: { target?: SyncTarget }): Promis
   const channels = await env.DB
     .prepare('SELECT * FROM sync_channels WHERE enabled = 1 ORDER BY sort_order ASC')
     .all<SyncChannelRow>();
-  const model = await buildClassifierFromDb(env);
+  // 所有頻道共用一個分類器，而且只在某個頻道真的有新影片時才建
+  let modelPromise: Promise<ClassifierModel> | null = null;
+  const getModel = () => (modelPromise ??= buildClassifierFromDb(env));
   for (const ch of channels.results || []) {
-    const r = await syncChannelUploads(env, { channel: { channelId: ch.channel_id, apiKey: ch.api_key }, target, model });
+    const r = await syncChannelUploads(env, { channel: { channelId: ch.channel_id, apiKey: ch.api_key }, target, getModel });
     total.inserted += r.inserted;
     total.updated += r.updated;
     total.skipped += r.skipped;
@@ -4059,6 +4299,37 @@ async function countWebsiteUnique(env: Env, videoId: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+/** Several videos' liveStreamingDetails in one videos.list call (1 unit for up to 50 ids). */
+async function fetchLiveStreamingDetailsBatch(
+  apiKey: string | null,
+  videoIds: readonly string[],
+): Promise<Map<string, { concurrentViewers: number | null; actualStartTime: string | null; actualEndTime: string | null }>> {
+  const out = new Map<string, { concurrentViewers: number | null; actualStartTime: string | null; actualEndTime: string | null }>();
+  if (!apiKey || videoIds.length === 0) return out;
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'liveStreamingDetails');
+    url.searchParams.set('id', videoIds.slice(0, 50).join(','));
+    url.searchParams.set('key', apiKey);
+    const response = await fetch(url.toString());
+    if (!response.ok) return out;
+    const data = await response.json<{
+      items?: Array<{ id?: string; liveStreamingDetails?: { concurrentViewers?: string; actualStartTime?: string; actualEndTime?: string } }>;
+    }>();
+    for (const item of data.items ?? []) {
+      if (!item.id) continue;
+      const d = item.liveStreamingDetails;
+      const n = d?.concurrentViewers != null ? Number(d.concurrentViewers) : NaN;
+      out.set(item.id, {
+        concurrentViewers: Number.isFinite(n) ? n : null,
+        actualStartTime: d?.actualStartTime ?? null,
+        actualEndTime: d?.actualEndTime ?? null,
+      });
+    }
+  } catch { /* treated as nothing found */ }
+  return out;
 }
 
 async function fetchLiveStreamingDetails(
@@ -4883,12 +5154,19 @@ async function handleLiveChatPost(request: Request, env: Env): Promise<Response>
   }
 }
 
+/** 直播頁刷新鈕在直播窗口內最多每分鐘真的問一次 YouTube（search.list 一次 100 units）。 */
+const PUBLIC_REFRESH_COOLDOWN_MS = 60_000;
+
 async function handleLivePublicRefresh(env: Env): Promise<Response> {
-  // 直播頁刷新鈕 = 管理員後台「立即重新檢查」的同一條路徑：無條件強制探測。
-  // （不再看 enabled / manual_video_id / 冷卻——那些條件曾讓頁面刷不動、
-  //   非得管理員進後台按一次才會轉成回放。）
+  // 直播頁刷新鈕：只在主日直播窗口（後台設定的開始時間前 30 分到結束後 30 分，
+  // 目前是 10:00–13:00）內偵測；窗口外只顯示回放，不呼叫 YouTube 省 API 配額。
+  // 走和 cron 相同的判斷（runProbeIfDue 非強制）：窗口內即使有回放也照樣偵測，
+  // 窗口外只會替剛結束、待歸檔的那場收尾。管理員後台「立即重新檢查」仍是強制探測。
   try {
-    await runProbeIfDue(env, true);
+    const state = await getLiveStreamStateRow(env);
+    if (!state.checked_at || Date.now() - state.checked_at >= PUBLIC_REFRESH_COOLDOWN_MS) {
+      await runProbeIfDue(env, false);
+    }
     const data = await buildPublicLiveStreamState(env);
     return json(data);
   } catch (err) {
@@ -5168,6 +5446,11 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       ).run();
       const row = await env.DB.prepare('SELECT * FROM sermons WHERE id = ?').bind(id).first<SermonRow>();
       return json(mapSermon(row as SermonRow), 201);
+    }
+
+    // 必須排在 `/api/daily-manna/` 的 startsWith 判斷之前，否則 page 會被當成 id
+    if (url.pathname === '/api/daily-manna/page' && request.method === 'GET') {
+      return handleMannaPage(env, url);
     }
 
     if (url.pathname === '/api/daily-manna' && request.method === 'POST') {
@@ -5453,6 +5736,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
 
     {
       const bulletin = await handleAdminAnnouncements(request, env, url)
+        ?? await handleAdminMeetingRooms(request, env, url)
         ?? await handleWeeklyPublic(request, env, url)
         ?? await handleAdminWeekly(request, env, url)
         ?? await handleAdminDesktopDownload(request, env, url);
@@ -5546,14 +5830,18 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
 }
 
 const worker: ExportedHandler<Env> = {
-  async fetch(request, env, ctx): Promise<Response> {
+  async fetch(request, environment, ctx): Promise<Response> {
     const url = new URL(request.url);
     try {
+      const env = withDatabaseBackend(environment);
       const response = await route(request, env, url);
-      if (shouldRebuildSnapshot(request.method, url.pathname, response.status)) {
+      const scope = snapshotRebuildScope(request.method, url.pathname, response.status);
+      if (scope) {
         // 重建失敗不能影響這次寫入的回應 —— 資料已經進 D1 了，
         // 下一次讀取 miss 時會自行重建。
-        ctx.waitUntil(rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err)));
+        // 標記要在回應前寫好：後台緊接著重抓清單時，靠它判斷 KV 還沒更新、改查 D1。
+        const marker = await markSnapshotDirty(request, scope);
+        ctx.waitUntil(debouncedSnapshotRebuild(env, request, marker).catch(err => console.error('snapshot rebuild failed', err)));
       }
       return response;
     } catch (caught) {
@@ -5561,24 +5849,29 @@ const worker: ExportedHandler<Env> = {
     }
   },
 
-  async scheduled(event, env, ctx): Promise<void> {
+  async scheduled(event, environment, ctx): Promise<void> {
+    const env = withDatabaseBackend(environment);
     // 多個 cron trigger 分派：
-    //  - "0 */4 * * *"  每 4 小時從所有頻道同步 YouTube uploads
-    //  - "0 * * * *"    每小時輪轉刷新一批 sermon/manna 的元數據(時長/播放數)
-    //  - 其它（"*/5 17-22 * * SUN"） live 偵測
-    if (event.cron === '0 */4 * * *') {
+    //  - "0 * * * *"    每小時：從所有頻道掃描新的 YouTube uploads，並輪轉刷新一批元數據(時長/播放數)
+    //  - 其它（"*/5 17-21 * * SUN"） live 偵測：只在主日直播窗口內（10:00–13:00 太平洋時間，夏令 17–20 UTC、冬令 18–21 UTC）呼叫 YouTube
+    // 舊的 "0 */4 * * *" 併進每小時那條；還沒更新 wrangler.toml 的環境照樣能跑。
+    if (event.cron === '0 * * * *' || event.cron === '0 */4 * * *') {
       ctx.waitUntil(ensureSeedData(env).catch(() => undefined));
       ctx.waitUntil(
         syncAllChannels(env, { target: 'all' })
           .then(async result => {
             // 同步剛拉進來的正式崇拜 VOD 可能才是當天最長的那場 → 回頭對帳直播列表
-            await reconcileRecentLiveBroadcastDays(env).catch(() => undefined);
-            await sendUploadsSyncNotification(env, result);
-            await rebuildSnapshots(snapshotDeps(env)).catch(err => console.error('snapshot rebuild failed', err));
+            const reconciled = await reconcileRecentLiveBroadcastDays(env).catch(() => 0);
+            // 同步改成每小時：只有錯誤的通知維持原本每 4 小時最多一封，頻道設定壞掉時不會每小時寄信
+            const hasNews = result.inserted > 0 || result.updated > 0;
+            if (hasNews || new Date().getUTCHours() % 4 === 0) await sendUploadsSyncNotification(env, result);
+            // 沒有新影片就不重建：以前每次同步後都整份重讀兩張表（約 4,400 列）
+            if (result.inserted > 0 || result.updated > 0 || reconciled > 0) {
+              await rebuildSnapshots(snapshotDeps(env), 'all').catch(err => console.error('snapshot rebuild failed', err));
+            }
           })
           .catch(() => undefined)
       );
-    } else if (event.cron === '0 * * * *') {
       ctx.waitUntil(refreshOldestMetadata(env, 100).then(() => undefined).catch(() => undefined));
     } else {
       ctx.waitUntil(runProbeIfDue(env, false).then(() => undefined).catch(() => undefined));

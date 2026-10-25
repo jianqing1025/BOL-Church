@@ -1,11 +1,11 @@
-import React from 'react';
-import { ClipboardList, LogOut, Video } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Video } from 'lucide-react';
 import { useLocalization } from '../../hooks/useLocalization';
-import { localizeMeetingRoomText, type MeetingRoom } from '../../constants/meetingRooms';
+import { localizeMeetingRoomText } from '../../constants/meetingRooms';
+import type { RoomWithActivity } from '../../meeting/meetingRoomsStore';
 import { LogoIcon } from '../icons/Icons';
 import { DESKTOP_CONTROLS_WIDTH } from './DesktopShell';
-
-type RoomWithActivity = MeetingRoom & { activeCount?: number };
+import { DESKTOP_ROOMS_PER_PAGE, roomPages } from './roomPages';
 
 interface DesktopRoomPickerProps {
   rooms: readonly RoomWithActivity[];
@@ -19,10 +19,28 @@ interface DesktopRoomPickerProps {
 
 /**
  * The desktop app's home: a slim header that doubles as the title bar, and
- * the rooms laid out to fit the window without a scrollbar.
+ * the rooms laid out to fit the window without a scrollbar — four to a page,
+ * so six rooms make two pages rather than cards too short to read.
  */
 export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, name, hostFor, onHostForChange, onJoin, onSignOut, onOpenAgenda }) => {
   const { language, t } = useLocalization();
+  const pages = roomPages(rooms, DESKTOP_ROOMS_PER_PAGE);
+  const [page, setPage] = useState(0);
+  const current = Math.min(page, pages.length - 1);
+  const pagerArrow = (target: number, label: string, icon: React.ReactNode) => (
+    <button
+      type="button"
+      onClick={() => setPage(target)}
+      disabled={target < 0 || target >= pages.length}
+      aria-label={label}
+      title={label}
+      className="relative flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-40"
+    >
+      {icon}
+      {/* A meeting under way on the other page must not go unnoticed from this one. */}
+      {pages[target]?.live && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-pulse rounded-full bg-blue-600 ring-2 ring-white" />}
+    </button>
+  );
   return (
     <div className="flex h-screen flex-col bg-[#f6f7fb]">
       <header className="desktop-drag flex h-12 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white pl-5" style={{ paddingRight: DESKTOP_CONTROLS_WIDTH + 8 }}>
@@ -59,9 +77,13 @@ export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, nam
             </button>
           </div>
 
-          {/* Rows share the window's height, so the cards grow with it instead of leaving a blank lower half. */}
-          <div className="mt-5 grid flex-1 auto-rows-[minmax(13rem,1fr)] grid-cols-1 gap-4 min-[860px]:grid-cols-2">
-            {rooms.map((r) => {
+          {/*
+            Rows share the window's height, so the cards grow with it instead of
+            leaving a blank lower half. Two rows are fixed on a wide window, so a
+            half-full last page keeps the same card size as a full one.
+          */}
+          <div className="mt-5 grid flex-1 auto-rows-[minmax(13rem,1fr)] grid-cols-1 gap-4 min-[860px]:grid-cols-2 min-[860px]:grid-rows-[repeat(2,minmax(13rem,1fr))]">
+            {pages[current].rooms.map((r) => {
               const live = (r.activeCount ?? 0) > 0;
               return (
                 <div
@@ -108,6 +130,13 @@ export const DesktopRoomPicker: React.FC<DesktopRoomPickerProps> = ({ rooms, nam
               );
             })}
           </div>
+          {pages.length > 1 && (
+            <div className="mt-4 flex shrink-0 items-center justify-center gap-3">
+              {pagerArrow(current - 1, t('meeting.agendaPrevPage'), <ChevronLeft size={17} />)}
+              <span className="text-xs tabular-nums text-gray-500">{current + 1} / {pages.length}</span>
+              {pagerArrow(current + 1, t('meeting.agendaNextPage'), <ChevronRight size={17} />)}
+            </div>
+          )}
         </div>
       </main>
     </div>

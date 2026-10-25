@@ -1,5 +1,6 @@
 import type { Announcement, WeeklyAttachment, WeeklyReport, WeeklyReportSummary } from './data';
 import type { AdminRole, AdminUser, AnalyticsSummary, DesktopDownloadStats, ChurchPhoto, MailboxReply, MailboxSettings, Message, PrayerRequest, Sermon, SermonCategory, SermonKind, SiteBootstrap, WebAnalyticsRange, WebAnalyticsSummary } from './data';
+import type { MeetingRoom, MeetingRoomInput } from './constants/meetingRooms';
 import type { LiveStreamAdminState, LiveStreamConfig, LiveStreamPublicState, LiveChatMessage, LiveChatReactions } from './types';
 
 export interface LiveStreamSavePayload {
@@ -11,6 +12,16 @@ export interface LiveStreamSavePayload {
   timezone?: string;
   manualVideoId?: string;
   enabled?: boolean;
+}
+
+export interface MannaPage {
+  items: Sermon[];
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  /** 有內容的年份（新到舊）與各自筆數，給年份篩選用。 */
+  years: Array<{ year: string; count: number }>;
 }
 
 export interface PhotoUploadSettings {
@@ -174,6 +185,15 @@ export const api = {
     request<Announcement>(`/api/admin/announcements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteAnnouncement: (id: string) =>
     request<{ ok: true }>(`/api/admin/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  adminMeetingRooms: () => request<{ rooms: MeetingRoom[] }>('/api/admin/meeting-rooms'),
+  createMeetingRoom: (payload: MeetingRoomInput) =>
+    request<{ rooms: MeetingRoom[] }>('/api/admin/meeting-rooms', { method: 'POST', body: JSON.stringify(payload) }),
+  updateMeetingRoom: (id: string, payload: MeetingRoomInput) =>
+    request<{ rooms: MeetingRoom[] }>(`/api/admin/meeting-rooms/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  reorderMeetingRooms: (ids: string[]) =>
+    request<{ rooms: MeetingRoom[] }>('/api/admin/meeting-rooms/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
+  deleteMeetingRoom: (id: string) =>
+    request<{ rooms: MeetingRoom[] }>(`/api/admin/meeting-rooms/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   weeklyUnlock: (password: string) =>
     request<{ ok: true }>('/api/weekly/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
   weeklyLock: () => request<{ ok: true }>('/api/weekly/lock', { method: 'POST' }),
@@ -195,6 +215,15 @@ export const api = {
     request<{ ok: true }>('/api/admin/weekly-password', { method: 'PUT', body: JSON.stringify({ password }) }),
   sermonList: (kind: SermonKind, version: string | null) =>
     request<Sermon[]>(`/api/sermons/all?type=${kind}${version ? `&v=${encodeURIComponent(version)}` : ''}`),
+  /** 公開每日天言頁的一頁（伺服器只向 D1 要這 50 筆）。version 一樣時瀏覽器可直接用快取。 */
+  mannaPage: (page: number, year: string | null, version: string | null) => {
+    const params = new URLSearchParams({ page: String(page) });
+    if (year) params.set('year', year);
+    if (version) params.set('v', version);
+    return request<MannaPage>(`/api/daily-manna/page?${params}`);
+  },
+  sermonById: (id: string, kind: SermonKind) =>
+    request<Sermon>(`/api/sermons/${encodeURIComponent(id)}?type=${kind}`),
   createSermon: (sermon: Omit<Sermon, 'id'>) =>
     request<Sermon>('/api/sermons', { method: 'POST', body: JSON.stringify(sermon) }),
   updateSermon: (id: string, sermon: Omit<Sermon, 'id'>) =>

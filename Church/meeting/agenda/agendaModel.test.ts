@@ -1,3 +1,4 @@
+import { findMeetingRoom } from '../../constants/meetingRooms';
 import { describe, expect, it } from 'vitest';
 import {
   dayDistance, duplicateAgenda, itemLabel, localDateString, moveItem, nearestAgenda, neighbourItem,
@@ -46,8 +47,9 @@ describe('referencedFileIds', () => {
     const ids = referencedFileIds([
       agenda('a', '2026-01-01', [image('1', 'f1'), text('2')]),
       agenda('b', '2026-01-02', [{ id: '3', kind: 'localVideo', title: 'v', fileId: 'f2', fileName: 'v.mp4', size: 1 }]),
+      agenda('c', '2026-01-03', [{ id: '4', kind: 'ppt', title: 'd', fileId: 'f3', fileName: 'd.pptx', size: 1, pages: 3 }]),
     ]);
-    expect([...ids].sort()).toEqual(['f1', 'f2']);
+    expect([...ids].sort()).toEqual(['f1', 'f2', 'f3']);
   });
 });
 
@@ -79,7 +81,7 @@ describe('labels', () => {
   });
 
   it('falls back to the first line of a text, then to the kind', () => {
-    const fallbacks = { text: '文字', image: '圖片', youtube: 'YouTube', localVideo: '影片' };
+    const fallbacks = { text: '文字', image: '圖片', youtube: 'YouTube', localVideo: '影片', ppt: 'PPT' };
     expect(itemLabel(text('1', '開場'), Language.ZH, fallbacks)).toBe('開場');
     expect(itemLabel(text('1', '', '\n  本週代禱事項\n第二行'), Language.ZH, fallbacks)).toBe('本週代禱事項');
     expect(itemLabel(text('1'), Language.ZH, fallbacks)).toBe('文字');
@@ -158,11 +160,20 @@ describe('slideFooter', () => {
     expect(slideFooter(null, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂');
   });
   it('adds the room after a middle dot', () => {
-    expect(slideFooter({ ...base, roomId: 'prayer' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 禱告會');
-    expect(slideFooter({ ...base, roomId: 'prayer' }, 'Bread of Life Christian Church', Language.EN)).toBe('Bread of Life Christian Church · Prayer Meeting');
+    expect(slideFooter({ ...base, roomId: 'prayer' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 琴爐卷禱告會');
+    expect(slideFooter({ ...base, roomId: 'prayer' }, 'Bread of Life Christian Church', Language.EN)).toBe('Bread of Life Christian Church · Harp & Bowl Prayer Meeting');
   });
   it('knows an older template copy by its note', () => {
-    expect(slideFooter({ ...base, note: '姐妹小組查經' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 姐妹小組查經');
+    expect(slideFooter({ ...base, note: '姊妹小組團契' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 姊妹小組團契');
+  });
+  it('knows a copy made before the room was renamed, and shows the name it has now', () => {
+    expect(slideFooter({ ...base, note: '姐妹小組查經' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 姊妹小組團契');
+    expect(slideFooter({ ...base, note: '禱告會' }, '信望愛靈糧堂', Language.ZH)).toBe('信望愛靈糧堂 · 琴爐卷禱告會');
+  });
+  it('uses the names the back office gave the rooms', () => {
+    const rooms = [{ ...findMeetingRoom('prayer')!, name: { zh: '週三禱告會', en: 'Wednesday Prayer' } }];
+    expect(slideFooter({ ...base, roomId: 'prayer' }, '信望愛靈糧堂', Language.ZH, rooms)).toBe('信望愛靈糧堂 · 週三禱告會');
+    expect(slideFooter({ ...base, roomId: 'youth' }, '信望愛靈糧堂', Language.ZH, rooms)).toBe('信望愛靈糧堂');
   });
   it('keeps the room through copies and templates', () => {
     const room = { ...base, roomId: 'bible-study-2' };

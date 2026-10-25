@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BookmarkPlus, Copy, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
+import { BookmarkPlus, Copy, FileDown, Loader2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Trash2, X } from 'lucide-react';
+import { slideTheme, themeCss, themeName } from '../../../meeting/agenda/slideThemes';
+import { ThemePicker } from './ThemePicker';
 import { useLocalization } from '../../../hooks/useLocalization';
 import { churchConfirm } from '../../ChurchDialog';
 import type { AgendaStore } from '../../../meeting/agenda/agendaStore';
-import { duplicateAgenda, newAgenda, saveAsTemplate } from '../../../meeting/agenda/agendaModel';
+import { duplicateAgenda, newAgenda, saveAsTemplate, slideFooter } from '../../../meeting/agenda/agendaModel';
+import { exportAgendaPptx } from '../../../meeting/agenda/exportAgenda';
+import { useMeetingRooms } from '../../../hooks/useMeetingRooms';
 import type { Agenda } from '../../../meeting/agenda/types';
 import { AgendaItemList } from './AgendaItemList';
 import { NewAgendaMenu } from './NewAgendaMenu';
@@ -14,10 +18,12 @@ const formatBytes = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(
 /**
  * 聚會內容 — prepared ahead, on this computer only. Left: every saved agenda,
  * latest meeting first. Right: the chosen one, edited in place; every change
- * is saved as it is made (text after a short pause).
+ * is saved as it is made (text after a short pause). On a phone the list is a
+ * drawer, folded away until the header button opens it.
  */
 export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }> = ({ store, onClose }) => {
-  const { t } = useLocalization();
+  const { language, t } = useLocalization();
+  const rooms = useMeetingRooms();
   const [agendas, setAgendas] = useState<Agenda[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** The agenda whose ⋯ menu is open. */
@@ -26,6 +32,10 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
   const [notice, setNotice] = useState('');
   const [usage, setUsage] = useState<number | null>(null);
   const [savedIn, setSavedIn] = useState<string | null>(null);
+  /** 手機上左側清單是否展開；桌面版一直顯示。 */
+  const [listOpen, setListOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   const saver = useAgendaSaver(store, (e) => setMessage(t(storeErrorKey(e))));
 
   // A host's own templates are kept with the agendas but listed under 新增.
@@ -71,6 +81,7 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
       const created = await store.save(newAgenda(new Date(), t('meeting.agendaUntitled')));
       setAgendas((list) => [created, ...list]);
       setSelectedId(created.id);
+      setListOpen(false);
     } catch (e) { setMessage(t(storeErrorKey(e))); }
   };
 
@@ -84,6 +95,7 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
       const copy = await store.save(duplicateAgenda(current(target), new Date(), t('meeting.agendaCopySuffix')));
       setAgendas((list) => [copy, ...list]);
       setSelectedId(copy.id);
+      setListOpen(false);
     } catch (e) { setMessage(t(storeErrorKey(e))); }
   };
 
@@ -112,6 +124,26 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
     } catch (e) { setMessage(t(storeErrorKey(e))); }
   };
 
+  /** 匯出為 PPTX: the agenda as the room would see it, to keep or to show elsewhere. */
+  const exportPptx = async (target: Agenda) => {
+    setRowMenu(null);
+    await saver.flush();
+    setExporting(true);
+    setMessage('');
+    try {
+      await exportAgendaPptx(current(target), {
+        store,
+        language,
+        footer: slideFooter(current(target), t('header.logo'), language, rooms),
+        labels: { video: t('meeting.agendaVideoLocal'), youtube: 'YouTube' },
+      });
+    } catch {
+      setMessage(t('meeting.agendaExportFailed'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const finish = async () => {
     await saver.flush();
     onClose();
@@ -120,19 +152,32 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-3 sm:p-6" role="dialog" aria-modal="true">
       <div className="flex h-full max-h-[860px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 px-5">
-          <h2 className="text-base font-bold text-gray-900">{t('meeting.agendaTitle')}</h2>
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-3 md:px-5">
+          <div className="flex min-w-0 items-center gap-1">
+            <button type="button" onClick={() => setListOpen((open) => !open)} aria-expanded={listOpen}
+              aria-label={t(listOpen ? 'meeting.agendaHideList' : 'meeting.agendaShowList')} title={t(listOpen ? 'meeting.agendaHideList' : 'meeting.agendaShowList')}
+              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 md:hidden">
+              {listOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+            </button>
+            <h2 className="truncate text-base font-bold text-gray-900">{t('meeting.agendaTitle')}</h2>
+          </div>
           <button type="button" onClick={() => void finish()} aria-label={t('meeting.close')} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
             <X size={20} />
           </button>
         </header>
 
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex w-56 shrink-0 flex-col border-r border-gray-100 bg-gray-50/80">
+        {themeOpen && selected && (
+          <ThemePicker value={selected.theme} footer={slideFooter(selected, t('header.logo'), language, rooms)}
+            onChange={(theme) => update({ ...selected, theme })} onClose={() => setThemeOpen(false)} />
+        )}
+
+        <div className="relative flex min-h-0 flex-1">
+          {listOpen && <div className="absolute inset-0 z-20 bg-black/30 md:hidden" onClick={() => setListOpen(false)} aria-hidden="true" />}
+          <aside className={`absolute inset-y-0 left-0 z-30 flex w-64 max-w-[80%] shrink-0 flex-col border-r border-gray-100 bg-gray-50 shadow-xl transition-[transform,visibility] duration-200 md:static md:z-auto md:w-56 md:max-w-none md:translate-x-0 md:bg-gray-50/80 md:shadow-none md:visible ${listOpen ? 'translate-x-0' : 'invisible -translate-x-full'}`}>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
               {listed.map((a) => (
                 <div key={a.id} className="group relative" data-agenda-menu={rowMenu === a.id ? '' : undefined}>
-                  <button type="button" onClick={() => { void saver.flush(); setSelectedId(a.id); setMessage(''); }}
+                  <button type="button" onClick={() => { void saver.flush(); setSelectedId(a.id); setMessage(''); setListOpen(false); }}
                     className={`w-full rounded-lg py-2 pl-3 pr-9 text-left ${a.id === selectedId ? 'bg-white font-semibold shadow-sm ring-1 ring-gray-200' : 'hover:bg-white/70'}`}>
                     <span className="block truncate text-sm text-gray-900">{a.title}</span>
                     <span className="block truncate text-xs text-gray-400">{a.date}{a.note ? ` · ${a.note}` : ''}</span>
@@ -146,6 +191,8 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
                     <div role="menu" data-agenda-menu="" className="absolute right-1 top-full z-10 mt-0.5 w-36 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
                       <button type="button" role="menuitem" onClick={() => void duplicate(a)}
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"><Copy size={14} className="text-gray-400" />{t('meeting.agendaDuplicate')}</button>
+                      <button type="button" role="menuitem" disabled={exporting} onClick={() => void exportPptx(a)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"><FileDown size={14} className="text-orange-500" />{t('meeting.agendaExport')}</button>
                       <button type="button" role="menuitem" onClick={() => void saveTemplate(a)}
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"><BookmarkPlus size={14} className="text-blue-500" />{t('meeting.agendaSaveTemplate')}</button>
                       <button type="button" role="menuitem" onClick={() => void removeAgenda(a)}
@@ -157,7 +204,7 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
             </div>
             {notice && <p className="mx-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700" role="status">{notice}</p>}
             <NewAgendaMenu className="m-2" store={store} templates={myTemplates} onBefore={saver.flush}
-              onCreated={(created) => { setAgendas((list) => [created, ...list]); setSelectedId(created.id); refreshUsage(); }}
+              onCreated={(created) => { setAgendas((list) => [created, ...list]); setSelectedId(created.id); setListOpen(false); refreshUsage(); }}
               onDeleteTemplate={(tpl) => void removeAgenda(tpl, 'meeting.agendaTemplateDeleteConfirm')}
               onError={(key) => setMessage(t(key))} />
           </aside>
@@ -165,10 +212,21 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
           <main className="flex min-w-0 flex-1 flex-col">
             {selected ? (
               <>
-                <div className="shrink-0 space-y-2 border-b border-gray-100 px-5 py-4">
+                <div className="shrink-0 space-y-2 border-b border-gray-100 px-4 py-4 md:px-5">
                   <div className="flex items-center gap-2">
                     <input value={selected.title} onChange={(e) => update({ ...selected, title: e.target.value })}
                       className="min-w-0 flex-1 rounded-md px-1 text-lg font-bold text-gray-900 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none" />
+                    <button type="button" onClick={() => setThemeOpen(true)} title={`${t('meeting.themeTitle')}：${themeName(slideTheme(selected.theme), language)}`}
+                      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                      <span className="h-4 w-4 rounded-full ring-1 ring-black/10" style={{ background: themeCss(slideTheme(selected.theme)) }} />
+                      <span className="hidden sm:inline">{t('meeting.themeButton')}</span>
+                    </button>
+                    <button type="button" disabled={exporting || selected.items.length === 0} onClick={() => void exportPptx(selected)}
+                      title={t('meeting.agendaExport')}
+                      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                      {exporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} className="text-orange-500" />}
+                      <span className="hidden sm:inline">{t(exporting ? 'meeting.agendaExporting' : 'meeting.agendaExport')}</span>
+                    </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <input type="date" value={selected.date} onChange={(e) => update({ ...selected, date: e.target.value })}
@@ -178,7 +236,7 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
                   <AgendaItemList key={selected.id} agenda={selected} store={store} saver={saver} onChange={replace}
                     message={message} onMessage={setMessage} onUsageChange={refreshUsage} />
                 </div>
@@ -190,12 +248,12 @@ export const AgendaEditor: React.FC<{ store: AgendaStore; onClose: () => void }>
                 </button>
               </div>
             )}
-            <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-gray-100 px-5 py-3">
+            <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-gray-100 px-4 py-3 md:px-5">
               <span className="text-xs text-gray-400">
                 {savedIn ? t('meeting.agendaSavedIn').replace('{dir}', savedIn) : t('meeting.agendaLocalOnly')}{usage !== null ? ` · ${t('meeting.agendaUsage').replace('{size}', formatBytes(usage))}` : ''}
               </span>
               <button type="button" onClick={() => void finish()}
-                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+                className="shrink-0 rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
                 {t('meeting.agendaDone')}
               </button>
             </footer>

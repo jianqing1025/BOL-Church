@@ -6,7 +6,8 @@ import { fromTemplate, newAgenda } from '../../../meeting/agenda/agendaModel';
 import { createRoomTemplate } from '../../../meeting/agenda/remote';
 import { TEMPLATE_ROOM_IDS } from '../../../meeting/agenda/templates';
 import type { Agenda } from '../../../meeting/agenda/types';
-import { localizeMeetingRoomText, MEETING_ROOMS } from '../../../constants/meetingRooms';
+import { localizeMeetingRoomText } from '../../../constants/meetingRooms';
+import { useMeetingRooms } from '../../../hooks/useMeetingRooms';
 import { storeErrorKey } from './useAgendaSaver';
 
 interface NewAgendaMenuProps {
@@ -33,6 +34,7 @@ export const NewAgendaMenu: React.FC<NewAgendaMenuProps> = ({
   store, templates, onBefore, onCreated, onDeleteTemplate, onError, dark = false, className = '',
 }) => {
   const { language, t } = useLocalization();
+  const rooms = useMeetingRooms();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -72,9 +74,9 @@ export const NewAgendaMenu: React.FC<NewAgendaMenuProps> = ({
             <FilePlus2 size={15} className="text-gray-400" />{t('meeting.agendaTemplateBlank')}
           </button>
           <div className={divider} />
-          {MEETING_ROOMS.filter((room) => TEMPLATE_ROOM_IDS.includes(room.id)).map((room) => (
+          {rooms.filter((room) => TEMPLATE_ROOM_IDS.includes(room.id)).map((room) => (
             <button key={room.id} type="button" role="menuitem" className={item}
-              onClick={() => void create('template', () => createRoomTemplate(store, room.id))}>
+              onClick={() => void create('template', () => createRoomTemplate(store, room.id, room.name.zh))}>
               <LayoutTemplate size={15} className="text-blue-400" />
               {t('meeting.agendaTemplateOf').replace('{room}', localizeMeetingRoomText(room.name, language))}
             </button>

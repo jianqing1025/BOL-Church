@@ -44,8 +44,8 @@ export async function fetchImageFile(url: string): Promise<File> {
  * stored first; if that fails the picture slide is left out rather than the
  * whole template.
  */
-export async function createRoomTemplate(store: AgendaStore, roomId: string, now = new Date()): Promise<Agenda> {
-  const { agenda, images } = buildRoomTemplate(roomId, now);
+export async function createRoomTemplate(store: AgendaStore, roomId: string, roomName?: string, now = new Date()): Promise<Agenda> {
+  const { agenda, images } = buildRoomTemplate(roomId, now, Math.random, roomName);
   let items = agenda.items;
   for (const image of images) {
     try {

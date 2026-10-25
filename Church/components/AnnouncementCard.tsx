@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAdmin } from '../hooks/useAdmin';
 import { useLocalization } from '../hooks/useLocalization';
 import { Language } from '../types';
+import { combineTones, sampleToneAt, type Tone } from './backdropTone';
 import { currentAnnouncements, shouldShowCard, todayInChurch, type Announcement } from '../bulletin/announcements';
 
 const DISMISS_KEY = 'bolccop.announcements.dismissed';
@@ -34,15 +35,63 @@ export function useCurrentAnnouncements(): Announcement[] {
 }
 
 /**
- * 首頁 Hero 上的公告小卡：桌面浮在右側，手機是下緣的精簡橫條。
+ * 跟著捲動、讀取小卡背後是亮是暗：白色區塊上換成深色毛玻璃，照片與深色區塊上用淺色毛玻璃。
+ * 每一幀最多量一次；小卡沒顯示時不量。
+ */
+function useBackdropTone(ref: React.RefObject<HTMLElement | null>, active: boolean): Tone {
+  const [tone, setTone] = useState<Tone>('dark');
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const el = ref.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (!rect.width) return;
+      // 上、中、下各量一點：跨在白色區塊與深色頁尾之間時，不能只看中間。
+      const x = rect.left + rect.width / 2;
+      const ys = [rect.top + 6, rect.top + rect.height / 2, rect.bottom - 6];
+      setTone(combineTones(ys.map((y) => sampleToneAt(x, y, el))));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    schedule();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [ref, active]);
+  return tone;
+}
+
+/** 背後是暗的就用淺色玻璃，背後是亮的就用深色玻璃；文字一律白色。 */
+const GLASS: Record<Tone, string> = {
+  dark: 'bg-white/15 ring-white/30',
+  light: 'bg-gray-900/70 ring-black/10',
+};
+
+/**
+ * 首頁的公告小卡：固定在視窗右下角，跟著頁面捲動；桌面是小卡，手機是下緣的精簡橫條。
  * 按 × 關閉；之後只有出現新的公告才會再出現。
  */
 const AnnouncementCard: React.FC = () => {
   const { t, language } = useLocalization();
+  const { isAdminMode } = useAdmin();
   const current = useCurrentAnnouncements();
   const [dismissed, setDismissed] = useState(readDismissed);
   const ids = current.map(item => item.id);
-  if (!shouldShowCard(ids, dismissed)) return null;
+  const visible = shouldShowCard(ids, dismissed);
+  const desktopRef = useRef<HTMLElement>(null);
+  const mobileRef = useRef<HTMLAnchorElement>(null);
+  const desktopTone = useBackdropTone(desktopRef, visible);
+  const mobileTone = useBackdropTone(mobileRef, visible);
+  if (!visible) return null;
+  // 後台模式底部有一條固定的工具列，小卡要讓開。
+  const bottom = { bottom: `calc(${isAdminMode ? '5.5rem' : '1.5rem'} + env(safe-area-inset-bottom, 0px))` };
+  const glass = 'text-white shadow-2xl ring-1 backdrop-blur-xl backdrop-saturate-150 transition-colors duration-500';
 
   const close = (event: React.MouseEvent) => {
     event.preventDefault();
@@ -65,8 +114,8 @@ const AnnouncementCard: React.FC = () => {
   const first = current[0];
   return (
     <>
-      {/* 桌面：右側小卡 */}
-      <aside className="absolute bottom-8 right-6 z-20 hidden w-80 rounded-2xl bg-black/55 p-4 text-left text-white shadow-2xl ring-1 ring-white/15 backdrop-blur-md md:block lg:right-10"
+      {/* 桌面：右下角小卡 */}
+      <aside ref={desktopRef} style={bottom} className={`fixed right-6 z-40 hidden w-80 rounded-2xl p-4 text-left md:block lg:right-10 ${glass} ${GLASS[desktopTone]}`}
         aria-label={t('announcements.latest')}>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-bold tracking-wide">{t('announcements.latest')}</h2>
@@ -85,9 +134,9 @@ const AnnouncementCard: React.FC = () => {
         <a href="/announcements" className="mt-2 block px-2 text-right text-xs font-semibold text-blue-200 hover:text-white">{t('announcements.viewAll')}</a>
       </aside>
 
-      {/* 手機：Hero 下緣的橫條 */}
-      <a href="/announcements" aria-label={t('announcements.latest')}
-        className="absolute inset-x-4 bottom-4 z-20 flex items-center gap-2 rounded-xl bg-black/60 py-1.5 pl-3 pr-1.5 text-left text-white shadow-xl ring-1 ring-white/15 backdrop-blur-md md:hidden">
+      {/* 手機：視窗下緣的橫條 */}
+      <a ref={mobileRef} href="/announcements" aria-label={t('announcements.latest')} style={bottom}
+        className={`fixed inset-x-4 z-40 flex items-center gap-2 rounded-xl py-1.5 pl-3 pr-1.5 text-left md:hidden ${glass} ${GLASS[mobileTone]}`}>
         {badge(first)}
         <span className="min-w-0 flex-1 truncate text-sm">{first.title}</span>
         {current.length > 1 && (

@@ -5,7 +5,6 @@ import { useAdmin } from '../hooks/useAdmin';
 import { resizeImageToBlob } from '../imageUpload';
 import { buildMediaSlots } from '../media';
 import { churchAlert } from './ChurchDialog';
-import AnnouncementCard from './AnnouncementCard';
 
 const Hero: React.FC = () => {
   const { t } = useLocalization();
@@ -106,7 +105,6 @@ const Hero: React.FC = () => {
           </a>
         </div>
       </div>
-      <AnnouncementCard />
     </section>
   );
 };

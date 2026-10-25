@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import SiteLoadErrorBanner from './components/SiteLoadErrorBanner';
 import Hero from './components/Hero';
+import AnnouncementCard from './components/AnnouncementCard';
 import About from './components/About';
 import Events from './components/Events';
 import Sermons from './components/Sermons';
@@ -35,6 +36,8 @@ const HomePage = () => (
     <Sermons />
     <Support />
     <Contact />
+    {/* 固定在視窗右下角，跟著整頁捲動，不只停在 Hero 上 */}
+    <AnnouncementCard />
   </>
 );
 

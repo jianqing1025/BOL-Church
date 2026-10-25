@@ -49,6 +49,15 @@ test('stored files round-trip and are swept once no agenda refers to them', () =
   assert.equal(folder.getFile('../../etc/passwd'), null, 'ids never reach the filesystem as paths');
 });
 
+test('an imported PowerPoint keeps its file through a prune, with its type', () => {
+  const folder = new AgendaFolder(tmp());
+  const type = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  const deck = folder.putFile(Buffer.from('PK'), type);
+  folder.save(agenda('a', [{ id: 'p', kind: 'ppt', title: '', fileId: deck, fileName: 'study.pptx', size: 2, pages: 1 }]));
+  folder.prune();
+  assert.deepEqual(folder.getFile(deck), { bytes: Buffer.from('PK'), type, size: 2 });
+});
+
 test('local videos are referenced by path and only those paths are served', () => {
   const folder = new AgendaFolder(tmp());
   const video = path.join(tmp(), 'sermon.mp4');

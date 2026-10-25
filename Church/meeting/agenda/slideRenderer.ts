@@ -1,6 +1,7 @@
+import { slideTheme, type SlideTheme } from './slideThemes';
 import {
-  FOOTER_SPACE, LINE_HEIGHT, MARGIN_X, MARGIN_Y, SLIDE_HEIGHT, SLIDE_WIDTH, TITLE_GAP, TITLE_PX,
-  layoutTextSlide, type Measure, type TextSlideLayout,
+  FOOTER_SPACE, MARGIN_X, MARGIN_Y, SCRIPTURE_LINE_HEIGHT, SLIDE_HEIGHT, SLIDE_WIDTH, TITLE_GAP, TITLE_PX,
+  type Measure, type ScripturePage,
 } from './slideLayout';
 
 export const SLIDE_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif';
@@ -16,59 +17,96 @@ export function canvasMeasure(ctx: CanvasRenderingContext2D, weight = 400): Meas
   return (text, px) => { ctx.font = `${weight} ${px}px ${SLIDE_FONT}`; return ctx.measureText(text).width; };
 }
 
-function paintFooter(ctx: CanvasRenderingContext2D, footer: string) {
+/**
+ * Text in the theme's color. The overlay theme has no background of its own,
+ * so its text is outlined and shadowed like a subtitle, readable over anything.
+ */
+function paintText(ctx: CanvasRenderingContext2D, theme: SlideTheme, text: string, x: number, y: number, px: number, maxWidth?: number) {
+  if (theme.overlay) {
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, px * 0.09);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = px * 0.12;
+    ctx.strokeText(text, x, y, maxWidth);
+    ctx.restore();
+  }
+  ctx.fillText(text, x, y, maxWidth);
+}
+
+function paintFooter(ctx: CanvasRenderingContext2D, footer: string, theme: SlideTheme) {
   ctx.font = `400 26px ${SLIDE_FONT}`;
-  ctx.fillStyle = 'rgba(241, 245, 249, 0.55)';
+  ctx.fillStyle = theme.footer;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(footer, SLIDE_WIDTH - MARGIN_X, SLIDE_HEIGHT - 50);
+  paintText(ctx, theme, footer, SLIDE_WIDTH - MARGIN_X, SLIDE_HEIGHT - 50, 26);
   ctx.textAlign = 'left';
 }
 
-/** Deep blue, like a sanctuary screen. Returns the layout so a caller can warn on overflow. */
-export function drawTextSlide(canvas: HTMLCanvasElement, slide: { title: string; body: string; footer: string; align?: 'center' }): TextSlideLayout {
-  const ctx = canvas.getContext('2d')!;
+/**
+ * The theme's background: its gradient corner to corner, with a soft glow in
+ * the top left. The overlay theme is black here — a shared video has no
+ * transparency — and has no background at all in an exported PowerPoint.
+ */
+export function paintBackground(ctx: CanvasRenderingContext2D, theme: SlideTheme = slideTheme(undefined), seeThrough = false) {
+  if (theme.overlay || !theme.stops.length) {
+    // A preview may show what is behind it; a shared slide is solid black.
+    if (seeThrough) ctx.clearRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
+    else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT); }
+    return;
+  }
   const gradient = ctx.createLinearGradient(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
-  gradient.addColorStop(0, '#0f2a5c');
-  gradient.addColorStop(1, '#1e3a8a');
+  theme.stops.forEach((color, i) => gradient.addColorStop(theme.stops.length > 1 ? i / (theme.stops.length - 1) : 0, color));
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
+  if (theme.glow) {
+    const glow = ctx.createRadialGradient(SLIDE_WIDTH * 0.15, SLIDE_HEIGHT * 0.1, 0, SLIDE_WIDTH * 0.15, SLIDE_HEIGHT * 0.1, SLIDE_WIDTH * 0.7);
+    glow.addColorStop(0, theme.glow);
+    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
+  }
+}
 
-  const layout = layoutTextSlide(slide.title, slide.body, canvasMeasure(ctx));
-  const titleHeight = layout.titleLines.length ? layout.titleLines.length * TITLE_PX * 1.3 + TITLE_GAP : 0;
-  const bodyHeight = layout.bodyLines.length * layout.bodyPx * LINE_HEIGHT;
+/**
+ * 一頁經文或文字（見 layoutScripturePages、layoutTextPages），用這份查經資料的模板；
+ * 字比標題大、行距較緊。內容短時置中，滿頁時從上邊界開始。
+ */
+export function drawScripturePage(
+  canvas: HTMLCanvasElement, page: ScripturePage, footer: string, align?: 'center', theme: SlideTheme = slideTheme(undefined), seeThrough = false,
+): void {
+  const ctx = canvas.getContext('2d')!;
+  paintBackground(ctx, theme, seeThrough);
+  const titleHeight = page.titleLines.length ? page.titleLines.length * TITLE_PX * 1.3 + TITLE_GAP : 0;
+  const lineStep = page.bodyPx * SCRIPTURE_LINE_HEIGHT;
   const area = SLIDE_HEIGHT - 2 * MARGIN_Y - FOOTER_SPACE;
-  // Short slides sit in the middle; full ones start at the top margin.
-  let y = MARGIN_Y + Math.max(0, (area - titleHeight - bodyHeight) / 2);
-  ctx.textBaseline = 'top';
-  const centered = slide.align === 'center';
+  let y = MARGIN_Y + Math.max(0, (area - titleHeight - page.bodyLines.length * lineStep) / 2);
+  const centered = align === 'center';
   const x = centered ? SLIDE_WIDTH / 2 : MARGIN_X;
+  ctx.textBaseline = 'top';
   ctx.textAlign = centered ? 'center' : 'left';
-
   ctx.font = `700 ${TITLE_PX}px ${SLIDE_FONT}`;
-  ctx.fillStyle = '#fde68a';
-  for (const line of layout.titleLines) { ctx.fillText(line, x, y); y += TITLE_PX * 1.3; }
-  if (layout.titleLines.length) y += TITLE_GAP;
-
-  ctx.font = `400 ${layout.bodyPx}px ${SLIDE_FONT}`;
-  ctx.fillStyle = '#f1f5f9';
-  const lineStep = layout.bodyPx * LINE_HEIGHT;
-  for (const line of layout.bodyLines) {
-    if (y + lineStep > SLIDE_HEIGHT - MARGIN_Y) break;
-    ctx.fillText(line, x, y + (lineStep - layout.bodyPx) / 2);
+  ctx.fillStyle = theme.title;
+  for (const line of page.titleLines) { paintText(ctx, theme, line, x, y, TITLE_PX); y += TITLE_PX * 1.3; }
+  if (page.titleLines.length) y += TITLE_GAP;
+  ctx.font = `400 ${page.bodyPx}px ${SLIDE_FONT}`;
+  ctx.fillStyle = theme.body;
+  for (const line of page.bodyLines) {
+    paintText(ctx, theme, line, x, y + (lineStep - page.bodyPx) / 2, page.bodyPx);
     y += lineStep;
   }
   ctx.textAlign = 'left';
-  paintFooter(ctx, slide.footer);
-  return layout;
+  paintFooter(ctx, footer, theme);
 }
 
 export function drawImageSlide(
   canvas: HTMLCanvasElement,
   slide: { image: CanvasImageSource & { width: number; height: number }; caption: string; footer: string },
+  theme: SlideTheme = slideTheme(undefined),
 ): void {
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#0b1220';
+  ctx.fillStyle = theme.picture;
   ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
   const captionSpace = slide.caption.trim() ? 90 : 0;
   const boxW = SLIDE_WIDTH - 120;
@@ -81,11 +119,11 @@ export function drawImageSlide(
   ctx.drawImage(slide.image, x, y, w, h);
   if (captionSpace) {
     ctx.font = `500 44px ${SLIDE_FONT}`;
-    ctx.fillStyle = '#f1f5f9';
+    ctx.fillStyle = theme.body;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(slide.caption.trim(), SLIDE_WIDTH / 2, y + h + 26, SLIDE_WIDTH - 2 * MARGIN_X);
+    paintText(ctx, theme, slide.caption.trim(), SLIDE_WIDTH / 2, y + h + 26, 44, SLIDE_WIDTH - 2 * MARGIN_X);
     ctx.textAlign = 'left';
   }
-  paintFooter(ctx, slide.footer);
+  paintFooter(ctx, slide.footer, theme);
 }

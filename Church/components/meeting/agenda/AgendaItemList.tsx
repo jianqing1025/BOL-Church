@@ -1,10 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { BookOpen, FileVideo, GripVertical, Image as ImageIcon, Pencil, Trash2, Type, Youtube } from 'lucide-react';
+import { BookOpen, FileVideo, GripVertical, Image as ImageIcon, Pencil, Presentation, Trash2, Type, Youtube } from 'lucide-react';
 import { useLocalization } from '../../../hooks/useLocalization';
 import type { AgendaStore } from '../../../meeting/agenda/agendaStore';
 import { itemLabel, moveItem, newId, shortTitle } from '../../../meeting/agenda/agendaModel';
 import { fetchImageFile, fetchYouTubeTitle, ImageFetchError } from '../../../meeting/agenda/remote';
-import { MAX_VIDEO_BYTES, type Agenda, type AgendaItem, type AgendaItemKind } from '../../../meeting/agenda/types';
+import { MAX_PPT_BYTES, MAX_VIDEO_BYTES, PPTX_TYPE, type Agenda, type AgendaItem, type AgendaItemKind } from '../../../meeting/agenda/types';
+import { PptxDeck, PptxError } from '../../../meeting/agenda/pptx/pptxDeck';
 import { ImageDecodeError, prepareImage } from '../../../meeting/agenda/imageFile';
 import { AgendaItemEditor, youTubeFromLink } from './AgendaItemEditor';
 import { storeErrorKey, type AgendaSaver } from './useAgendaSaver';
@@ -15,11 +16,12 @@ export const KIND_ICON: Record<AgendaItemKind, React.ReactNode> = {
   scripture: <BookOpen size={16} />,
   youtube: <Youtube size={16} />,
   localVideo: <FileVideo size={16} />,
+  ppt: <Presentation size={16} />,
 };
 
 export function useItemFallbacks() {
   const { t } = useLocalization();
-  return { text: t('meeting.agendaAddText'), image: t('meeting.agendaAddImage'), youtube: 'YouTube', localVideo: t('meeting.agendaVideoLocal') };
+  return { text: t('meeting.agendaAddText'), image: t('meeting.agendaAddImage'), youtube: 'YouTube', localVideo: t('meeting.agendaVideoLocal'), ppt: 'PPT' };
 }
 
 interface AgendaItemListProps {
@@ -58,6 +60,7 @@ export const AgendaItemList: React.FC<AgendaItemListProps> = ({
   const dragFrom = useRef<number | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
+  const pptInput = useRef<HTMLInputElement>(null);
 
   const update = (next: Agenda) => {
     onChange(next);
@@ -93,6 +96,37 @@ export const AgendaItemList: React.FC<AgendaItemListProps> = ({
     } catch (e) {
       onMessage(t(e instanceof ImageDecodeError ? 'meeting.agendaImageInvalid' : storeErrorKey(e)));
     }
+  };
+
+  /**
+   * A .pptx is read once here — to prove it opens and to count its pages —
+   * then kept whole, so it is drawn afresh (and better, as the reader improves).
+   */
+  const addPpt = async (file: File) => {
+    onMessage('');
+    if (/\.ppt$/i.test(file.name)) { onMessage(t('meeting.agendaPptLegacy')); return; }
+    if (file.size > MAX_PPT_BYTES) { onMessage(t('meeting.agendaPptTooBig')); return; }
+    setBusy(true);
+    try {
+      const deck = await PptxDeck.fromBlob(file);
+      if (!deck.pages.length) { onMessage(t('meeting.agendaPptEmpty')); return; }
+      saver.discard();
+      onChange(await store.addFileItem(agenda, new Blob([file], { type: PPTX_TYPE }), (fileId) => ({
+        id: newId(), kind: 'ppt', title: file.name.replace(/\.[^.]+$/, ''), fileId, fileName: file.name, size: file.size, pages: deck.pages.length,
+      })));
+      onUsageChange?.();
+    } catch (e) {
+      onMessage(t(e instanceof PptxError ? (e.reason === 'legacy' ? 'meeting.agendaPptLegacy' : 'meeting.agendaPptInvalid') : storeErrorKey(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** An older desktop app would sweep a deck's file away; it must be updated first. */
+  const pickPpt = () => {
+    const bridge = window.meetingDesktop?.agenda;
+    if (bridge && !bridge.keepsAllFiles) { onMessage(t('meeting.agendaPptUpdateApp')); return; }
+    pptInput.current?.click();
   };
 
   const addYouTube = async () => {
@@ -178,7 +212,7 @@ export const AgendaItemList: React.FC<AgendaItemListProps> = ({
             </div>
             {open && (
               <div className={dark ? 'mt-3' : 'mt-3 pl-8'}>
-                <AgendaItemEditor item={item}
+                <AgendaItemEditor item={item} loadFile={async (fileId) => (await store.getFile(fileId))?.blob}
                   onChange={(next) => {
                     update({ ...agenda, items: agenda.items.map((i) => (i.id === next.id ? next : i)) });
                     onItemEdited?.(next);
@@ -245,11 +279,14 @@ export const AgendaItemList: React.FC<AgendaItemListProps> = ({
         <button type="button" className={addButton} onClick={() => { setVideoTab(null); setImageTab(imageTab ? null : 'local'); }}><ImageIcon size={16} />{t('meeting.agendaAddImage')}</button>
         <button type="button" className={addButton} onClick={() => addItem({ id: newId(), kind: 'scripture', bookId: 43, chapter: 3, fromVerse: 16, toVerse: 16 })}><BookOpen size={16} />{t('meeting.agendaAddScripture')}</button>
         <button type="button" className={addButton} onClick={() => { setImageTab(null); setVideoTab(videoTab ? null : 'youtube'); }}><Youtube size={16} />{t('meeting.agendaAddVideo')}</button>
+        <button type="button" className={`${addButton} disabled:opacity-60`} disabled={busy} onClick={pickPpt}><Presentation size={16} />{t('meeting.agendaAddPpt')}</button>
       </div>
       {message && <p className={`text-sm font-medium ${dark ? 'text-red-300' : 'text-red-600'}`} role="alert">{message}</p>}
 
       <input ref={imageInput} type="file" accept="image/*" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setImageTab(null); void addFile(f, 'image'); } }} />
+      <input ref={pptInput} type="file" accept=".pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void addPpt(f); }} />
       <input ref={videoInput} type="file" accept="video/*" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setVideoTab(null); void addFile(f, 'localVideo'); } }} />
     </div>

@@ -5,7 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'image/avif': '.avif', 'video/mp4': '.mp4', 'video/webm': '.webm' };
+const EXT = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'image/avif': '.avif', 'video/mp4': '.mp4', 'video/webm': '.webm',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+};
 const TYPE = Object.fromEntries(Object.entries(EXT).map(([type, ext]) => [ext, type]));
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -104,11 +107,11 @@ class AgendaFolder {
     if (file) fs.rmSync(file, { force: true });
   }
 
-  /** Deletes stored files no agenda refers to any more. */
+  /** Deletes stored files no agenda refers to any more — any item with a fileId keeps its file. */
   prune() {
     const used = new Set();
     for (const agenda of this.list()) {
-      for (const item of agenda.items) if ((item.kind === 'image' || item.kind === 'localVideo') && item.fileId) used.add(item.fileId);
+      for (const item of agenda.items) if (item && typeof item.fileId === 'string' && item.fileId) used.add(item.fileId);
     }
     for (const name of fs.readdirSync(this.filesDir)) {
       if (!used.has(name.split('.')[0])) fs.rmSync(path.join(this.filesDir, name), { force: true });

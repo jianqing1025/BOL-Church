@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildKeysetQuery, slicePage, normalizeLimit, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination';
+import { buildKeysetQuery, buildMannaPageQuery, slicePage, normalizeLimit, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination';
 import { decodeCursor } from './cursor';
 
 describe('normalizeLimit', () => {
@@ -87,5 +87,19 @@ describe('翻頁完整性（同一天多筆是最容易出錯的情況）', () =
     expect(seen).toHaveLength(25);
     expect(new Set(seen).size).toBe(25);
     expect(seen).toEqual(all.map(r => r.id));
+  });
+});
+
+describe('buildMannaPageQuery', () => {
+  it('從頁首游標往下取，只要可見的，日期條件寫成能走索引的區間', () => {
+    const q = buildMannaPageQuery({ date: '2026-03-01', id: 'abc' }, null, 50);
+    expect(q.sql).toBe('SELECT * FROM daily_manna WHERE hidden = 0 AND date <= ? AND (date < ? OR id <= ?) ORDER BY date DESC, id DESC LIMIT ?');
+    expect(q.binds).toEqual(['2026-03-01', '2026-03-01', 'abc', 50]);
+  });
+
+  it('選了年份就加下界，最後一頁不跨進前一年', () => {
+    const q = buildMannaPageQuery({ date: '2024-02-01', id: 'x_y' }, '2024', 50);
+    expect(q.sql).toContain('AND date >= ?');
+    expect(q.binds).toEqual(['2024-02-01', '2024-02-01', 'x_y', '2024', 50]);
   });
 });

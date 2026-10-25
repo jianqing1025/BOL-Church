@@ -5,6 +5,8 @@ import { useLocalization } from '../hooks/useLocalization';
 import { SermonSubPage, Language } from '../types';
 import SermonsSecondaryNav from './SermonsSecondaryNav';
 import { useSermonList } from '../hooks/useSermonList';
+import { useMannaPage } from '../hooks/useMannaPage';
+import { api } from '../api';
 import { ListLoadError, VideoCardSkeletons } from './ListPlaceholder';
 import type { Sermon, SermonCategory } from '../data';
 import { buildPaginationNumbers } from '../utils/pagination';
@@ -58,6 +60,8 @@ const VideoThumbnail: React.FC<{ youtubeId: string; title: string }> = ({ youtub
 };
 
 const VIDEO_GRID_PAGE_SIZE = 40;
+// 每日天言一頁 50 筆，與伺服器的 MANNA_PAGE_SIZE 相同（搜尋時在完整清單裡分頁也用同一個數）
+const MANNA_GRID_PAGE_SIZE = 50;
 
 function formatDuration(seconds?: number | null): string {
   if (!seconds || seconds < 0) return '';
@@ -77,8 +81,11 @@ function formatViewCount(count?: number | null): string {
 
 const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: SermonCategory }> = ({ entryType, category }) => {
   const { t, language } = useLocalization();
-  const list = useSermonList(entryType === 'daily-manna' ? 'daily-manna' : 'sermon');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 點過的影片本身：每日天言是一頁一頁下載的，換到別頁後它不在手上的這一頁裡，播放器仍要記得它
+  const [pinnedEntry, setPinnedEntry] = useState<Sermon | null>(null);
+  // 網址帶 ?video= 但影片不在第一頁：先單獨查它，查到前不要把播放器換成第一筆
+  const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(null);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [page, setPage] = useState(1);
   // 公開頁 filter: year + 自由文字搜尋（title / speaker / date）
@@ -86,15 +93,25 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
   const [searchTerm, setSearchTerm] = useState<string>('');
   const playerSectionRef = React.useRef<HTMLElement>(null);
   const gridSectionRef = React.useRef<HTMLElement>(null);
-  const sourceEntries = list.items;
 
-  // 此 tab 下所有可見條目（用於播放器選擇 + 連續播放隊列 + 年份列表計算）
+  const isMannaTab = entryType === 'daily-manna';
+  const searching = searchTerm.trim() !== '';
+  // 每日天言平常向伺服器一次要一頁；搜尋要比對全部標題，才改用完整清單（KV 快照，不讀 D1）
+  const paged = isMannaTab && !searching;
+  const list = useSermonList(isMannaTab ? 'daily-manna' : 'sermon', !paged);
+  const mannaPage = useMannaPage(page, yearFilter === 'all' ? null : yearFilter, paged);
+  const source = paged ? mannaPage : list;
+  const gridPageSize = isMannaTab ? MANNA_GRID_PAGE_SIZE : VIDEO_GRID_PAGE_SIZE;
+
+  // 此 tab 下手上的可見條目（用於播放器選擇 + 連續播放隊列 + 年份列表計算）
+  // 分頁模式下就是這一頁，伺服器已經濾掉隱藏的、按年份篩好、排好序
   const entries = useMemo(() => {
-    return [...sourceEntries]
+    if (paged) return mannaPage.data?.items ?? [];
+    return [...list.items]
       .filter(e => !e.hidden)
       .filter(e => entryType === 'daily-manna' || !category || (e.category ?? 'sunday-worship') === category)
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [sourceEntries, entryType, category]);
+  }, [paged, mannaPage.data, list.items, entryType, category]);
 
   // 切換 tab / category 時清掉 filter（避免「上個 tab 的 2024」殘留到下個 tab）
   useEffect(() => {
@@ -102,8 +119,8 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
     setSearchTerm('');
   }, [entryType, category]);
 
-  // 從 entries 推導可選年份（倒序）
-  const availableYears = useMemo(() => {
+  // 可選年份（倒序）：分頁模式由伺服器給，否則從完整清單推導
+  const listYears = useMemo(() => {
     const set = new Set<string>();
     for (const item of entries) {
       const y = (item.date || '').slice(0, 4);
@@ -111,9 +128,11 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
     }
     return [...set].sort((a, b) => b.localeCompare(a));
   }, [entries]);
+  const availableYears = paged ? (mannaPage.data?.years.map(item => item.year) ?? []) : listYears;
 
   // 套用 filter 後的條目（用於下方 grid）
   const filteredEntries = useMemo(() => {
+    if (paged) return entries;
     let list = entries;
     if (yearFilter !== 'all') {
       list = list.filter(e => (e.date || '').slice(0, 4) === yearFilter);
@@ -132,19 +151,35 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
       });
     }
     return list;
-  }, [entries, yearFilter, searchTerm]);
+  }, [paged, entries, yearFilter, searchTerm]);
 
   // 切 tab、改 filter 或減少 entries 數時 reset 到第 1 頁
   useEffect(() => {
     setPage(1);
   }, [entryType, category, yearFilter, searchTerm]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / VIDEO_GRID_PAGE_SIZE));
+  // 改篩選時同一次就把頁碼歸 1，不要先用舊頁碼向伺服器要一次、再要第 1 頁
+  const chooseYear = (year: string) => {
+    setYearFilter(year);
+    setPage(1);
+  };
+  const changeSearch = (term: string) => {
+    // 開始搜尋會換成完整清單，下載完成前手上沒有條目：記住正在播的那支，播放器與搜尋框才不會被換成載入畫面
+    if (selectedEntry) setPinnedEntry(selectedEntry);
+    setSearchTerm(term);
+    setPage(1);
+  };
+
+  const totalPages = paged
+    ? Math.max(1, mannaPage.data?.totalPages ?? 1)
+    : Math.max(1, Math.ceil(filteredEntries.length / gridPageSize));
   const safePage = Math.min(page, totalPages);
+  const totalCount = paged ? (mannaPage.data?.total ?? 0) : filteredEntries.length;
   const pageEntries = useMemo(() => {
-    const start = (safePage - 1) * VIDEO_GRID_PAGE_SIZE;
-    return filteredEntries.slice(start, start + VIDEO_GRID_PAGE_SIZE);
-  }, [filteredEntries, safePage]);
+    if (paged) return filteredEntries;
+    const start = (safePage - 1) * gridPageSize;
+    return filteredEntries.slice(start, start + gridPageSize);
+  }, [paged, filteredEntries, safePage, gridPageSize]);
 
   const gotoPage = (next: number) => {
     const clamped = Math.max(1, Math.min(next, totalPages));
@@ -164,14 +199,44 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
     const videoId = new URLSearchParams(window.location.search).get('video');
     if (videoId) {
       setSelectedId(videoId);
+      if (isMannaTab) setPendingDeepLink(videoId);
     }
-  }, [entryType]);
+  }, [entryType, isMannaTab]);
+
+  // 分享出去的每日天言連結多半不在第一頁：第一頁回來後沒有它，就單獨查這一筆（1 列 D1）
+  useEffect(() => {
+    if (!pendingDeepLink) return;
+    if (!paged) {
+      setPendingDeepLink(null);
+      return;
+    }
+    if (mannaPage.status !== 'ready' && mannaPage.status !== 'error') return;
+    if (entries.some(entry => entry.id === pendingDeepLink)) {
+      setPendingDeepLink(null);
+      return;
+    }
+    let cancelled = false;
+    api.sermonById(pendingDeepLink, 'daily-manna')
+      .then(entry => {
+        if (!cancelled && !entry.hidden) setPinnedEntry(entry);
+      })
+      .catch(() => { /* 找不到就播第一筆 */ })
+      .finally(() => {
+        if (!cancelled) setPendingDeepLink(null);
+      });
+    return () => { cancelled = true; };
+  }, [pendingDeepLink, paged, mannaPage.status, entries]);
 
   const selectedEntry = useMemo(() => {
-    return entries.find(entry => entry.id === selectedId) ?? entries[0] ?? null;
-  }, [entries, selectedId]);
+    if (pendingDeepLink) return null;
+    return entries.find(entry => entry.id === selectedId)
+      ?? (pinnedEntry && pinnedEntry.id === selectedId ? pinnedEntry : null)
+      ?? entries[0]
+      ?? null;
+  }, [entries, selectedId, pinnedEntry, pendingDeepLink]);
 
   useEffect(() => {
+    if (pendingDeepLink) return;
     if (!selectedEntry) {
       setSelectedId(null);
       return;
@@ -180,9 +245,9 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
     if (selectedId !== selectedEntry.id) {
       setSelectedId(selectedEntry.id);
     }
-  }, [selectedEntry, selectedId]);
+  }, [selectedEntry, selectedId, pendingDeepLink]);
 
-  if (!selectedEntry && (list.status === 'idle' || list.status === 'loading')) {
+  if (!selectedEntry && (source.status === 'idle' || source.status === 'loading' || pendingDeepLink)) {
     return (
       <div className="space-y-8">
         <div className="aspect-video w-full animate-pulse rounded-2xl bg-gray-200" aria-busy="true" />
@@ -191,8 +256,8 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
     );
   }
 
-  if (!selectedEntry && list.status === 'error') {
-    return <ListLoadError onRetry={list.retry} />;
+  if (!selectedEntry && source.status === 'error') {
+    return <ListLoadError onRetry={source.retry} />;
   }
 
   if (!selectedEntry) {
@@ -207,7 +272,6 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
   const selectedSpeaker = getLocalizedText(selectedEntry.speaker, language);
   const selectedPassage = getLocalizedText(selectedEntry.passage, language);
   const selectedDate = formatEntryDate(selectedEntry.date, language);
-  const isManna = entryType === 'daily-manna';
   // 只有主日信息（sunday-worship）顯示講員；其它分類（敬拜讚美 / 醫治禱告 / 見證 / 歷史直播 / 每日天言）不顯示
   const showSpeaker = entryType === 'sermon' && category === 'sunday-worship';
 
@@ -228,7 +292,9 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
   const autoplayParam = shouldAutoplay ? '&autoplay=1' : '';
   const embedSrc = `https://www.youtube.com/embed/${selectedEntry.youtubeId}?rel=0${playlistParam}${autoplayParam}`;
 
-  const handleCardClick = (entryId: string) => {
+  const handleCardClick = (entry: Sermon) => {
+    const entryId = entry.id;
+    setPinnedEntry(entry);
     setSelectedId(entryId);
     setShouldAutoplay(true);
     const page = entryType === 'daily-manna' ? 'daily-manna' : (category ?? 'sunday-worship');
@@ -273,12 +339,13 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
       <section ref={gridSectionRef} className="px-4 sm:px-6 lg:px-8 scroll-mt-32">
         <div className="mx-auto w-full max-w-6xl">
           {/* 年份篩選 + 自由文字搜尋 */}
-          {availableYears.length > 0 && (
+          {/* 搜尋中要一直留著：完整清單下載前沒有年份，輸入框不能因此消失 */}
+          {(availableYears.length > 0 || searching) && (
             <div className="mb-4 space-y-3 rounded-2xl bg-gray-50 px-4 py-4 shadow-inner sm:px-6">
               <div className="flex flex-wrap items-center justify-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setYearFilter('all')}
+                  onClick={() => chooseYear('all')}
                   className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors ${
                     yearFilter === 'all'
                       ? 'bg-blue-600 text-white'
@@ -291,7 +358,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
                   <button
                     key={y}
                     type="button"
-                    onClick={() => setYearFilter(y)}
+                    onClick={() => chooseYear(y)}
                     className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors ${
                       yearFilter === y
                         ? 'bg-blue-600 text-white'
@@ -306,7 +373,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
                 <input
                   type="text"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => changeSearch(e.target.value)}
                   placeholder={t('sermonArchive.searchPlaceholder')}
                   className="w-full max-w-md rounded-full border border-gray-300 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   aria-label={t('sermonArchive.searchPlaceholder')}
@@ -316,9 +383,18 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
           )}
 
           <div className="mb-4 flex items-center justify-between text-sm text-gray-600">
-            <span>{t('sermonArchive.pageInfo').replace('{page}', String(safePage)).replace('{total}', String(totalPages)).replace('{count}', String(filteredEntries.length))}</span>
+            <span>{t('sermonArchive.pageInfo').replace('{page}', String(safePage)).replace('{total}', String(totalPages)).replace('{count}', String(totalCount))}</span>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+          {source.status === 'error' && (
+            <div className="mb-4"><ListLoadError onRetry={source.retry} /></div>
+          )}
+          {source.status === 'loading' && pageEntries.length === 0 ? (
+            <VideoCardSkeletons count={8} className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4" />
+          ) : (
+          <div
+            className={`grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 transition-opacity ${source.status === 'loading' ? 'opacity-60' : ''}`}
+            aria-busy={source.status === 'loading'}
+          >
             {pageEntries.map((entry) => {
               const date = formatEntryDate(entry.date, language);
               const title = getLocalizedText(entry.title, language);
@@ -332,7 +408,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
                 <button
                   key={entry.id}
                   type="button"
-                  onClick={() => handleCardClick(entry.id)}
+                  onClick={() => handleCardClick(entry)}
                   aria-pressed={isSelected}
                   className={`group flex flex-col text-left rounded-xl overflow-hidden bg-white transition-all ${
                     isSelected
@@ -386,6 +462,7 @@ const SermonVideoCollection: React.FC<{ entryType: Sermon['type']; category?: Se
               );
             })}
           </div>
+          )}
           {totalPages > 1 && (
             <nav className="mt-8 flex flex-wrap items-center justify-center gap-1.5" aria-label="pagination">
               <button
@@ -462,11 +539,11 @@ const SermonsPage: React.FC<SermonsPageProps> = ({ activeSubPage: initialSubPage
 
       <div className="container mx-auto max-w-7xl px-6 py-16">
         {activeTab === 'daily-manna' ? (
-            <SermonVideoCollection entryType="daily-manna" />
+            <SermonVideoCollection key="daily-manna" entryType="daily-manna" />
         ) : activeTab === 'sunday-worship' ? (
-            <SermonVideoCollection entryType="sermon" category="sunday-worship" />
+            <SermonVideoCollection key="sunday-worship" entryType="sermon" category="sunday-worship" />
         ) : (
-            <SermonVideoCollection entryType="sermon" category={activeTab} />
+            <SermonVideoCollection key={activeTab} entryType="sermon" category={activeTab} />
         )}
       </div>
     </div>

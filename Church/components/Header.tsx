@@ -97,6 +97,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
         { href: '/events/joint', key: 'eventsPage.navJoint' },
         { href: '/events/alpha', key: 'eventsPage.navAlpha' },
         { href: '/events/prayer', key: 'eventsPage.navPrayer' },
+        { href: '/weekly', key: 'weekly.nav' },
         { href: '/meeting', key: 'eventsPage.navOnlineBibleStudy' },
     ]},
     { key: 'header.navSermons', subLinks: [

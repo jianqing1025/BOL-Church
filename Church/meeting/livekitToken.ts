@@ -21,7 +21,6 @@ export interface LiveKitTokenParams {
 export async function createLiveKitToken(p: LiveKitTokenParams): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const ttl = p.ttlSeconds ?? 6 * 60 * 60; // 6h
-  const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
     iss: p.apiKey,
     sub: p.identity,
@@ -40,10 +39,16 @@ export async function createLiveKitToken(p: LiveKitTokenParams): Promise<string>
       canUpdateOwnMetadata: true,
     },
   };
+  return signLiveKitJwt(p.apiSecret, payload);
+}
+
+/** Signs any LiveKit claim set — a join token above, or a server-side admin token. */
+export async function signLiveKitJwt(apiSecret: string, payload: Record<string, unknown>): Promise<string> {
+  const header = { alg: 'HS256', typ: 'JWT' };
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
   const key = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(p.apiSecret),
+    new TextEncoder().encode(apiSecret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
