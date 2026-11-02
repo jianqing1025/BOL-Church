@@ -36,7 +36,7 @@ Cloudflare 資源已在 `wrangler.toml` 綁定：
 - R2 bucket: `church-finance`
 - Account ID / Zone ID: 已填入
 
-敏感憑據放在本機 `.dev.vars`，不要提交到 Git。正式部署前請更換 `JWT_SECRET`，並更換預設密碼。
+敏感憑據放在本機 `.dev.vars`，不要提交到 Git。登入 cookie 的簽章金鑰 `JWT_SECRET`（至少 32 字元的隨機值）以 `wrangler secret put JWT_SECRET --name church-finance` 設定，不放在 `wrangler.toml`；沒設定時系統會拒絕登入。請更換預設密碼。
 
 ## 部署
 
@@ -73,3 +73,9 @@ Finance/
 ├── wrangler.toml
 └── package.json
 ```
+
+## 手動切換 VPS 数据库
+
+Finance 的 VPS SQLite 副本位于 `/var/lib/finance-standby/finance.sqlite3`，通过 HTTPS 私有 API 供 Worker 使用。默认配置 `DB_BACKEND = "d1"` 继续使用 Cloudflare D1。
+
+需要切换时，将 `wrangler.toml` 的 `DB_BACKEND` 改成 `"vps"` 并部署；切回 D1 时改回 `"d1"` 再部署。VPS 是当前快照，不会自动与 D1 双向同步；Worker 在 VPS 模式写入的数据不会出现在 D1 中。切回 D1 前，必须先将 VPS 上的更新同步回 D1 并核对数据。

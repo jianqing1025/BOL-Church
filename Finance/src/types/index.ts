@@ -65,6 +65,14 @@ export interface OfferingMethod {
   createdAt: string;
 }
 
+/** 一筆銀行入帳 */
+export interface ReconDeposit {
+  amount: number | null;
+  /** 'YYYY-MM-DD' */
+  date: string | null;
+  notes: string;
+}
+
 /** 對帳：某月（'YYYY-MM'）或某年（'YYYY'）的銀行實際存入金額與附件 */
 export interface Reconciliation {
   id: string;
@@ -74,6 +82,8 @@ export interface Reconciliation {
   /** 'YYYY-MM-DD' */
   depositDate: string | null;
   notes: string;
+  /** 這個期間的每一筆入帳；depositAmount 是它們的合計 */
+  deposits: ReconDeposit[];
   receiptUrls: string[];
   updatedByName: string;
   updatedAt: string;

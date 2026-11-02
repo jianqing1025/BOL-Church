@@ -45,6 +45,8 @@ export const api = {
   updateExpenseCategories: (categories: Array<{ id: string; name: string; shortName: string }>) =>
     request<{ ok: true }>('/api/expense-categories', { method: 'PUT', body: JSON.stringify({ categories }) }),
   members: (query = '') => request<{ items: Member[]; total: number }>(`/api/members${query}`),
+  memberNames: (ids: string[]) =>
+    request<{ items: Array<{ id: string; name: string }> }>(`/api/members/names?ids=${ids.map(encodeURIComponent).join(',')}`),
   createMember: (payload: Partial<Member>) =>
     request<Member>('/api/members', { method: 'POST', body: JSON.stringify(payload) }),
   updateMember: (id: string, payload: Partial<Member>) =>
@@ -98,7 +100,7 @@ export const api = {
     return request<{ key: string; url: string }>('/api/public/claim-upload', { method: 'POST', body: form });
   },
   reconciliations: () => request<{ items: Reconciliation[] }>('/api/reconciliations'),
-  saveReconciliation: (payload: Pick<Reconciliation, 'periodType' | 'period' | 'depositAmount' | 'depositDate' | 'notes' | 'receiptUrls'>) =>
+  saveReconciliation: (payload: Pick<Reconciliation, 'periodType' | 'period' | 'deposits' | 'receiptUrls'>) =>
     request<Reconciliation>('/api/reconciliations', { method: 'PUT', body: JSON.stringify(payload) }),
   auditLogs: () => request<{ items: AuditLog[]; total: number }>('/api/audit-logs'),
   backupExport: () => request<BackupData>('/api/backup/export'),

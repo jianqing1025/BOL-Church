@@ -798,7 +798,7 @@ function BackupBar() {
 }
 
 function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
-  const { dashboard, lookups, offerings, expenses, members } = useFinance();
+  const { loading, lookups, offerings, expenses, members } = useFinance();
   const years = useMemo(() => {
     const set = new Set<string>();
     for (const item of [...offerings, ...expenses]) {
@@ -817,7 +817,8 @@ function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [trendMode, setTrendMode] = useState<'week' | 'month'>('month');
   const [showAllDonors, setShowAllDonors] = useState(false);
   const [donorPeriod, setDonorPeriod] = useState<string>('year'); // 'year' | 'q1'..'q4' | 'm1'..'m12'
-  if (!dashboard) return <Empty title="正在載入數據看板" />;
+  // 看板的數字全部由已載入的奉獻、支出在前端算，不再另外向伺服器要一份彙總
+  if (loading) return <Empty title="正在載入數據看板" />;
 
   const yearStr = String(year);
   const prevYearStr = String(year - 1);
@@ -2384,11 +2385,12 @@ function UploadMenu({ count, uploading, onFiles, onUrls }: {
   );
 }
 
-const PAGE_SIZE_OPTIONS = [100, 200, 500, 1000];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 300, 500];
 
-// 通用分頁：每頁 100/200/500/1000（預設 200）。resetKey 變化（篩選/排序）時回到第 1 頁。
+// 通用分頁：每頁 20/50/100/200/300/500（預設 20）。resetKey 變化（篩選/排序）時回到第 1 頁。
+// 只分頁顯示，不影響讀取量：資料在登入時已整份載入（見 FinanceContext 開頭的說明）。
 function usePagination<T>(items: T[], resetKey?: string) {
-  const [pageSize, setPageSize] = useState(200);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [resetKey, pageSize]);
   const total = items.length;
@@ -4398,7 +4400,9 @@ function TaxSettingsModal({
 }
 
 function AnnualTaxReportSection() {
-  const { members, offerings, settings, auditLogs, saveMember, saveSettings } = useFinance();
+  const { members, offerings, settings, auditLogs, ensureAuditLogs, saveMember, saveSettings } = useFinance();
+  // 「已發送」狀態來自操作日誌
+  useEffect(() => { void ensureAuditLogs(); }, [ensureAuditLogs]);
   const { hasPermission } = useAuth();
   const [taxMember, setTaxMember] = useState<Member | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -4455,6 +4459,7 @@ function AnnualTaxReportSection() {
     return set;
   }, [auditLogs, year]);
   const isSent = (memberId: string) => sentMemberIds.has(memberId) || sentThisSession.has(`${year}:${memberId}`);
+  const taxPager = usePagination(rows, String(year));
 
   const action = (
     <div className="tax-report-actions">
@@ -4486,7 +4491,7 @@ function AnnualTaxReportSection() {
               <tr><th>姓名</th><th className="desk-only">電郵</th><th className="desk-only">筆數</th><th>年度合計</th><th>操作</th></tr>
             </thead>
             <tbody>
-              {rows.map(row => {
+              {taxPager.pageItems.map(row => {
                 const address = [row.member.address, row.member.city, row.member.stateRegion, row.member.postalCode]
                   .filter(Boolean)
                   .join(', ');
@@ -4582,6 +4587,7 @@ function ReconciliationPage() {
   const [records, setRecords] = useState<Reconciliation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ReconRow | null>(null);
+  const [viewing, setViewing] = useState<ReconRow | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[] | null>(null);
 
   useEffect(() => {
@@ -4631,6 +4637,8 @@ function ReconciliationPage() {
     .filter(item => item.periodType === 'month' && item.period.startsWith(`${y}-`))
     .reduce((sum, item) => sum + (item.depositAmount ?? 0), 0);
 
+  // 合計列仍以全部期間計算，分頁只影響顯示
+  const reconPager = usePagination(rows, `${mode}|${year}`);
   const totals = rows.reduce((acc, row) => ({
     count: acc.count + row.count,
     total: acc.total + row.total,
@@ -4641,6 +4649,8 @@ function ReconciliationPage() {
     setRecords(prev => [...(prev ?? []).filter(r => reconKey(r.periodType, r.period) !== reconKey(item.periodType, item.period)), item]);
     setEditing(null);
   };
+  // 詳情要跟著存檔更新：用最新的 rows 找回同一個期間
+  const viewingLive = viewing ? (rows.find(row => row.period === viewing.period && row.periodType === viewing.periodType) ?? viewing) : null;
 
   return (
     <section className="page">
@@ -4663,17 +4673,19 @@ function ReconciliationPage() {
             <tr><th>期間</th><th>奉獻筆數</th><th>奉獻金額</th><th>存入金額</th><th>狀態</th><th>附件</th><th>備註</th><th></th></tr>
           </thead>
           <tbody>
-            {rows.map(row => {
+            {reconPager.pageItems.map(row => {
               const deposit = row.record?.depositAmount ?? null;
               const receipts = row.record?.receiptUrls ?? [];
               return (
-                <tr key={row.period} className={canEdit ? 'recon-clickable' : ''} onClick={canEdit ? () => setEditing(row) : undefined}>
+                <tr key={row.period} className="recon-clickable" onClick={() => setViewing(row)}>
                   <td data-label="期間"><strong>{row.label}</strong></td>
                   <td data-label="奉獻筆數">{row.count}</td>
                   <td data-label="奉獻金額">{currency(row.total)}</td>
                   <td data-label="存入金額">
                     {deposit === null ? '—' : currency(deposit)}
-                    {row.record?.depositDate && <small className="recon-date">{monthSlashDay(row.record.depositDate)} 存入</small>}
+                    {(row.record?.deposits.length ?? 0) > 1
+                      ? <small className="recon-date">{row.record?.deposits.length} 筆入帳</small>
+                      : row.record?.depositDate && <small className="recon-date">{monthSlashDay(row.record.depositDate)} 存入</small>}
                   </td>
                   <td data-label="狀態"><ReconStatus diff={reconDiff(row.total, deposit)} /></td>
                   <td data-label="附件" onClick={event => event.stopPropagation()}>
@@ -4683,7 +4695,8 @@ function ReconciliationPage() {
                   </td>
                   <td data-label="備註" className="recon-notes">{row.record?.notes || ''}</td>
                   <td className="actions">
-                    {canEdit && <button type="button" onClick={event => { event.stopPropagation(); setEditing(row); }}>{row.record ? '編輯' : '對帳'}</button>}
+                    {canEdit && <button type="button" className="primary" onClick={event => { event.stopPropagation(); setEditing(row); }}>入帳</button>}
+                    <button type="button" onClick={event => { event.stopPropagation(); setViewing(row); }}>查看</button>
                   </td>
                 </tr>
               );
@@ -4702,12 +4715,21 @@ function ReconciliationPage() {
           )}
         </table>
       </div>
+      <Pagination {...reconPager} />
       {editing && (
         <ReconciliationForm
           row={editing}
           monthDepositSum={editing.periodType === 'year' ? monthDepositSum(editing.period) : null}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
+        />
+      )}
+      {viewingLive && (
+        <ReconciliationDetail
+          row={viewingLive}
+          monthDepositSum={viewingLive.periodType === 'year' ? monthDepositSum(viewingLive.period) : null}
+          onClose={() => setViewing(null)}
+          onEdit={canEdit ? () => { setEditing(viewingLive); setViewing(null); } : undefined}
         />
       )}
       {galleryUrls && (
@@ -4721,6 +4743,15 @@ function ReconciliationPage() {
   );
 }
 
+type DepositDraft = { key: string; amount: string; date: string; notes: string };
+
+let depositDraftSeq = 0;
+const emptyDeposit = (): DepositDraft => ({ key: `d${++depositDraftSeq}`, amount: '', date: '', notes: '' });
+
+const reconTitle = (row: ReconRow) => row.periodType === 'month'
+  ? `${row.period.slice(0, 4)} 年 ${Number(row.period.slice(5))} 月`
+  : `${row.period} 年度`;
+
 function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
   row: ReconRow;
   /** 年度對帳才有：各月已填的存入合計 */
@@ -4728,19 +4759,28 @@ function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (item: Reconciliation) => void;
 }) {
-  const initialDeposit = row.record?.depositAmount ?? null;
-  const [deposit, setDeposit] = useState(initialDeposit === null ? '' : String(initialDeposit));
-  const [depositDate, setDepositDate] = useState(row.record?.depositDate ?? '');
-  const [notes, setNotes] = useState(row.record?.notes ?? '');
+  // 一行一筆入帳；已有的入帳依序帶出，沒有就給一行空白
+  const [deposits, setDeposits] = useState<DepositDraft[]>(() => {
+    const existing = row.record?.deposits ?? [];
+    return existing.length
+      ? existing.map(item => ({ ...emptyDeposit(), amount: item.amount === null ? '' : String(item.amount), date: item.date ?? '', notes: item.notes }))
+      : [emptyDeposit()];
+  });
   const [receiptUrls, setReceiptUrls] = useState<string[]>(row.record?.receiptUrls ?? []);
   const [uploading, setUploading] = useState(false);
   const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const entityId = `${row.periodType}-${row.period}`;
-  const title = row.periodType === 'month'
-    ? `${row.period.slice(0, 4)} 年 ${Number(row.period.slice(5))} 月對帳`
-    : `${row.period} 年度對帳`;
-  const diff = reconDiff(row.total, deposit === '' ? null : Number(deposit));
+  const filledAmounts = deposits.map(item => item.amount.trim()).filter(Boolean).map(Number);
+  const depositTotal = filledAmounts.length && filledAmounts.every(Number.isFinite)
+    ? Math.round(filledAmounts.reduce((sum, value) => sum + value, 0) * 100) / 100
+    : null;
+  const diff = reconDiff(row.total, depositTotal);
+
+  const updateDeposit = (key: string, patch: Partial<DepositDraft>) =>
+    setDeposits(prev => prev.map(item => (item.key === key ? { ...item, ...patch } : item)));
+  const removeDeposit = (key: string) =>
+    setDeposits(prev => (prev.length > 1 ? prev.filter(item => item.key !== key) : [emptyDeposit()]));
 
   async function handleFiles(files: File[]) {
     setUploading(true);
@@ -4755,13 +4795,21 @@ function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
 
   const submit = async () => {
     setError(null);
+    const bad = deposits.findIndex(item => item.amount.trim() !== '' && !(Number(item.amount) >= 0));
+    if (bad >= 0) {
+      setError(`第 ${bad + 1} 筆的存入金額不正確`);
+      return;
+    }
     try {
       onSaved(await api.saveReconciliation({
         periodType: row.periodType,
         period: row.period,
-        depositAmount: deposit === '' ? null : Number(deposit),
-        depositDate: depositDate || null,
-        notes,
+        // 整行空白的由伺服器略過
+        deposits: deposits.map(item => ({
+          amount: item.amount.trim() === '' ? null : Number(item.amount),
+          date: item.date || null,
+          notes: item.notes.trim()
+        })),
         receiptUrls
       }));
     } catch (caught) {
@@ -4778,18 +4826,28 @@ function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
 
   return (
     <>
-      <FormModal title={title} onClose={onClose} onSubmit={submit} footer={footer}>
+      <FormModal title={`${reconTitle(row)}入帳`} onClose={onClose} onSubmit={submit} footer={footer}>
         <div className="form-wide recon-summary">
           <div><small>奉獻筆數</small><strong>{row.count}</strong></div>
           <div><small>奉獻金額</small><strong>{currency(row.total)}</strong></div>
           {monthDepositSum !== null && <div><small>各月存入合計</small><strong>{currency(monthDepositSum)}</strong></div>}
+          <div><small>存入合計</small><strong>{depositTotal === null ? '—' : currency(depositTotal)}</strong></div>
           <div><small>狀態</small><strong><ReconStatus diff={diff} /></strong></div>
         </div>
-        <div className="form-wide recon-deposit-row">
-          <label>存入金額<input type="number" min="0" step="0.01" value={deposit} onChange={event => setDeposit(event.target.value)} placeholder="銀行實際存入" /></label>
-          <label>存入日期<input type="date" value={depositDate} onChange={event => setDepositDate(event.target.value)} /></label>
+        <div className="form-wide recon-deposits">
+          <div className="recon-deposit-head" aria-hidden="true">
+            <span>存入金額</span><span>存入日期</span><span>備註</span><span />
+          </div>
+          {deposits.map((item, index) => (
+            <div key={item.key} className="recon-deposit-line">
+              <input type="number" min="0" step="0.01" value={item.amount} onChange={event => updateDeposit(item.key, { amount: event.target.value })} placeholder="銀行實際存入" aria-label={`第 ${index + 1} 筆存入金額`} />
+              <input type="date" value={item.date} onChange={event => updateDeposit(item.key, { date: event.target.value })} aria-label={`第 ${index + 1} 筆存入日期`} />
+              <input type="text" value={item.notes} onChange={event => updateDeposit(item.key, { notes: event.target.value })} placeholder="例如：存款單號、差額原因" maxLength={500} aria-label={`第 ${index + 1} 筆備註`} />
+              <button type="button" className="recon-deposit-remove" onClick={() => removeDeposit(item.key)} title="刪除這一筆" aria-label={`刪除第 ${index + 1} 筆`}>✕</button>
+            </div>
+          ))}
+          <button type="button" className="recon-deposit-add" onClick={() => setDeposits(prev => [...prev, emptyDeposit()])} disabled={deposits.length >= 50}>＋ 增加</button>
         </div>
-        <label className="form-wide">備註<textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="例如：差額原因、存款日期、對帳單編號" /></label>
         <div className="form-wide form-receipts">
           <small>附件（{receiptUrls.length}／{MAX_RECEIPTS}）</small>
           <ReceiptStrip urls={receiptUrls} onOpen={setGalleryAt} />
@@ -4810,8 +4868,84 @@ function ReconciliationForm({ row, monthDepositSum, onClose, onSaved }: {
   );
 }
 
+/** 對帳詳情（唯讀）：每一筆入帳、附件與最後修改的人和時間。 */
+function ReconciliationDetail({ row, monthDepositSum, onClose, onEdit }: {
+  row: ReconRow;
+  monthDepositSum: number | null;
+  onClose: () => void;
+  /** 有入帳權限才有 */
+  onEdit?: () => void;
+}) {
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
+  const record = row.record;
+  const deposits = record?.deposits ?? [];
+  const receipts = record?.receiptUrls ?? [];
+  const deposit = record?.depositAmount ?? null;
+  return (
+    <>
+      <div className="modal-backdrop">
+        <div className="modal">
+          <header>
+            <h2>{reconTitle(row)}對帳詳情</h2>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {onEdit && <button type="button" className="primary" onClick={onEdit}>入帳</button>}
+              <button type="button" onClick={onClose}>關閉</button>
+            </div>
+          </header>
+          <div className="form-grid">
+            <div className="form-wide recon-summary">
+              <div><small>奉獻筆數</small><strong>{row.count}</strong></div>
+              <div><small>奉獻金額</small><strong>{currency(row.total)}</strong></div>
+              {monthDepositSum !== null && <div><small>各月存入合計</small><strong>{currency(monthDepositSum)}</strong></div>}
+              <div><small>存入合計</small><strong>{deposit === null ? '—' : currency(deposit)}</strong></div>
+              <div><small>狀態</small><strong><ReconStatus diff={reconDiff(row.total, deposit)} /></strong></div>
+            </div>
+            <div className="form-wide">
+              {deposits.length ? (
+                <table className="recon-detail-table">
+                  <thead><tr><th>#</th><th>存入日期</th><th className="num">存入金額</th><th>備註</th></tr></thead>
+                  <tbody>
+                    {deposits.map((item, index) => (
+                      <tr key={index}>
+                        <td>{index + 1}</td>
+                        <td>{item.date ? shortDate(item.date) : '—'}</td>
+                        <td className="num">{item.amount === null ? '—' : currency(item.amount)}</td>
+                        <td className="recon-notes">{item.notes}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty">尚未入帳</div>
+              )}
+            </div>
+            <div className="form-wide form-receipts">
+              <small>附件（{receipts.length}）</small>
+              {receipts.length ? <ReceiptStrip urls={receipts} onOpen={setGalleryAt} /> : <span className="recon-muted">—</span>}
+            </div>
+            {record?.updatedAt && (
+              <p className="form-wide recon-muted" style={{ margin: 0 }}>
+                最後修改：{record.updatedByName || '—'} · {dateTime(record.updatedAt)}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+      {galleryAt !== null && receipts.length > 0 && (
+        <GalleryModal
+          title="對帳附件"
+          items={receipts.map(url => ({ url, slot: 'submit' as const }))}
+          startIndex={galleryAt}
+          onClose={() => setGalleryAt(null)}
+        />
+      )}
+    </>
+  );
+}
 function ReportsPage() {
-  const { auditLogs } = useFinance();
+  const { auditLogs, ensureAuditLogs } = useFinance();
+  // 操作日誌只有這一頁用得到：打開時才載入，有新的寫入後再打開會重抓
+  useEffect(() => { void ensureAuditLogs(); }, [ensureAuditLogs]);
 
   return (
     <section className="page paginated-page reports-page">
@@ -5416,6 +5550,7 @@ function UsersPage() {
 
   useEffect(() => { load(); }, []);
 
+  const usersPager = usePagination(users);
   return (
     <section className="page">
       <PageTitle title="用戶管理" subtitle="帳號、角色與密碼管理" />
@@ -5433,7 +5568,7 @@ function UsersPage() {
               <tr><th>姓名</th><th>電郵</th><th>角色</th><th>狀態</th><th>操作</th></tr>
             </thead>
             <tbody>
-              {users.map(item => (
+              {usersPager.pageItems.map(item => (
                 <tr key={item.id}>
                   <td>{item.name}{item.id === currentUser?.id && <small>目前登入</small>}</td>
                   <td>{item.email}</td>
@@ -5700,7 +5835,7 @@ export default function App() {
     if (effectivePage === 'users') return <UsersPage />;
     if (effectivePage === 'account') return <AccountPage tab={accountTab} setTab={tab => navigateToPage('account', tab)} />;
     return <DashboardPage onNavigate={navigateToPage} />;
-  }, [effectivePage, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses, finance.dashboard]);
+  }, [effectivePage, accountTab, finance.loading, finance.error, finance.members, finance.offerings, finance.expenses]);
 
   if (snapSessionId) return <SnapPage sessionId={snapSessionId} />;
   if (loading) return <Empty title="正在檢查登入狀態" />;

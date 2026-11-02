@@ -3078,13 +3078,40 @@ td small {
 .recon-muted { color: #aab4c3; }
 .recon-date { display: block; margin-top: 0.1rem; font-size: 0.75rem; color: #64748b; }
 
-/* 存入金額與存入日期並排，手機上也不換行 */
-.form-grid .recon-deposit-row {
+/* 入帳：每筆的存入金額、存入日期、備註排在同一行；下方「增加」再多一行 */
+.recon-deposits { display: grid; gap: 0.45rem; }
+.recon-deposit-head,
+.recon-deposit-line {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: minmax(7rem, 9rem) minmax(8.5rem, 10rem) minmax(0, 1fr) 2.25rem;
+  gap: 0.5rem;
+  align-items: center;
 }
-.recon-deposit-row input { min-width: 0; width: 100%; }
+.recon-deposit-head span { font-size: 0.75rem; color: #64748b; }
+.recon-deposit-line input { min-width: 0; width: 100%; }
+.recon-deposit-remove { padding: 0.35rem 0; color: #94a3b8; }
+.recon-deposit-remove:hover { color: #c0392b; }
+.recon-deposit-add { justify-self: start; }
+
+/* 對帳詳情裡的入帳明細 */
+.recon-detail-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.recon-detail-table th,
+.recon-detail-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #eef2f7; text-align: left; }
+.recon-detail-table th { font-size: 0.75rem; color: #64748b; font-weight: 600; }
+.recon-detail-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recon-detail-table td.recon-notes { color: #475569; }
+
+/* 手機：金額與日期一行，備註與刪除鈕下一行 */
+@media (max-width: 640px) {
+  .recon-deposit-head { display: none; }
+  .recon-deposit-line {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 2.25rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px dashed #e2e8f0;
+  }
+  .recon-deposit-line input[type="text"] { grid-column: 1 / 3; grid-row: 2; }
+  .recon-deposit-line .recon-deposit-remove { grid-column: 3; grid-row: 2; }
+}
 
 .recon-summary {
   display: grid;

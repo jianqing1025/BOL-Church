@@ -3,6 +3,7 @@
 import type { AppSettings, ExpenseNotifySettings, ExpenseStatus, MemberStatus, Role, TaxStatementSettings } from '../types';
 import { CHURCH_INFO, buildTaxStatementData, buildTaxStatementHtml, normalizeTaxStatementSettings } from '../shared/taxStatement';
 import { exportBackup, importBackup, type BackupData } from './backup';
+import { VpsDatabase } from './vpsDb';
 
 type Env = {
   DB: D1Database;
@@ -12,6 +13,9 @@ type Env = {
   FILES_URL: string;
   RESEND_API_KEY: string;
   MAIL_FROM: string;
+  DB_BACKEND?: string;
+  VPS_DB_URL?: string;
+  VPS_DB_TOKEN?: string;
 };
 
 type SessionUser = {
@@ -122,18 +126,37 @@ async function sha256(value: string) {
   return base64Url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 }
 
+// 登入 cookie 的簽章金鑰。必須是 `wrangler secret put JWT_SECRET` 設的隨機值（本機開發放 .dev.vars）。
+// 沒設就拒絕簽發與驗證，絕不退回寫死的預設字串：那等於任何人都能偽造登入。
+function sessionSecret(env: Env): string | null {
+  const secret = env.JWT_SECRET?.trim();
+  return secret && secret.length >= 32 ? secret : null;
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
+}
+
+function hmacKey(secret: string, usage: 'sign' | 'verify') {
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [usage]);
+}
+
+// HMAC-SHA256。以前是 sha256(header.body.secret) 再用 !== 比對；換成 HMAC，
+// 驗證交給 crypto.subtle.verify（固定時間比較）。header 跟著改成 HS256，舊格式的 cookie 一律失效。
 async function signToken(payload: SessionUser, secret: string) {
-  const header = base64Url(new TextEncoder().encode(JSON.stringify({ alg: 'SHA-256', typ: 'JWT' })));
+  const header = base64Url(new TextEncoder().encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
   const body = base64Url(new TextEncoder().encode(JSON.stringify({ ...payload, exp: Date.now() + 1000 * 60 * 60 * 8 })));
-  const signature = await sha256(`${header}.${body}.${secret}`);
-  return `${header}.${body}.${signature}`;
+  const signature = await crypto.subtle.sign('HMAC', await hmacKey(secret, 'sign'), new TextEncoder().encode(`${header}.${body}`));
+  return `${header}.${body}.${base64Url(signature)}`;
 }
 
 async function verifyToken(token: string, secret: string): Promise<SessionUser | null> {
   try {
     const [header, body, signature] = token.split('.');
     if (!header || !body || !signature) return null;
-    if (await sha256(`${header}.${body}.${secret}`) !== signature) return null;
+    const valid = await crypto.subtle.verify('HMAC', await hmacKey(secret, 'verify'), base64UrlDecode(signature), new TextEncoder().encode(`${header}.${body}`));
+    if (!valid) return null;
     const paddedBody = body.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(body.length / 4) * 4, '=');
     const parsed = JSON.parse(atob(paddedBody)) as SessionUser & { exp: number };
     if (!parsed.exp || parsed.exp < Date.now()) return null;
@@ -151,7 +174,8 @@ async function verifyToken(token: string, secret: string): Promise<SessionUser |
 
 async function currentUser(request: Request, env: Env) {
   const token = getCookie(request, 'finance_session');
-  return token ? verifyToken(decodeURIComponent(token), env.JWT_SECRET || 'dev-secret') : null;
+  const secret = sessionSecret(env);
+  return token && secret ? verifyToken(decodeURIComponent(token), secret) : null;
 }
 
 async function requireUser(request: Request, env: Env, role: Role = 'dev') {
@@ -881,47 +905,100 @@ function mapUser(row: any) {
   };
 }
 
-async function listMembers(env: Env, url: URL, testFlag: number, hideTotals = false) {
+// 三個清單端點都不 JOIN：D1 把每一次 JOIN 查找都算成讀取一列，奉獻清單 JOIN 三張表時
+// 一次要讀 8,500 列（實際只有 2,100 筆）。分組、分類、方式、成員的名字由前端用已載入的
+// lookups 與成員清單補上（FinanceContext 的 hydrate），成員的奉獻合計也由前端從奉獻清單算，
+// 不再每次載入成員都把整張奉獻表 SUM 一遍。
+async function listMembers(env: Env, url: URL, testFlag: number) {
   const search = `%${url.searchParams.get('q') || ''}%`;
   const result = await env.DB.prepare(
-    `SELECT m.*, g.name AS group_name, COALESCE(SUM(o.amount), 0) AS total_offering
-     FROM members m
-     LEFT JOIN member_groups g ON g.id = m.group_id
-     LEFT JOIN offerings o ON o.member_id = m.id AND o.is_test = ?
-     WHERE (m.name LIKE ? OR m.email LIKE ? OR m.phone LIKE ?) AND m.is_test = ?
-     GROUP BY m.id
-     ORDER BY m.name`
-  ).bind(testFlag, search, search, search, testFlag).all();
-  // Counter 可看成員的聯絡資料，但不得看到任何奉獻金額
-  const items = (result.results || []).map(row => {
-    const member = mapMember(row);
-    return hideTotals ? { ...member, totalOffering: 0 } : member;
-  });
+    `SELECT * FROM members
+     WHERE (name LIKE ? OR email LIKE ? OR phone LIKE ?) AND is_test = ?
+     ORDER BY name`
+  ).bind(search, search, search, testFlag).all();
+  const items = (result.results || []).map(mapMember);
   return json({ items, total: result.results?.length || 0 });
 }
 
 /** ownerId 有值時只回傳該帳號建立的奉獻（Counter 用） */
 async function listOfferings(env: Env, testFlag: number, ownerId?: string) {
+  // 不 JOIN 成員、分類、方式：名字由前端補（見 listMembers 上方說明）
   const result = ownerId
     ? await env.DB.prepare(
-        `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
-         FROM offerings o
-         LEFT JOIN members m ON m.id = o.member_id
-         LEFT JOIN offering_categories c ON c.id = o.category_id
-         LEFT JOIN offering_methods method ON method.id = o.method_id
-         WHERE o.is_test = ? AND o.created_by = ?
-         ORDER BY o.date DESC, o.created_at DESC`
+        `SELECT * FROM offerings WHERE is_test = ? AND created_by = ? ORDER BY date DESC, created_at DESC`
       ).bind(testFlag, ownerId).all()
     : await env.DB.prepare(
-        `SELECT o.*, m.name AS member_name, c.name AS category_name, method.name AS method_name
-         FROM offerings o
-         LEFT JOIN members m ON m.id = o.member_id
-         LEFT JOIN offering_categories c ON c.id = o.category_id
-         LEFT JOIN offering_methods method ON method.id = o.method_id
-         WHERE o.is_test = ?
-         ORDER BY o.date DESC, o.created_at DESC`
+        `SELECT * FROM offerings WHERE is_test = ? ORDER BY date DESC, created_at DESC`
       ).bind(testFlag).all();
   return json({ items: (result.results || []).map(mapOffering), total: result.results?.length || 0 });
+}
+
+type ReconDeposit = { amount: number | null; date: string | null; notes: string };
+
+// 一個期間可以有多筆入帳，存在 deposits（JSON 陣列）。deposit_amount 是它們的合計、
+// deposit_date 是最晚的那天、notes 是各筆備註串起來，讓狀態、合計與年度參考照常可用。
+// 加 deposits 欄位以前存的資料是一期一筆：讀的時候把那一筆當成唯一的入帳，不必搬資料。
+function parseReconDeposits(row: any): ReconDeposit[] {
+  if (row.deposits) {
+    try {
+      const list = JSON.parse(row.deposits);
+      if (Array.isArray(list)) {
+        return list.map((item: any) => ({
+          amount: item?.amount === null || item?.amount === undefined ? null : Number(item.amount),
+          date: item?.date || null,
+          notes: String(item?.notes || '')
+        }));
+      }
+    } catch { /* 壞掉的 JSON 當成舊資料處理 */ }
+  }
+  const amount = row.deposit_amount === null || row.deposit_amount === undefined ? null : Number(row.deposit_amount);
+  if (amount === null && !row.deposit_date && !row.notes) return [];
+  return [{ amount, date: row.deposit_date || null, notes: row.notes || '' }];
+}
+
+/**
+ * 存檔前整理入帳：驗證每一筆、略過整行空白的，並算出合計、最晚日期與串起來的備註。
+ * 部署前就開著的舊頁面只送單筆的 depositAmount / depositDate / notes，當成一筆處理。
+ */
+function normalizeReconDeposits(payload: any):
+  | { deposits: ReconDeposit[]; depositAmount: number | null; depositDate: string | null; depositNotes: string }
+  | { error: string } {
+  const incoming: any[] = Array.isArray(payload?.deposits)
+    ? payload.deposits
+    : [{ amount: payload?.depositAmount, date: payload?.depositDate, notes: payload?.notes }];
+  if (incoming.length > 50) return { error: '一次最多 50 筆入帳' };
+  const deposits: ReconDeposit[] = [];
+  for (const [index, item] of incoming.entries()) {
+    const raw = item?.amount;
+    const amount = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) return { error: `第 ${index + 1} 筆的存入金額不正確` };
+    const date = item?.date ? String(item.date) : null;
+    if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: `第 ${index + 1} 筆的存入日期不正確` };
+    const notes = cleanPublicText(item?.notes, 500);
+    // 整行都沒填就略過
+    if (amount === null && !date && !notes) continue;
+    deposits.push({ amount: amount === null ? null : Math.round(amount * 100) / 100, date, notes });
+  }
+  const amounts = deposits.filter(item => item.amount !== null).map(item => item.amount as number);
+  return {
+    deposits,
+    depositAmount: amounts.length ? Math.round(amounts.reduce((sum, value) => sum + value, 0) * 100) / 100 : null,
+    depositDate: deposits.map(item => item.date).filter((value): value is string => Boolean(value)).sort().pop() ?? null,
+    depositNotes: deposits.map(item => item.notes).filter(Boolean).join('；').slice(0, 2000)
+  };
+}
+
+let reconDepositsColumnReady = false;
+// 欄位也由程式補，不只靠 migration：D1 與 VPS 備援的 SQLite 都要有它，
+// 各自在第一次存檔時補上（已存在時 ALTER 會失敗，忽略即可）。
+async function ensureReconDepositsColumn(env: Env) {
+  if (reconDepositsColumnReady) return;
+  try {
+    await env.DB.prepare('ALTER TABLE reconciliations ADD COLUMN deposits TEXT').run();
+  } catch (caught) {
+    if (!String(caught instanceof Error ? caught.message : caught).includes('duplicate column')) throw caught;
+  }
+  reconDepositsColumnReady = true;
 }
 
 function mapReconciliation(row: any) {
@@ -932,6 +1009,7 @@ function mapReconciliation(row: any) {
     depositAmount: row.deposit_amount === null || row.deposit_amount === undefined ? null : Number(row.deposit_amount),
     depositDate: row.deposit_date || null,
     notes: row.notes || '',
+    deposits: parseReconDeposits(row),
     receiptUrls: parseReceiptUrls(row.receipt_urls, null),
     updatedByName: row.updated_by_name || '',
     updatedAt: row.updated_at
@@ -942,7 +1020,8 @@ function reconciliationSummary(item: ReturnType<typeof mapReconciliation> | null
   if (!item) return '對帳';
   const amount = item.depositAmount === null ? '未填存入' : `存入 $${item.depositAmount.toFixed(2)}`;
   const date = item.depositDate ? ` ｜ 存入日期 ${item.depositDate}` : '';
-  return `對帳 ${item.period} ｜ ${amount}${date} ｜ 附件 ${item.receiptUrls.length} 張`;
+  const count = item.deposits.length > 1 ? `（${item.deposits.length} 筆）` : '';
+  return `對帳 ${item.period} ｜ ${amount}${count}${date} ｜ 附件 ${item.receiptUrls.length} 張`;
 }
 
 async function getOffering(env: Env, offeringId: string) {
@@ -958,19 +1037,16 @@ async function getOffering(env: Env, offeringId: string) {
 }
 
 async function listExpenses(env: Env, testFlag: number) {
+  // 不 JOIN 分類與成員：經手人快照文字（*_text）照樣回傳成名字，沒有快照的由前端用成員清單補，
+  // 結果等同原本的 COALESCE(e.approved_by_text, approved.name)。
   const result = await env.DB.prepare(
-    `SELECT e.*, c.name AS category_name, paid.name AS paid_by_name,
-            COALESCE(e.approved_by_text, approved.name) AS approved_by_name,
-            COALESCE(e.invoiced_by_text, invoiced.name) AS invoiced_by_name,
-            COALESCE(e.accounted_by_text, accounted.name) AS accounted_by_name
-     FROM expenses e
-     LEFT JOIN expense_categories c ON c.id = e.category_id
-     LEFT JOIN members paid ON paid.id = e.paid_by
-     LEFT JOIN members approved ON approved.id = e.approved_by
-     LEFT JOIN members invoiced ON invoiced.id = e.invoiced_by
-     LEFT JOIN members accounted ON accounted.id = e.accounted_by
-     WHERE e.is_test = ?
-     ORDER BY e.date DESC, e.created_at DESC`
+    `SELECT *,
+            approved_by_text AS approved_by_name,
+            invoiced_by_text AS invoiced_by_name,
+            accounted_by_text AS accounted_by_name
+     FROM expenses
+     WHERE is_test = ?
+     ORDER BY date DESC, created_at DESC`
   ).bind(testFlag).all();
   return json({ items: (result.results || []).map(mapExpense), total: result.results?.length || 0 });
 }
@@ -999,6 +1075,10 @@ async function dashboard(env: Env, testFlag: number) {
   const previousWeek = new Date(startOfWeek);
   previousWeek.setDate(startOfWeek.getDate() - 7);
   const month = today.toISOString().slice(0, 7);
+  // 本月支出用字串區間 [month, nextMonth) 而不是 substr(date, 1, 7) = month：結果相同
+  // （任何以 'YYYY-MM' 開頭的字串都落在區間內），但能走 idx_expenses_date，不必掃整張表。
+  const [monthYear, monthNum] = month.split('-').map(Number);
+  const nextMonth = monthNum === 12 ? `${monthYear + 1}-01` : `${monthYear}-${String(monthNum + 1).padStart(2, '0')}`;
   const weekStart = startOfWeek.toISOString().slice(0, 10);
   const prevWeekStart = previousWeek.toISOString().slice(0, 10);
   const t = testFlag ? 1 : 0;
@@ -1007,21 +1087,23 @@ async function dashboard(env: Env, testFlag: number) {
   const [weekOffering, prevOffering, monthExpense, budget, pending, newMembers, trend, incomeExpense] = await Promise.all([
     env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND is_test = ${t}`).bind(weekStart).first<any>(),
     env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM offerings WHERE date >= ? AND date < ? AND is_test = ${t}`).bind(prevWeekStart, weekStart).first<any>(),
-    env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE substr(date, 1, 7) = ? AND status = 'approved' AND is_test = ${t}`).bind(month).first<any>(),
+    env.DB.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE date >= ? AND date < ? AND status = 'approved' AND is_test = ${t}`).bind(month, nextMonth).first<any>(),
     env.DB.prepare('SELECT COALESCE(SUM(budget_monthly), 0) AS total FROM expense_categories').first<any>(),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM expenses WHERE status = 'pending' AND is_test = ${t}`).first<any>(),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM members WHERE substr(join_date, 1, 7) = ? AND is_test = ${t}`).bind(month).first<any>(),
     env.DB.prepare(`SELECT substr(date, 1, 7) AS label, SUM(amount) AS amount FROM offerings WHERE is_test = ${t} GROUP BY label ORDER BY label DESC LIMIT 12`).all<any>(),
+    // 兩張表各掃一次再 GROUP BY。舊寫法對每個月份跑相關子查詢、各全表掃一次，
+    // 匯入 2020 起的歷史資料後變成「月份數 × 全表列數」，每次約 24 萬 rows read，直接吃爆 D1 免費額度。
     env.DB.prepare(
-    `WITH months AS (
-       SELECT substr(date, 1, 7) AS label FROM offerings WHERE is_test = ${t}
-       UNION
-       SELECT substr(date, 1, 7) AS label FROM expenses WHERE is_test = ${t}
+    `SELECT label,
+       COALESCE(SUM(offering_amount), 0) AS offerings,
+       COALESCE(SUM(expense_amount), 0) AS expenses
+     FROM (
+       SELECT substr(date, 1, 7) AS label, amount AS offering_amount, NULL AS expense_amount FROM offerings WHERE is_test = ${t}
+       UNION ALL
+       SELECT substr(date, 1, 7) AS label, NULL, CASE WHEN status = 'approved' THEN amount END FROM expenses WHERE is_test = ${t}
      )
-     SELECT months.label,
-       COALESCE((SELECT SUM(amount) FROM offerings WHERE substr(date, 1, 7) = months.label AND is_test = ${t}), 0) AS offerings,
-       COALESCE((SELECT SUM(amount) FROM expenses WHERE substr(date, 1, 7) = months.label AND status = 'approved' AND is_test = ${t}), 0) AS expenses
-     FROM months ORDER BY months.label DESC LIMIT 6`
+     GROUP BY label ORDER BY label DESC LIMIT 6`
     ).all<any>()
   ]);
 
@@ -1040,7 +1122,16 @@ async function dashboard(env: Env, testFlag: number) {
 }
 
 const worker: ExportedHandler<Env> = {
-  async fetch(request, env) {
+  async fetch(request, environment) {
+    const env: Env = environment.DB_BACKEND === 'vps'
+      ? {
+          ...environment,
+          DB: new VpsDatabase(environment.VPS_DB_URL || '', environment.VPS_DB_TOKEN || '') as unknown as D1Database
+        }
+      : environment;
+    if (environment.DB_BACKEND === 'vps' && (!environment.VPS_DB_URL || !environment.VPS_DB_TOKEN)) {
+      return error('VPS database backend is not configured', 503);
+    }
     const url = new URL(request.url);
 
     try {
@@ -1051,7 +1142,12 @@ const worker: ExportedHandler<Env> = {
           return error('Email or password is incorrect', 401);
         }
         const sessionUser: SessionUser = { id: user.id, name: user.name, email: user.email, role: user.role, memberId: user.member_id || null };
-        const token = await signToken(sessionUser, env.JWT_SECRET || 'dev-secret');
+        const secret = sessionSecret(env);
+        if (!secret) {
+          console.error('JWT_SECRET is not configured (wrangler secret put JWT_SECRET)');
+          return error('Login is temporarily unavailable', 503);
+        }
+        const token = await signToken(sessionUser, secret);
         return json({ user: sessionUser }, 200, { 'Set-Cookie': `finance_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800` });
       }
 
@@ -1324,7 +1420,14 @@ const worker: ExportedHandler<Env> = {
           return json({ ok: true });
         }
 
-        if (url.pathname === '/api/members' && request.method === 'GET') return await listMembers(env, url, testFlag, user.role === 'counter');
+        if (url.pathname === '/api/members' && request.method === 'GET') return await listMembers(env, url, testFlag);
+        // 奉獻、支出引用到、卻不在本範圍成員清單裡的成員名字（見前端 missingMemberIds）。只讀這幾列。
+        if (url.pathname === '/api/members/names' && request.method === 'GET') {
+          const ids = (url.searchParams.get('ids') || '').split(',').map(item => item.trim()).filter(Boolean).slice(0, 100);
+          if (!ids.length) return json({ items: [] });
+          const result = await env.DB.prepare(`SELECT id, name FROM members WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+          return json({ items: result.results || [] });
+        }
         if (url.pathname === '/api/offerings' && request.method === 'GET') return await listOfferings(env, testFlag, user.role === 'counter' ? user.id : undefined);
         if (url.pathname === '/api/expenses' && request.method === 'GET') return await listExpenses(env, testFlag);
         if (url.pathname === '/api/audit-logs' && request.method === 'GET') return await listAuditLogs(env);
@@ -1545,21 +1648,20 @@ const worker: ExportedHandler<Env> = {
           const periodType = payload.periodType === 'year' ? 'year' : payload.periodType === 'month' ? 'month' : '';
           const period = String(payload.period || '');
           if (!periodType || !(periodType === 'month' ? /^\d{4}-(0[1-9]|1[0-2])$/ : /^\d{4}$/).test(period)) return error('對帳期間不正確');
-          const raw = payload.depositAmount;
-          const depositAmount = raw === null || raw === undefined || raw === '' ? null : Number(raw);
-          if (depositAmount !== null && (!Number.isFinite(depositAmount) || depositAmount < 0)) return error('存入金額不正確');
-          const depositDate = payload.depositDate ? String(payload.depositDate) : null;
-          if (depositDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(depositDate)) return error('存入日期不正確');
+          const parsed = normalizeReconDeposits(payload);
+          if ('error' in parsed) return error(parsed.error);
+          const { deposits, depositAmount, depositDate, depositNotes } = parsed;
           const [receiptJson] = receiptUrlBindings(normalizeReceiptUrls(payload.receiptUrls, null));
+          await ensureReconDepositsColumn(env);
           const beforeRow = await env.DB.prepare('SELECT * FROM reconciliations WHERE period_type = ? AND period = ? AND is_test = ?').bind(periodType, period, testFlag).first<any>();
           const before = beforeRow ? mapReconciliation(beforeRow) : null;
           const itemId = beforeRow?.id || id();
           await env.DB.prepare(
-            `INSERT INTO reconciliations (id, period_type, period, deposit_amount, deposit_date, notes, receipt_urls, is_test, updated_by, updated_by_name, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO reconciliations (id, period_type, period, deposit_amount, deposit_date, notes, deposits, receipt_urls, is_test, updated_by, updated_by_name, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(period_type, period, is_test) DO UPDATE SET deposit_amount = excluded.deposit_amount, deposit_date = excluded.deposit_date, notes = excluded.notes,
-               receipt_urls = excluded.receipt_urls, updated_by = excluded.updated_by, updated_by_name = excluded.updated_by_name, updated_at = excluded.updated_at`
-          ).bind(itemId, periodType, period, depositAmount, depositDate, cleanPublicText(payload.notes, 2000), receiptJson, testFlag, user.id, user.name, now(), now()).run();
+               deposits = excluded.deposits, receipt_urls = excluded.receipt_urls, updated_by = excluded.updated_by, updated_by_name = excluded.updated_by_name, updated_at = excluded.updated_at`
+          ).bind(itemId, periodType, period, depositAmount, depositDate, depositNotes, JSON.stringify(deposits), receiptJson, testFlag, user.id, user.name, now(), now()).run();
           const saved = mapReconciliation(await env.DB.prepare('SELECT * FROM reconciliations WHERE id = ?').bind(itemId).first<any>());
           await recordAudit(env, user, {
             action: before ? 'update' : 'create',
