@@ -1,7 +1,9 @@
+import { publicBase, type Me } from '../saas/platform';
 import type { AppSettings, AuditLog, BackupData, DashboardStats, Expense, ExpenseCategory, ExpenseReceiptSlot, ImportSummary, LookupData, Member, Offering, Reconciliation, Role, User, UserAccount } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  // A church's public pages (claim form, phone uploads) talk to that church: /c/<churchId>/api/public/…
+  const response = await fetch(path.startsWith('/api/public/') ? `${publicBase()}${path}` : path, {
     credentials: 'same-origin',
     headers: {
       ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
@@ -12,12 +14,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.text();
-    try {
-      const parsed = JSON.parse(body) as { error?: string };
-      throw new Error(parsed.error || `Request failed: ${response.status}`);
-    } catch {
-      throw new Error(body || `Request failed: ${response.status}`);
-    }
+    let parsed: { error?: string; code?: string } | null = null;
+    try { parsed = JSON.parse(body); } catch { /* not JSON */ }
+    // `code` lets a screen react to a particular refusal (subscription_required, email_unverified …).
+    throw Object.assign(new Error(parsed?.error || body || `Request failed: ${response.status}`), { code: parsed?.code });
   }
 
   if (response.status === 204) return undefined as T;
@@ -25,9 +25,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  me: () => request<{ user: User | null }>('/api/auth/me'),
+  me: () => request<Me>('/api/auth/me'),
   login: (email: string, password: string) =>
-    request<{ user: User }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+    request<Me>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<{ ok: true }>('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
@@ -78,6 +78,7 @@ export const api = {
     request<Expense>(`/api/expenses/${id}/receipts`, { method: 'PUT', body: JSON.stringify({ slot, urls }) }),
   expenseCategories: () => request<ExpenseCategory[]>('/api/expenses/categories'),
   publicClaimOptions: () => request<{
+    churchName?: string;
     expenseCategories: ExpenseCategory[];
     claimants: Array<{ id: string; name: string }>;
     paymentMethods: string[];

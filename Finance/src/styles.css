@@ -3250,3 +3250,71 @@ td small {
   .nav-handle-grip { display: inline-flex; }
   .nav-handle-grip svg { width: 16px; height: 16px; }
 }
+
+/* ---------- 多教會版：註冊、建立教會、方案提示 ---------- */
+.login-panel.onboarding-panel {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 520px;
+  min-height: 0;
+}
+
+.onboarding-panel .login-form-panel {
+  padding: clamp(1.75rem, 5vw, 3rem);
+}
+
+.code-input {
+  font-size: 1.6rem;
+  letter-spacing: 0.5em;
+  text-align: center;
+}
+
+.plan-note {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.plan-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #f5d38b;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #6b4a00;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.plan-banner button {
+  flex-shrink: 0;
+  border-color: #e3b341;
+  background: #fff;
+  color: #6b4a00;
+  font-weight: 700;
+}
+
+.danger-zone {
+  margin-top: 1rem;
+  border-color: #f3c2c2;
+}
+
+.danger-zone h2 {
+  color: #b42318;
+}
+
+/* 「新增教會」：蓋在整個畫面之上（不是側欄選單裡的一部分） */
+.church-create-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow-y: auto;
+}
+
+.church-create-overlay .login-shell {
+  min-height: 100%;
+}

@@ -2,6 +2,9 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useAuth } from './context/AuthContext';
 import { useFinance } from './context/FinanceContext';
 import { LoginAnimation } from './components/LoginAnimation';
+import { APP_NAME, CreateChurchPage, RegisterPage, VerifyEmailPage } from './saas/Onboarding';
+import { ChurchAccountSections, ChurchSwitcherItems, ReadOnlyBanner, useChurchName } from './saas/ChurchChrome';
+import { appPath, publicBase } from './saas/platform';
 import { KpiCard, CategoryDoughnut, BudgetDoughnut, TrendLine, GroupedBar, CATEGORY_COLORS } from './components/dashboardCharts';
 import type { AppSettings, AuditLog, Expense, Reconciliation, ExpenseCategory, ExpenseReceiptSlot, ExpenseStatus, ImportResult, Member, MemberStatus, Offering, OfferingCategory, OfferingMethod, Role, TaxStatementSettings, TaxStatementTextFields, User, UserAccount } from './types';
 import { compactDate, currency, dateTime, shortDate, tinyDate } from './utils/format';
@@ -39,7 +42,7 @@ const PAGE_PATHS: Record<Page, string> = {
 };
 
 function routeFromLocation(): { page: Page; accountTab: AccountTab } {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  const path = appPath().replace(/\/+$/, '') || '/';
   if (path === '/members') return { page: 'members', accountTab: 'profile' };
   if (path === '/offerings' || path === '/offering') return { page: 'offerings', accountTab: 'profile' };
   if (path === '/expense' || path === '/expenses' || path === '/expense-action') return { page: 'expenses', accountTab: 'profile' };
@@ -68,7 +71,7 @@ function expenseEmailActionFromLocation(): ExpenseEmailAction | null {
 function clearExpenseEmailActionFromUrl() {
   const url = new URL(window.location.href);
   ['expenseId', 'expenseAction', 'id', 'action', 'token'].forEach(key => url.searchParams.delete(key));
-  const pathname = url.pathname === '/expense-action' ? '/expense' : url.pathname;
+  const pathname = appPath() === '/expense-action' ? '/expense' : url.pathname;
   window.history.replaceState({}, '', `${pathname}${url.search}${url.hash}`);
 }
 
@@ -168,8 +171,8 @@ function memberDisplayName(member?: Member | null): string {
   return en || zh;
 }
 
-function LoginPage() {
-  const { login, error, loading } = useAuth();
+function LoginPage({ onRegister }: { onRegister?: () => void }) {
+  const { login, error, loading, multiChurch } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -196,8 +199,8 @@ function LoginPage() {
         </div>
         <div className="login-form-panel">
           <div>
-            <p className="eyebrow">BOLCCOP Finance 2.0</p>
-            <h1>信望愛靈糧堂財務系統</h1>
+            <p className="eyebrow">{multiChurch ? APP_NAME : 'BOLCCOP Finance 2.0'}</p>
+            <h1>{multiChurch ? '教會財務管理' : '信望愛靈糧堂財務系統'}</h1>
             <p className="muted">
               各人要照所得的恩賜彼此服事， 作 神百般恩賜的好管家。
               <span className="bible-reference">— 彼得前书 4:10  </span>
@@ -239,6 +242,7 @@ function LoginPage() {
             {error && <p className="error">{error}</p>}
             <button className="primary" disabled={loading}>登入</button>
             <button type="button" className="login-forgot" onClick={() => setForgotOpen(true)}>忘記密碼？</button>
+            {multiChurch && onRegister && <button type="button" className="login-forgot" onClick={onRegister}>還沒有帳戶？建立帳戶</button>}
           </form>
         </div>
       </section>
@@ -248,6 +252,9 @@ function LoginPage() {
 }
 
 function ClaimPage() {
+  // A church's own claim page (/c/<churchId>/claim) is opened without signing in: its name comes with the form's options.
+  const [publicChurchName, setPublicChurchName] = useState<string | null>(null);
+  const churchName = publicBase() && publicChurchName ? publicChurchName : '信望愛靈糧堂';
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [claimants, setClaimants] = useState<Array<{ id: string; name: string }>>([]);
   const [paymentMethods, setPaymentMethods] = useState<string[]>(['現金', '銀行轉帳', '支票', '信用卡']);
@@ -274,6 +281,7 @@ function ClaimPage() {
   useEffect(() => {
     api.publicClaimOptions()
       .then(result => {
+        if (result.churchName) setPublicChurchName(result.churchName);
         setCategories(result.expenseCategories);
         setClaimants(result.claimants);
         if (result.paymentMethods.length) {
@@ -339,7 +347,7 @@ function ClaimPage() {
         <div className="claim-brand">
           <img className="brand-mark" src="/app-icon-192.png" alt="" />
           <div>
-            <strong>信望愛靈糧堂</strong>
+            <strong>{churchName}</strong>
             <span>請款申請</span>
           </div>
         </div>
@@ -576,7 +584,8 @@ function Shell({ page, setPage, onOpenAccount }: {
   setPage: (page: Page) => void;
   onOpenAccount: (tab: AccountTab) => void;
 }) {
-  const { user, logout } = useAuth();
+  const { user, logout, multiChurch } = useAuth();
+  const churchName = useChurchName('信望愛靈糧堂');
   // Counter（點款人員）只記錄奉獻，導覽只留這一頁。第三欄是小螢幕手機上的簡稱。
   const items: Array<[Page, string, string]> = user?.role === 'counter'
     ? [['offerings', '奉獻記錄', '奉獻']]
@@ -599,7 +608,7 @@ function Shell({ page, setPage, onOpenAccount }: {
       <div className="brand">
         <img className="brand-mark" src="/app-icon-192.png" alt="" />
         <div className="brand-text">
-          <strong>信望愛靈糧堂</strong>
+          <strong title={churchName}>{churchName}</strong>
           <small><span className="desk-only">財務管理系統</span><span className="mob-only">財務系統</span></small>
         </div>
         {user && (
@@ -608,6 +617,7 @@ function Shell({ page, setPage, onOpenAccount }: {
             <div className="user-card-pop">
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('profile'); }}>個人資料</button>
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('password'); }}>變更密碼</button>
+              <ChurchSwitcherItems onDone={() => document.querySelectorAll('details[open]').forEach(d => d.removeAttribute('open'))} />
               <button type="button" className="danger" onClick={() => logout()}>登出</button>
             </div>
           </details>
@@ -670,7 +680,8 @@ function Shell({ page, setPage, onOpenAccount }: {
             <div className="user-card-pop">
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('profile'); }}>個人資料</button>
               <button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); onOpenAccount('password'); }}>變更密碼</button>
-              {!IN_DESKTOP_APP && <a href={DESKTOP_SETUP_URL} onClick={event => event.currentTarget.closest('details')?.removeAttribute('open')}>下載 Windows 版</a>}
+              <ChurchSwitcherItems onDone={() => document.querySelectorAll('details[open]').forEach(d => d.removeAttribute('open'))} />
+              {!IN_DESKTOP_APP && !multiChurch && <a href={DESKTOP_SETUP_URL} onClick={event => event.currentTarget.closest('details')?.removeAttribute('open')}>下載 Windows 版</a>}
               <button type="button" className="danger" onClick={() => logout()}>登出</button>
             </div>
           </details>
@@ -2972,7 +2983,7 @@ function ExpensesPage() {
       action: emailAction.action,
       token: emailAction.token
     });
-    const response = await fetch(`/expense-action?${params.toString()}`, { credentials: 'same-origin' });
+    const response = await fetch(`${publicBase()}/expense-action?${params.toString()}`, { credentials: 'same-origin' });
     if (!response.ok) {
       const body = await response.text();
       throw new Error(body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '操作失敗');
@@ -3270,6 +3281,7 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
   const [catSavedAt, setCatSavedAt] = useState(false);
   const [enabled, setEnabled] = useState(current?.enabled ?? false);
   const [recipientsText, setRecipientsText] = useState((current?.recipients ?? []).join('\n'));
+  const { multiChurch } = useAuth();
   const [mailFrom, setMailFrom] = useState(current?.mailFrom ?? 'Seattle Bread of Life Christian Church <finance@bolccop.org>');
   const [replyTo, setReplyTo] = useState(current?.replyTo ?? 'finance@bolccop.org');
   const [subjectTemplate, setSubjectTemplate] = useState(current?.subjectTemplate ?? DEFAULT_EXPENSE_NOTIFY_SUBJECT);
@@ -3371,19 +3383,23 @@ function ExpenseNotifySettingsModal({ settings, categories, onClose, onSave, onR
               <textarea
                 value={recipientsText}
                 onChange={e => setRecipientsText(e.target.value)}
-                placeholder="andy@bolccop.org&#10;accounting@bolccop.org"
+                placeholder={multiChurch ? 'treasurer@example.org' : 'andy@bolccop.org\naccounting@bolccop.org'}
                 rows={4}
                 style={{ width: '100%', marginTop: '0.4rem' }}
               />
             </label>
-            <label>
-              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件郵箱（bolccop.org）</span>
-              <input
-                value={mailFrom}
-                onChange={e => setMailFrom(e.target.value)}
-                style={{ width: '100%', marginTop: '0.4rem' }}
-              />
-            </label>
+            {multiChurch ? (
+              <SenderNameField value={mailFrom} onChange={setMailFrom} />
+            ) : (
+              <label>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件郵箱（bolccop.org）</span>
+                <input
+                  value={mailFrom}
+                  onChange={e => setMailFrom(e.target.value)}
+                  style={{ width: '100%', marginTop: '0.4rem' }}
+                />
+              </label>
+            )}
             <label>
               <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>回信地址（Reply-To）</span>
               <input
@@ -4158,6 +4174,21 @@ const mailFromPresets = [
   'Bread of Life Christian Church on the Plateau <donations@bolccop.org>'
 ];
 
+/**
+ * Multi-church app: mail always leaves from the app's own address (the server
+ * enforces it); a church only chooses the name people see it from.
+ */
+function SenderNameField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const name = value.replace(/<[^>]*>/g, '').replace(/"/g, '').trim();
+  return (
+    <label>
+      <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>寄件人名稱</span>
+      <input value={name} onChange={event => onChange(event.target.value)} placeholder="例如：恩典華人基督教會" style={{ width: '100%', marginTop: '0.4rem' }} />
+      <small className="muted">郵件由系統代發，收件人看到的寄件人是這個名稱；對方回覆會寄到下方的回信地址。</small>
+    </label>
+  );
+}
+
 const textFieldLabels: Array<[keyof TaxStatementTextFields, string, 'input' | 'textarea']> = [
   ['churchNameEn', 'Church Name', 'input'],
   ['churchNameZh', '中文堂名', 'input'],
@@ -4185,6 +4216,7 @@ function TaxSettingsModal({
   const [tab, setTab] = useState<'mail' | 'signature' | 'template'>('mail');
   const [templateMode, setTemplateMode] = useState<'text' | 'html'>('text');
   const [htmlEditorMode, setHtmlEditorMode] = useState<'edit' | 'preview'>('edit');
+  const { multiChurch } = useAuth();
   const [customMail, setCustomMail] = useState(!mailFromPresets.includes(settings.taxStatement.mailFrom));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -4269,7 +4301,17 @@ function TaxSettingsModal({
           <button type="button" role="tab" aria-selected={tab === 'template'} className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>文件模板</button>
         </div>
 
-        {tab === 'mail' && (
+        {tab === 'mail' && multiChurch && (
+          <div className="settings-panel">
+            <SenderNameField value={draft.taxStatement.mailFrom} onChange={value => updateTax({ mailFrom: value })} />
+            <label>
+              Reply-To
+              <input type="email" value={draft.taxStatement.replyTo} onChange={event => updateTax({ replyTo: event.target.value })} />
+            </label>
+          </div>
+        )}
+
+        {tab === 'mail' && !multiChurch && (
           <div className="settings-panel">
             <label>
               From
@@ -4485,7 +4527,8 @@ function AnnualTaxReportSection() {
         </span>
       </p>
       {rows.length ? (
-        <div style={{ overflowX: 'auto' }}>
+        <>
+        <div className="paginated-table-scroll">
           <table className="tax-report-table">
             <thead>
               <tr><th>姓名</th><th className="desk-only">電郵</th><th className="desk-only">筆數</th><th>年度合計</th><th>操作</th></tr>
@@ -4518,6 +4561,8 @@ function AnnualTaxReportSection() {
             </tbody>
           </table>
         </div>
+        <Pagination {...taxPager} />
+        </>
       ) : (
         <div className="empty">該年度暫無實名奉獻記錄</div>
       )}
@@ -5562,7 +5607,8 @@ function UsersPage() {
       {loading ? (
         <div className="empty">載入中…</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <>
+        <div className="paginated-table-scroll">
           <table>
             <thead>
               <tr><th>姓名</th><th>電郵</th><th>角色</th><th>狀態</th><th>操作</th></tr>
@@ -5584,6 +5630,8 @@ function UsersPage() {
             </tbody>
           </table>
         </div>
+        <Pagination {...usersPager} />
+        </>
       )}
       {creating && <UserForm onClose={() => setCreating(false)} onSaved={async () => { setCreating(false); await load(); }} />}
       {editing && <UserForm user={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
@@ -5680,7 +5728,7 @@ function AccountPage({ tab, setTab }: { tab: AccountTab; setTab: (tab: AccountTa
         <button type="button" role="tab" aria-selected={tab === 'profile'} className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>個人資料</button>
         <button type="button" role="tab" aria-selected={tab === 'password'} className={tab === 'password' ? 'active' : ''} onClick={() => setTab('password')}>變更密碼</button>
       </div>
-      {tab === 'profile' ? <AccountProfile user={user} /> : <AccountPassword />}
+      {tab === 'profile' ? <><AccountProfile user={user} /><ChurchAccountSections /></> : <AccountPassword />}
     </section>
   );
 }
@@ -5786,19 +5834,22 @@ function ResetPasswordView({ token }: { token: string }) {
 }
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, multiChurch, me, unverifiedEmail } = useAuth();
+  const [registering, setRegistering] = useState(() => appPath() === '/signup');
+  const [verifyDismissed, setVerifyDismissed] = useState<string | null>(null);
   const finance = useFinance();
   const initialRoute = useMemo(() => routeFromLocation(), []);
   const [page, setPage] = useState<Page>(initialRoute.page);
   const [accountTab, setAccountTab] = useState<AccountTab>(initialRoute.accountTab);
   const resetToken = useMemo(() => new URLSearchParams(window.location.search).get('reset'), []);
-  const isClaimRoute = window.location.pathname.replace(/\/+$/, '') === '/claim';
+  const isClaimRoute = appPath().replace(/\/+$/, '') === '/claim';
   // 手機掃碼上傳頁：免登入，比登入狀態檢查更早決定
-  const snapSessionId = window.location.pathname.match(/^\/snap\/([^/]+)\/?$/)?.[1];
+  const snapSessionId = appPath().match(/^\/snap\/([^/]+)\/?$/)?.[1];
 
+  // Reload when the person or (multi-church app) the church changes — not when a fresh copy of the same person arrives.
   useEffect(() => {
     if (user) finance.refreshAll();
-  }, [user]);
+  }, [user?.id, user?.role, me?.church?.id]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -5841,6 +5892,12 @@ export default function App() {
   if (loading) return <Empty title="正在檢查登入狀態" />;
   if (isClaimRoute) return <ClaimPage />;
   if (resetToken && !user) return <ResetPasswordView token={resetToken} />;
+  if (multiChurch && !me?.account) {
+    if (unverifiedEmail && unverifiedEmail !== verifyDismissed) return <VerifyEmailPage email={unverifiedEmail} onBack={() => setVerifyDismissed(unverifiedEmail)} />;
+    if (registering) return <RegisterPage onSignIn={() => setRegistering(false)} />;
+    return <LoginPage onRegister={() => setRegistering(true)} />;
+  }
+  if (multiChurch && me?.account && !me.church) return <CreateChurchPage />;
   if (!user) return <LoginPage />;
 
   return (
@@ -5850,7 +5907,10 @@ export default function App() {
         setPage={navigateToPage}
         onOpenAccount={tab => navigateToPage('account', tab)}
       />
-      <main className="content">{content}</main>
+      <main className="content">
+        <ReadOnlyBanner onOpenPlan={() => navigateToPage('account', 'profile')} />
+        {content}
+      </main>
     </div>
   );
 }
