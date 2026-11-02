@@ -273,7 +273,8 @@ export function normalizeTaxStatementSettings(settings?: Partial<TaxStatementSet
   return {
     mailFrom: settings?.mailFrom || DEFAULT_TAX_STATEMENT_SETTINGS.mailFrom,
     replyTo: settings?.replyTo || DEFAULT_TAX_STATEMENT_SETTINGS.replyTo,
-    signatureUrl: settings?.signatureUrl || DEFAULT_TAX_STATEMENT_SETTINGS.signatureUrl,
+    // 存了空字串表示「不放簽名」（多教會版的新教會）；沒存過才用預設簽名
+    signatureUrl: settings?.signatureUrl ?? DEFAULT_TAX_STATEMENT_SETTINGS.signatureUrl,
     textFields,
     htmlTemplate: settings?.htmlTemplate || DEFAULT_TAX_STATEMENT_SETTINGS.htmlTemplate
   };

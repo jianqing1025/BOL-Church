@@ -15,7 +15,11 @@
     "d1:migrate:local": "wrangler d1 migrations apply church-finance --local",
     "d1:migrate:remote": "wrangler d1 migrations apply church-finance --remote",
     "import:members:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/import-members-from-access.ps1",
-    "import:members:remote": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/import-members-from-access.ps1 -Remote"
+    "import:members:remote": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/import-members-from-access.ps1 -Remote",
+    "test": "vitest run",
+    "saas:dev": "vite build && wrangler dev -c wrangler.saas.toml --port 8788 --var DEV_MAIL_LOG:1",
+    "saas:migrate:local": "wrangler d1 migrations apply finance-platform --local -c wrangler.saas.toml",
+    "saas:schema": "node scripts/build-church-schema.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
@@ -36,6 +40,7 @@
     "@types/react-dom": "^19.2.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
+    "vitest": "3.2.4",
     "wrangler": "^4.82.2"
   }
 }

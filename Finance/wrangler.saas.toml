@@ -1,0 +1,41 @@
+# 多教會版（App Store 版）的部署設定。與 BOLCCOP 的 wrangler.toml 共用同一份程式碼，
+# 入口改為 src/server/saas.ts：平台資料庫（帳戶、教會、訂閱）＋每間教會一個 Durable Object。
+#
+# 本機：npm run saas:migrate:local && npm run saas:dev
+# 上線前：在新的 Cloudflare 帳戶（付費方案）填 account_id、建立 D1 與 R2，
+#         wrangler secret put JWT_SECRET / RESEND_API_KEY -c wrangler.saas.toml
+name = "church-finance-saas"
+main = "src/server/saasWorker.ts"
+compatibility_date = "2026-05-12"
+
+[observability]
+enabled = true
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "PLATFORM_DB"
+database_name = "finance-platform"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations-platform"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "church-finance-saas"
+
+[[durable_objects.bindings]]
+name = "CHURCHES"
+class_name = "ChurchStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChurchStore"]
+
+[vars]
+APP_NAME = "Church Finance"
+SAAS_MAIL_FROM = "noreply@example.app"
+FILES_URL = ""
+MAIL_FROM = ""
