@@ -56,6 +56,11 @@ public:
 	/* CefDisplayHandler */
 	virtual void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString &title) override;
 
+	/* CefClient: OBS Church — obsstudio.sendToHost(json) from the panel's page */
+	virtual bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+					      CefProcessId source_process,
+					      CefRefPtr<CefProcessMessage> message) override;
+
 	/* CefRequestHandler */
 	virtual bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
 				    CefRefPtr<CefRequest> request, bool user_gesture, bool is_redirect) override;

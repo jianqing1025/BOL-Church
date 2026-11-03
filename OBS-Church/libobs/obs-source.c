@@ -90,6 +90,8 @@ static const char *source_signals[] = {
 	"void enable(ptr source, bool enabled)",
 	"void rename(ptr source, string new_name, string prev_name)",
 	"void volume(ptr source, in out float volume)",
+	"void output_volume(ptr source, float volume)",
+	"void output_mute(ptr source, bool muted)",
 	"void update_properties(ptr source)",
 	"void update_flags(ptr source, int flags)",
 	"void audio_sync(ptr source, int out int offset)",
@@ -166,7 +168,8 @@ enum obs_module_load_state obs_source_load_state(const char *id)
 
 	obs_module_t *module = obs_source_get_module(id);
 	if (!module) {
-		return OBS_MODULE_MISSING;
+		/* OBS Church: a type the application itself registered (no module) is present, not missing. */
+		return get_source_info(id) ? OBS_MODULE_ENABLED : OBS_MODULE_MISSING;
 	}
 	return module->load_state;
 }
@@ -217,6 +220,8 @@ static bool obs_source_init(struct obs_source *source)
 {
 	source->user_volume = 1.0f;
 	source->volume = 1.0f;
+	source->output_volume = 1.0f;
+	source->output_muted = false;
 	source->sync_offset = 0;
 	source->balance = 0.5f;
 	source->audio_active = true;
@@ -703,6 +708,8 @@ obs_source_t *obs_source_duplicate(obs_source_t *source, const char *new_name, b
 	new_source->user_volume = source->user_volume;
 	new_source->user_muted = source->user_muted;
 	new_source->volume = source->volume;
+	new_source->output_volume = source->output_volume;
+	new_source->output_muted = source->output_muted;
 	new_source->muted = source->muted;
 	new_source->flags = source->flags;
 
@@ -4580,6 +4587,53 @@ float obs_source_get_volume(const obs_source_t *source)
 	return obs_source_valid(source, "obs_source_get_volume") ? source->user_volume : 0.0f;
 }
 
+void obs_source_set_output_volume(obs_source_t *source, float volume)
+{
+	if (!obs_source_valid(source, "obs_source_set_output_volume"))
+		return;
+
+	if (volume < 0.0f)
+		volume = 0.0f;
+	if (close_float(source->output_volume, volume, 0.00001f))
+		return;
+
+	source->output_volume = volume;
+
+	struct calldata data;
+	uint8_t stack[128];
+	calldata_init_fixed(&data, stack, sizeof(stack));
+	calldata_set_ptr(&data, "source", source);
+	calldata_set_float(&data, "volume", volume);
+	signal_handler_signal(source->context.signals, "output_volume", &data);
+}
+
+float obs_source_get_output_volume(const obs_source_t *source)
+{
+	return obs_source_valid(source, "obs_source_get_output_volume") ? source->output_volume : 0.0f;
+}
+
+void obs_source_set_output_muted(obs_source_t *source, bool muted)
+{
+	if (!obs_source_valid(source, "obs_source_set_output_muted"))
+		return;
+	if (source->output_muted == muted)
+		return;
+
+	source->output_muted = muted;
+
+	struct calldata data;
+	uint8_t stack[128];
+	calldata_init_fixed(&data, stack, sizeof(stack));
+	calldata_set_ptr(&data, "source", source);
+	calldata_set_bool(&data, "muted", muted);
+	signal_handler_signal(source->context.signals, "output_mute", &data);
+}
+
+bool obs_source_output_muted(const obs_source_t *source)
+{
+	return obs_source_valid(source, "obs_source_output_muted") ? source->output_muted : false;
+}
+
 void obs_source_set_sync_offset(obs_source_t *source, int64_t offset)
 {
 	if (obs_source_valid(source, "obs_source_set_sync_offset")) {
@@ -5241,12 +5295,16 @@ static float get_source_volume(obs_source_t *source, uint64_t os_time)
 	bool muted = !source->enabled || source->muted || (source->push_to_mute_enabled && push_to_mute_active) ||
 		     (source->push_to_talk_enabled && !push_to_talk_active);
 
-	if (muted || close_float(source->volume, 0.0f, 0.0001f))
+	/* The output gain only reaches this (the stream/recording mix); monitoring
+	 * takes its audio before any volume is applied. */
+	float vol = source->output_muted ? 0.0f : source->volume * source->output_volume;
+
+	if (muted || close_float(vol, 0.0f, 0.0001f))
 		return 0.0f;
-	if (close_float(source->volume, 1.0f, 0.0001f))
+	if (close_float(vol, 1.0f, 0.0001f))
 		return 1.0f;
 
-	return source->volume;
+	return vol;
 }
 
 static inline void multiply_output_audio(obs_source_t *source, size_t mix, size_t channels, float vol)

@@ -2306,6 +2306,10 @@ static obs_source_t *obs_load_source_type(obs_data_t *source_data, bool is_priva
 	volume = obs_data_get_double(source_data, "volume");
 	obs_source_set_volume(source, (float)volume);
 
+	obs_data_set_default_double(source_data, "output_volume", 1.0);
+	obs_source_set_output_volume(source, (float)obs_data_get_double(source_data, "output_volume"));
+	obs_source_set_output_muted(source, obs_data_get_bool(source_data, "output_muted"));
+
 	obs_data_set_default_double(source_data, "balance", 0.5);
 	balance = obs_data_get_double(source_data, "balance");
 	obs_source_set_balance_value(source, (float)balance);
@@ -2488,6 +2492,8 @@ obs_data_t *obs_save_source(obs_source_t *source)
 	obs_data_set_int(source_data, "sync", sync);
 	obs_data_set_int(source_data, "flags", flags);
 	obs_data_set_double(source_data, "volume", volume);
+	obs_data_set_double(source_data, "output_volume", obs_source_get_output_volume(source));
+	obs_data_set_bool(source_data, "output_muted", obs_source_output_muted(source));
 	obs_data_set_double(source_data, "balance", balance);
 	obs_data_set_bool(source_data, "enabled", enabled);
 	obs_data_set_bool(source_data, "muted", muted);

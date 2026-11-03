@@ -1222,6 +1222,17 @@ EXPORT void obs_source_set_volume(obs_source_t *source, float volume);
 /** Gets the user volume for a source that has audio output */
 EXPORT float obs_source_get_volume(const obs_source_t *source);
 
+/**
+ * Sets a source's gain in the stream/recording mix only (multiplied with its
+ * volume). Audio monitoring is not affected. Default 1.0.
+ */
+EXPORT void obs_source_set_output_volume(obs_source_t *source, float volume);
+EXPORT float obs_source_get_output_volume(const obs_source_t *source);
+
+/** Mutes a source in the stream/recording mix only; audio monitoring keeps playing it. */
+EXPORT void obs_source_set_output_muted(obs_source_t *source, bool muted);
+EXPORT bool obs_source_output_muted(const obs_source_t *source);
+
 /* Gets speaker layout of a source */
 EXPORT enum speaker_layout obs_source_get_speaker_layout(obs_source_t *source);
 

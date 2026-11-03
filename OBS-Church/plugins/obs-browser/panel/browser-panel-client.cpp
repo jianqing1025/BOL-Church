@@ -101,6 +101,22 @@ bool QCefBrowserClient::OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t, 
 }
 #endif
 
+/* CefClient */
+bool QCefBrowserClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, CefProcessId,
+						 CefRefPtr<CefProcessMessage> message)
+{
+	if (message->GetName() != "sendToHost" || !widget || !widget->cefBrowser || !widget->cefBrowser->IsSame(browser))
+		return false;
+
+	CefRefPtr<CefListValue> args = message->GetArgumentList();
+	if (args->GetSize() < 2 || args->GetType(1) != VTYPE_STRING)
+		return true;
+
+	std::string payload = args->GetString(1).ToString();
+	QMetaObject::invokeMethod(widget, "hostMessage", Q_ARG(QString, QString::fromUtf8(payload.c_str())));
+	return true;
+}
+
 /* CefDisplayHandler */
 void QCefBrowserClient::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString &title)
 {

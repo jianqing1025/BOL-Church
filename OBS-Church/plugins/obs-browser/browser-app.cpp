@@ -179,7 +179,7 @@ std::vector<std::string> exposedFunctions = {"getControlLevel",     "getCurrentS
 					     "startReplayBuffer",   "stopReplayBuffer", "saveReplayBuffer",
 					     "startVirtualcam",     "stopVirtualcam",   "getScenes",
 					     "setCurrentScene",     "getTransitions",   "getCurrentTransition",
-					     "setCurrentTransition"};
+					     "setCurrentTransition", /* OBS Church: page -> host messages */ "sendToHost"};
 
 void BrowserApp::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, CefRefPtr<CefV8Context> context)
 {

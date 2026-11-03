@@ -159,6 +159,18 @@ bool BrowserClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
 		return false;
 	}
 
+	/* OBS Church: a page tells the host something, at any control level.
+	 * Raised as the source's "host_message" signal for the frontend to act on. */
+	if (name == "sendToHost") {
+		const std::string payload = input_args->GetString(1).ToString();
+		calldata_t cd = {};
+		calldata_set_ptr(&cd, "source", bs->source);
+		calldata_set_string(&cd, "json", payload.c_str());
+		signal_handler_signal(obs_source_get_signal_handler(bs->source), "host_message", &cd);
+		calldata_free(&cd);
+		return true;
+	}
+
 	// Fall-through switch, so that higher levels also have lower-level rights
 	switch (webpage_control_level) {
 	case ControlLevel::All:

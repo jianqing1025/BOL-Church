@@ -48,6 +48,8 @@ public:
 signals:
 	void titleChanged(const QString &title);
 	void urlChanged(const QString &url);
+	/* OBS Church: the page called obsstudio.sendToHost(json) */
+	void hostMessage(const QString &json);
 };
 
 /* ------------------------------------------------------------------------- */

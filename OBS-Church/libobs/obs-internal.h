@@ -888,6 +888,10 @@ struct obs_source {
 	uint32_t audio_mixers;
 	float user_volume;
 	float volume;
+	/* OBS Church: gain and mute for the stream/recording mix only.
+	 * Audio monitoring never sees them (it applies user_volume itself). */
+	float output_volume;
+	bool output_muted;
 	int64_t sync_offset;
 	int64_t last_sync_offset;
 	float balance;

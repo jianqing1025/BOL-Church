@@ -101,6 +101,9 @@ BrowserSource::BrowserSource(obs_data_t *, obs_source_t *source_) : source(sourc
 	proc_handler_add(ph, "void javascript_event(string eventName, string jsonString)", jsEventFunction,
 			 (void *)this);
 
+	/* OBS Church: raised when the page calls obsstudio.sendToHost(json) */
+	signal_handler_add(obs_source_get_signal_handler(source), "void host_message(ptr source, string json)");
+
 	/* defer update */
 	obs_source_update(source, nullptr);
 

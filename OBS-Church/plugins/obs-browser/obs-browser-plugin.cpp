@@ -308,6 +308,11 @@ static void BrowserInit(void)
 	CefString(&settings.log_file) = log_path_abs;
 	settings.windowless_rendering_enabled = true;
 	settings.no_sandbox = true;
+
+	/* OBS Church: Chrome DevTools for the slide panel and pages, only when asked for. */
+	if (const char *devtools = getenv("OBS_CHURCH_DEVTOOLS_PORT")) {
+		settings.remote_debugging_port = atoi(devtools);
+	}
 #if CHROME_VERSION_BUILD > 6533 && CHROME_VERSION_BUILD <= 6613
 	settings.chrome_runtime = true;
 #endif
