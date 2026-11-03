@@ -18,6 +18,10 @@
 ******************************************************************************/
 
 #include "OBSBasic.hpp"
+#ifdef BROWSER_AVAILABLE
+#include <church/ChurchMode.hpp>
+#include <church/ChurchSlidesSource.hpp>
+#endif
 #include "OBSBasicStats.hpp"
 
 #include <dialogs/LogUploadDialog.hpp>
@@ -85,6 +89,13 @@ void OBSBasic::CreateInteractionWindow(obs_source_t *source)
 
 void OBSBasic::CreatePropertiesWindow(obs_source_t *source)
 {
+#ifdef BROWSER_AVAILABLE
+	/* OBS Church: a slide item opens in the slide editor. */
+	if (church && ChurchSlides::Is(source)) {
+		church->EditItem(obs_source_get_uuid(source));
+		return;
+	}
+#endif
 	bool closed = true;
 	if (properties) {
 		closed = properties->close();

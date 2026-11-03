@@ -51,6 +51,7 @@
 #include <OBSStudioAPI.hpp>
 #ifdef BROWSER_AVAILABLE
 #include <browser-panel.hpp>
+#include <church/ChurchMode.hpp>
 #endif
 #ifdef ENABLE_WAYLAND
 #include <obs-nix-platform.h>
@@ -190,6 +191,7 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 
 	connect(controls, &OBSBasicControls::RecordButtonClicked, this, &OBSBasic::RecordActionTriggered);
 	connect(controls, &OBSBasicControls::PauseRecordButtonClicked, this, &OBSBasic::RecordPauseToggled);
+	connect(controls, &OBSBasicControls::RecordFolderButtonClicked, this, &OBSBasic::on_actionShow_Recordings_triggered);
 
 	connect(controls, &OBSBasicControls::ReplayBufferButtonClicked, this, &OBSBasic::ReplayBufferActionTriggered);
 	connect(controls, &OBSBasicControls::SaveReplayBufferButtonClicked, this, &OBSBasic::ReplayBufferSave);
@@ -931,6 +933,11 @@ void OBSBasic::OBSInit()
 #ifdef BROWSER_AVAILABLE
 	cef = obs_browser_init_panel();
 	cef_js_avail = cef && obs_browser_qcef_version() >= 3;
+	churchLayout = cef && ChurchMode::Enabled();
+	if (churchLayout) {
+		/* Slide items are sources: their type must exist before the scene collection loads. */
+		ChurchMode::RegisterSources();
+	}
 #endif
 
 	vcamEnabled = (obs_get_output_flags(VIRTUAL_CAM_ID) & OBS_OUTPUT_VIDEO) != 0;
@@ -953,11 +960,19 @@ void OBSBasic::OBSInit()
 
 	InitPrimitives();
 
-	sceneDuplicationMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SceneDuplicationMode");
-	swapScenesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SwapScenesMode");
+	/* OBS Church edits the scenes that are on air (the picture in picture, live), so no private copies. */
+	sceneDuplicationMode = !churchLayout &&
+			       config_get_bool(App()->GetUserConfig(), "BasicWindow", "SceneDuplicationMode");
+	/* OBS Church: "swap scenes" would put the previous program on the main screen after every switch
+	 * in Recording & Streaming; the two must stay independent. */
+	swapScenesMode = !churchLayout && config_get_bool(App()->GetUserConfig(), "BasicWindow", "SwapScenesMode");
 	editPropertiesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "EditPropertiesMode");
 
-	if (!opt_studio_mode) {
+	if (churchLayout) {
+		/* The Streaming/Recording dock chooses the program; the preview stays editable. */
+		SetPreviewProgramMode(true);
+		opt_studio_mode = false;
+	} else if (!opt_studio_mode) {
 		SetPreviewProgramMode(config_get_bool(App()->GetUserConfig(), "BasicWindow", "PreviewProgramMode"));
 	} else {
 		SetPreviewProgramMode(true);
@@ -1016,6 +1031,13 @@ void OBSBasic::OBSInit()
 	}
 
 	loaded = true;
+
+#ifdef BROWSER_AVAILABLE
+	if (churchLayout) {
+		church = new ChurchMode(this);
+		church->Init();
+	}
+#endif
 
 	previewEnabled = config_get_bool(App()->GetUserConfig(), "BasicWindow", "PreviewEnabled");
 

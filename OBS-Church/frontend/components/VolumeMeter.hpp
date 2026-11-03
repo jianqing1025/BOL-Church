@@ -3,6 +3,8 @@
 #include <obs.hpp>
 
 #include <QMutex>
+
+#include <atomic>
 #include <QPixmap>
 #include <QWidget>
 
@@ -134,6 +136,8 @@ private:
 	bool vertical{false};
 	bool hidden{false};
 	bool muted{false};
+	/* OBS Church: extra gain shown on the levels (the stream/recording gain). */
+	std::atomic<float> levelGain{1.0f};
 	bool useDisabledColors{false};
 
 public:
@@ -147,6 +151,7 @@ public:
 	void setVertical(bool vertical = true);
 	void setUseDisabledColors(bool enable);
 	void setMuted(bool mute);
+	void setLevelGain(float mul) { levelGain = mul; }
 
 	void refreshColors();
 	QRect getBarRect() const;

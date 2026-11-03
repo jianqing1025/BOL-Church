@@ -488,7 +488,10 @@ function(_bundle_dependencies target)
 
     list(APPEND plugin_stems ${plugin_stem})
 
-    if(plugin MATCHES "(.+d)\\.dll$" AND CMAKE_MATCH_COUNT EQUAL 1 AND NOT CMAKE_MATCH_1 IN_LIST debug_dll_exceptions)
+    # OBS Church: compare the file name (not the full path) with the exceptions, or every
+    # release plugin whose name ends in "d" (qschannelbackend.dll) is taken for a debug build.
+    cmake_path(GET plugin STEM plugin_name)
+    if(plugin_name MATCHES "d$" AND NOT plugin_name IN_LIST debug_dll_exceptions)
       list(APPEND plugin_${plugin_stem}_debug ${plugin})
     else()
       list(APPEND plugin_${plugin_stem} ${plugin})

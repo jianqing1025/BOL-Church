@@ -18,6 +18,7 @@
 ******************************************************************************/
 
 #include "OBSBasic.hpp"
+#include <church/ChurchMode.hpp>
 
 #include <qt-wrappers.hpp>
 
@@ -97,6 +98,12 @@ void OBSBasic::on_resetDocks_triggered(bool force)
 
 	int sideDockWidth = std::min(width() * 30 / 100, 280);
 	resizeDocks({ui->scenesDock, ui->sourcesDock}, {sideDockWidth, sideDockWidth}, Qt::Horizontal);
+
+#ifdef BROWSER_AVAILABLE
+	if (church) {
+		church->ResetDocks();
+	}
+#endif
 
 	activateWindow();
 }

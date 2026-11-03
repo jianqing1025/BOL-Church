@@ -57,6 +57,8 @@ signals:
 	void StreamButtonClicked();
 	void BroadcastButtonClicked();
 	void RecordButtonClicked();
+	/* OBS Church: open the folder recordings are saved to. */
+	void RecordFolderButtonClicked();
 	void PauseRecordButtonClicked();
 	void ReplayBufferButtonClicked();
 	void SaveReplayBufferButtonClicked();

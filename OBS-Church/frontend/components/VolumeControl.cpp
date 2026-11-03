@@ -8,6 +8,8 @@
 #include <widgets/OBSBasic.hpp>
 
 #include <QMessageBox>
+
+#include <cmath>
 #include <QObjectCleanupHandler>
 
 #include "moc_VolumeControl.cpp"
@@ -44,8 +46,9 @@ void showUnassignedWarning(const char *name)
 }
 } // namespace
 
-VolumeControl::VolumeControl(obs_source_t *source, QWidget *parent, bool vertical)
+VolumeControl::VolumeControl(obs_source_t *source, QWidget *parent, bool vertical, bool outputOnly_)
 	: weakSource_(OBSGetWeakRef(source)),
+	  outputOnly(outputOnly_),
 	  obs_fader(obs_fader_create(OBS_FADER_LOG)),
 	  vertical(vertical),
 	  contextMenu(nullptr),
@@ -92,9 +95,10 @@ VolumeControl::VolumeControl(obs_source_t *source, QWidget *parent, bool vertica
 
 	volumeMeter = new VolumeMeter(this, source);
 
-	obsMuted = obs_source_muted(source);
+	obsMuted = outputOnly ? obs_source_output_muted(source) : obs_source_muted(source);
 	bool unassigned = isSourceUnassigned(source);
-	obsMonitoring = obs_source_get_monitoring_enabled(source);
+	obsMonitoring = outputOnly ? false : obs_source_get_monitoring_enabled(source);
+	monitorButton->setVisible(!outputOnly);
 
 	volumeMeter->setMuted(obsMuted || unassigned);
 
@@ -103,10 +107,18 @@ VolumeControl::VolumeControl(obs_source_t *source, QWidget *parent, bool vertica
 
 	obs_fader_add_callback(obs_fader, obsVolumeChanged, this);
 
-	obsSignals.reserve(9);
-	obsSignals.emplace_back(obs_source_get_signal_handler(source), "mute", obsVolumeMuted, this);
+	obsSignals.reserve(10);
+	if (outputOnly) {
+		obsSignals.emplace_back(obs_source_get_signal_handler(source), "output_mute", obsVolumeMuted, this);
+		obsSignals.emplace_back(obs_source_get_signal_handler(source), "output_volume", obsOutputVolumeChanged,
+					this);
+		/* The source's own mute silences the mix too: show it. */
+		obsSignals.emplace_back(obs_source_get_signal_handler(source), "mute", obsMixersChanged, this);
+	} else {
+		obsSignals.emplace_back(obs_source_get_signal_handler(source), "mute", obsVolumeMuted, this);
+		obsSignals.emplace_back(obs_source_get_signal_handler(source), "monitor", obsMonitoringChanged, this);
+	}
 	obsSignals.emplace_back(obs_source_get_signal_handler(source), "audio_mixers", obsMixersChanged, this);
-	obsSignals.emplace_back(obs_source_get_signal_handler(source), "monitor", obsMonitoringChanged, this);
 	obsSignals.emplace_back(obs_source_get_signal_handler(source), "activate", VolumeControl::obsSourceActivated,
 				this);
 	obsSignals.emplace_back(obs_source_get_signal_handler(source), "deactivate",
@@ -142,7 +154,12 @@ VolumeControl::VolumeControl(obs_source_t *source, QWidget *parent, bool vertica
 			});
 	}
 
-	obs_fader_attach_source(obs_fader, source);
+	if (outputOnly) {
+		/* Not attached: this fader drives the output gain, not the source's volume. */
+		obs_fader_set_mul(obs_fader, obs_source_get_output_volume(source));
+	} else {
+		obs_fader_attach_source(obs_fader, source);
+	}
 
 	// Call volume changed once to init the slider position and label
 	changeVolume();
@@ -204,6 +221,22 @@ void VolumeControl::obsVolumeMuted(void *data, calldata_t *params)
 	bool muted = calldata_bool(params, "muted");
 
 	QMetaObject::invokeMethod(volControl, &VolumeControl::onMuteChanged, Qt::QueuedConnection, muted);
+}
+
+void VolumeControl::obsOutputVolumeChanged(void *data, calldata_t *params)
+{
+	VolumeControl *volControl = static_cast<VolumeControl *>(data);
+	float volume = (float)calldata_float(params, "volume");
+
+	QMetaObject::invokeMethod(volControl, &VolumeControl::onOutputVolumeChanged, Qt::QueuedConnection, volume);
+}
+
+void VolumeControl::onOutputVolumeChanged(float volume)
+{
+	if (std::fabs(obs_fader_get_mul(obs_fader) - volume) > 0.0001f) {
+		obs_fader_set_mul(obs_fader, volume);
+	}
+	processMixerState();
 }
 
 void VolumeControl::obsMixersChanged(void *data, calldata_t *)
@@ -392,6 +425,20 @@ void VolumeControl::showVolumeControlMenu(QPoint pos)
 	}
 
 	QMenu *popup = new QMenu(window());
+
+	if (outputOnly) {
+		/* Pin, hide and lock belong to the main Audio Mixer. */
+		OBSBasic *main = OBSBasic::Get();
+		QAction *filtersAction = popup->addAction(QTStr("Filters"));
+		QAction *propertiesAction = popup->addAction(QTStr("Properties"));
+		filtersAction->setProperty("source", QVariant::fromValue<OBSSource>(source));
+		propertiesAction->setProperty("source", QVariant::fromValue<OBSSource>(source));
+		connect(filtersAction, &QAction::triggered, main, &OBSBasic::actionOpenSourceFilters);
+		connect(propertiesAction, &QAction::triggered, main, &OBSBasic::actionOpenSourceProperties);
+		popup->popup(pos.isNull() ? QCursor::pos() : mapToGlobal(pos));
+		connect(popup, &QMenu::aboutToHide, popup, &QMenu::deleteLater);
+		return;
+	}
 
 	// Create menu QActions
 	QAction *lockAction = new QAction(QTStr("LockVolume"), popup);
@@ -691,6 +738,21 @@ void VolumeControl::setMuted(bool mute)
 		return;
 	}
 
+	if (outputOnly) {
+		bool prevOut = obs_source_output_muted(source);
+		obs_source_set_output_muted(source, mute);
+
+		auto undo_redo_out = [](const std::string &uuid, bool val) {
+			OBSSourceAutoRelease source = obs_get_source_by_uuid(uuid.c_str());
+			obs_source_set_output_muted(source, val);
+		};
+		QString text = QTStr(mute ? "Undo.Volume.Mute" : "Undo.Volume.Unmute");
+		OBSBasic::Get()->undo_s.add_action(text.arg(obs_source_get_name(source)),
+						   std::bind(undo_redo_out, std::placeholders::_1, prevOut),
+						   std::bind(undo_redo_out, std::placeholders::_1, mute), uuid, uuid);
+		return;
+	}
+
 	bool prev = obs_source_muted(source);
 	bool unassigned = isSourceUnassigned(source);
 
@@ -767,8 +829,12 @@ void VolumeControl::processMixerState()
 	QSignalBlocker blockMute(muteButton);
 	QSignalBlocker blockMonitor(monitorButton);
 
-	bool showAsMuted = obsMuted;
-	bool showAsMonitored = obsMonitoring;
+	bool showAsMuted = obsMuted || (outputOnly && obs_source_muted(source));
+	bool showAsMonitored = outputOnly ? false : obsMonitoring;
+
+	if (outputOnly) {
+		volumeMeter->setLevelGain(obsMuted ? 0.0f : obs_source_get_output_volume(source));
+	}
 	bool showAsUnassigned = !obsMuted && unassigned;
 	bool showWarningIcon = showAsUnassigned;
 
@@ -829,6 +895,24 @@ void VolumeControl::sliderChanged(int vol)
 		return;
 	}
 
+	if (outputOnly) {
+		float prevOut = obs_source_get_output_volume(source);
+		obs_fader_set_deflection(obs_fader, float(vol) / FADER_PRECISION);
+		float valOut = obs_fader_get_mul(obs_fader);
+		obs_source_set_output_volume(source, valOut);
+		volumeMeter->setLevelGain(obsMuted ? 0.0f : valOut);
+		updateText();
+
+		auto undo_redo_out = [](const std::string &uuid, float val) {
+			OBSSourceAutoRelease source = obs_get_source_by_uuid(uuid.c_str());
+			obs_source_set_output_volume(source, val);
+		};
+		OBSBasic::Get()->undo_s.add_action(QTStr("Undo.Volume.Change").arg(obs_source_get_name(source)),
+						   std::bind(undo_redo_out, std::placeholders::_1, prevOut),
+						   std::bind(undo_redo_out, std::placeholders::_1, valOut), uuid, uuid, true);
+		return;
+	}
+
 	float prev = obs_source_get_volume(source);
 
 	obs_fader_set_deflection(obs_fader, float(vol) / FADER_PRECISION);
@@ -864,7 +948,7 @@ void VolumeControl::updateText()
 		return;
 	}
 
-	bool muted = obs_source_muted(source);
+	bool muted = obs_source_muted(source) || (outputOnly && obs_source_output_muted(source));
 	const char *accTextLookup = muted ? "VolControl.SliderMuted" : "VolControl.SliderUnmuted";
 
 	QString sourceName = obs_source_get_name(source);

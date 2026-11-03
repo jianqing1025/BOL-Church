@@ -792,7 +792,8 @@ bool OBSApp::InitLocale()
 
 	bool defaultLang = astrcmpi(lang, DEFAULT_LANG) == 0;
 
-	if (userLocale && defaultLang) {
+	/* OBS Church: English unless a language is chosen in Settings (no following the system language). */
+	if (defaultLang) {
 		return true;
 	}
 

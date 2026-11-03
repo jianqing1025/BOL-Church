@@ -8,6 +8,9 @@
 !/deps
 !/docs
 !/frontend
+!/church-presenter
+!/installer
+!/cloud
 !/libobs*
 !/plugins
 !/shared
@@ -49,3 +52,9 @@ build-aux/flatpak-github-action-modified-*
 
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
+
+# OBS Church: npm packages and the built slide pages (installer/build-installer.ps1 builds them)
+/church-presenter/node_modules/
+/frontend/data/church-presenter/
+/cloud/node_modules/
+/cloud/.wrangler/

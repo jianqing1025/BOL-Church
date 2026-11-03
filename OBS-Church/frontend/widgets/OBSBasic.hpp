@@ -90,6 +90,7 @@ enum class ItemPasteType { Invalid, Reference, Duplicate, Both };
 #define PREVIEW_EDGE_SIZE 10
 
 enum class ProjectorType;
+class ChurchMode;
 
 enum class QtDataRole {
 	OBSRef = Qt::UserRole,
@@ -215,6 +216,7 @@ class OBSBasic : public OBSMainWindow {
 	friend class AutoConfigStreamPage;
 	friend class ExtraBrowsersModel;
 	friend class OBSYoutubeActions;
+	friend class ChurchMode;
 	friend struct BasicOutputHandler;
 	friend struct OBSStudioAPI;
 
@@ -452,6 +454,10 @@ private:
 	QList<QPointer<QDockWidget>> extraCustomDocks;
 
 	QPointer<OBSDock> controlsDock;
+
+	/* OBS Church: slides on the left, three screens on the right (see church/ChurchMode). */
+	ChurchMode *church = nullptr;
+	bool churchLayout = false;
 	QPointer<OBSDock> mixerDock;
 
 public:

@@ -240,6 +240,8 @@ function(find_qt_plugins)
     iconengines
   )
   list(APPEND qt_plugins_Gui platforminputcontexts)
+  # OBS Church: HTTPS for the account sync (QNetworkAccessManager needs a TLS backend).
+  list(APPEND qt_plugins_Network tls)
   list(APPEND qt_plugins_Sql sqldrivers)
   list(APPEND qt_plugins_3dRender sceneparsers geometryloaders)
   list(APPEND qt_plugins_3dQuickRender renderplugins)

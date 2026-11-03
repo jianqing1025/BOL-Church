@@ -1,4 +1,6 @@
 #include "OBSYoutubeActions.hpp"
+#include <church/ChurchMode.hpp>
+#include <widgets/OBSBasic.hpp>
 
 #include <docks/YouTubeAppDock.hpp>
 #include <widgets/OBSBasic.hpp>
@@ -34,6 +36,11 @@ OBSYoutubeActions::OBSYoutubeActions(QWidget *parent, Auth *auth, bool broadcast
 	ui->latencyBox->addItem(QTStr("YouTube.Actions.Latency.Normal"), "normal");
 	ui->latencyBox->addItem(QTStr("YouTube.Actions.Latency.Low"), "low");
 	ui->latencyBox->addItem(QTStr("YouTube.Actions.Latency.UltraLow"), "ultraLow");
+
+	/* OBS Church: "2026-11-01 Live - <sermon title>". */
+	if (OBSBasic *main = OBSBasic::Get(); main && main->church) {
+		ui->title->setText(main->church->StreamTitle());
+	}
 
 	UpdateOkButtonStatus();
 

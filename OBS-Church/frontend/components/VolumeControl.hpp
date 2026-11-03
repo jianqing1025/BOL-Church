@@ -71,6 +71,9 @@ private:
 	std::vector<OBSSignal> obsSignals;
 	bool obsMonitoring;
 	bool obsMuted;
+	/* OBS Church: control the source's stream/recording gain and mute
+	 * (obs_source_set_output_volume), never its monitoring volume. */
+	bool outputOnly = false;
 
 	QBoxLayout *mainLayout;
 	QLabel *categoryLabel;
@@ -98,6 +101,7 @@ private:
 
 	static void obsVolumeChanged(void *param, float db);
 	static void obsVolumeMuted(void *data, calldata_t *calldata);
+	static void obsOutputVolumeChanged(void *data, calldata_t *calldata);
 	static void obsMixersChanged(void *data, calldata_t *);
 	static void obsMonitoringChanged(void *data, calldata_t *);
 	static void obsSourceActivated(void *data, calldata_t *params);
@@ -130,13 +134,14 @@ private slots:
 	void onSourceActiveChanged(bool active);
 	void onMuteChanged(bool muted);
 	void onMonitoringChanged(bool enabled);
+	void onOutputVolumeChanged(float volume);
 	void onSourceDestroyed() { deleteLater(); }
 
 signals:
 	void unhideAll();
 
 public:
-	explicit VolumeControl(obs_source_t *source, QWidget *parent, bool vertical);
+	explicit VolumeControl(obs_source_t *source, QWidget *parent, bool vertical, bool outputOnly = false);
 	explicit VolumeControl(obs_source_t *source, QWidget *parent) : VolumeControl(source, parent, false) {}
 	~VolumeControl();
 
@@ -155,6 +160,8 @@ public:
 
 	bool isVertical() const { return vertical; }
 	void setVertical(bool vertical);
+
+	bool isOutputOnly() const { return outputOnly; }
 
 	void updateTabOrder();
 	QWidget *firstWidget() const { return qobject_cast<QWidget *>(nameButton); }

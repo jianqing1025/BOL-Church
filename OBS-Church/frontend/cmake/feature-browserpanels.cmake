@@ -14,5 +14,14 @@ if(TARGET OBS::browser-panels)
       utility/ExtraBrowsersDelegate.hpp
       utility/ExtraBrowsersModel.cpp
       utility/ExtraBrowsersModel.hpp
+      # OBS Church: slide panel, three screens, Streaming/Recording dock
+      church/ChurchMode.cpp
+      church/ChurchMode.hpp
+      church/ChurchSceneView.cpp
+      church/ChurchSceneView.hpp
+      church/ChurchSlidesSource.cpp
+      church/ChurchSlidesSource.hpp
+      church/ChurchSync.cpp
+      church/ChurchSync.hpp
   )
 endif()

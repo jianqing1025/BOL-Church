@@ -2,6 +2,8 @@
 #include "OBSBasic.hpp"
 #include "qt-wrappers.hpp"
 
+#include <QStyle>
+
 #include "moc_OBSBasicControls.cpp"
 
 OBSBasicControls::OBSBasicControls(OBSBasic *main) : QFrame(nullptr), ui(new Ui::OBSBasicControls)
@@ -56,6 +58,18 @@ OBSBasicControls::OBSBasicControls(OBSBasic *main) : QFrame(nullptr), ui(new Ui:
 	connect(
 		forceStopStreamAction, &QAction::triggered, this,
 		[this]() { emit this->ForceStopStreamMenuActionClicked(); }, Qt::DirectConnection);
+
+	/* OBS Church: a folder button after Start Recording opens where recordings go. */
+	QPushButton *recordFolderButton = new QPushButton(this);
+	recordFolderButton->setObjectName("recordFolderButton");
+	recordFolderButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+	recordFolderButton->setToolTip(QTStr("Basic.MainMenu.File.ShowRecordings").remove('&'));
+	recordFolderButton->setAccessibleName(QTStr("Basic.MainMenu.File.ShowRecordings").remove('&'));
+	recordFolderButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+	ui->recordingLayout->addWidget(recordFolderButton);
+	connect(
+		recordFolderButton, &QPushButton::clicked, this, [this]() { emit this->RecordFolderButtonClicked(); },
+		Qt::DirectConnection);
 
 	/* Set up default visibility */
 	ui->broadcastButton->setVisible(false);

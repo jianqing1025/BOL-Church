@@ -7,6 +7,8 @@
 #include <QStyleOption>
 #include <QTimer>
 
+#include <cmath>
+
 #include "moc_VolumeMeter.cpp"
 
 QPointer<QTimer> VolumeMeter::updateTimer = nullptr;
@@ -374,9 +376,11 @@ void VolumeMeter::setLevels(const float magnitude[MAX_AUDIO_CHANNELS], const flo
 	QMutexLocker locker(&dataMutex);
 
 	currentLastUpdateTime = ts;
+	const float gain = levelGain;
+	const float gainDb = gain > 0.0f ? 20.0f * log10f(gain) : -INFINITY;
 	for (int channelNr = 0; channelNr < MAX_AUDIO_CHANNELS; channelNr++) {
-		currentMagnitude[channelNr] = magnitude[channelNr];
-		currentPeak[channelNr] = peak[channelNr];
+		currentMagnitude[channelNr] = magnitude[channelNr] + gainDb;
+		currentPeak[channelNr] = peak[channelNr] + gainDb;
 		currentInputPeak[channelNr] = inputPeak[channelNr];
 	}
 
