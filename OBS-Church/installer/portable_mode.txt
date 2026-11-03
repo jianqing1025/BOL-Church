@@ -1,0 +1,1 @@
+OBS Church keeps its settings in the config folder beside this file.

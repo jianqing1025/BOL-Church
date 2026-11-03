@@ -1,0 +1,15 @@
+{
+  "name": "obs-church-sync",
+  "private": true,
+  "version": "1.0.0",
+  "description": "OBS Church account sync (Cloudflare Worker + D1 + R2)",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260511.1",
+    "typescript": "5.8.3",
+    "wrangler": "4.90.0"
+  }
+}

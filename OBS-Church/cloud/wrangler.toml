@@ -1,0 +1,21 @@
+# OBS Church account sync — deploy with the church Cloudflare account:
+#   export $(grep -E '^CLOUDFLARE_(API_TOKEN|ACCOUNT_ID)=' ../../Finance/.dev.vars | xargs)
+#   npx wrangler deploy
+name = "obs-church-sync"
+main = "src/index.ts"
+compatibility_date = "2026-04-13"
+account_id = "953bb353d5d63c4249b8fec0b83d805d"
+
+routes = [{ pattern = "obs-sync.bolccop.org", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "obs-church-sync"
+database_id = "7f9ddec1-113d-4621-967f-3809dc9fab2d"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "obs-church-files"
+
+# TOKEN_SECRET is a secret: npx wrangler secret put TOKEN_SECRET
