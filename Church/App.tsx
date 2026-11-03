@@ -147,7 +147,7 @@ function App() {
     }
     if (route.startsWith('/contact/')) {
       const subPageSegment = route.split('/')[2] || 'contact-us';
-      const validSubPages: ReadonlyArray<ContactSubPage> = ['contact-us', 'join-us', 'prayer-request'];
+      const validSubPages: ReadonlyArray<ContactSubPage> = ['contact-us', 'join-us', 'prayer-request', 'share-materials'];
       const subPage = validSubPages.find(p => p === subPageSegment) ?? 'contact-us';
       return <ContactPage activeSubPage={subPage} />;
     }

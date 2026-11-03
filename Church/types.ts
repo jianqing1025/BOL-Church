@@ -8,7 +8,7 @@ export type SubPage = 'our-church' | 'our-beliefs' | 'about-pastor' | 'job-oppor
 export type MinistrySubPage = 'kids' | 'men' | 'women' | 'joint' | 'alpha' | 'prayer';
 export type SermonSubPage = 'daily-manna' | 'sunday-worship' | 'worship-praise' | 'healing-prayer' | 'testimony';
 export type GivingSubPage = 'why-we-give' | 'what-is-tithing' | 'ways-to-give' | 'other-ways-to-give';
-export type ContactSubPage = 'contact-us' | 'join-us' | 'prayer-request';
+export type ContactSubPage = 'contact-us' | 'join-us' | 'prayer-request' | 'share-materials';
 export type PrayerRequestSubPage = 'submit-request';
 
 export interface LiveStreamConfig {

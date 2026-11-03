@@ -7,6 +7,7 @@ import { navigateTo as navigateToRoute } from '../utils/routes';
 import Editable from './Editable';
 import { useAdmin } from '../hooks/useAdmin';
 import SecondaryNavBar from './SecondaryNavBar';
+import ShareMaterialsForm from './ShareMaterialsForm';
 
 const ContactForm = () => {
   const { t } = useLocalization();
@@ -222,6 +223,7 @@ const ContactPage: React.FC<ContactPageProps> = ({ activeSubPage: initialSubPage
     { key: 'contact-us', textKey: 'header.navContact' },
     { key: 'join-us', textKey: 'contactPage.navJoinUs' },
     { key: 'prayer-request', textKey: 'contactPage.navPrayerRequest' },
+    { key: 'share-materials', textKey: 'contactPage.navShareMaterials' },
   ];
 
   return (
@@ -257,6 +259,7 @@ const ContactPage: React.FC<ContactPageProps> = ({ activeSubPage: initialSubPage
         {activeTab === 'contact-us' && <ContactForm />}
         {activeTab === 'join-us' && <LocationInfo />}
         {activeTab === 'prayer-request' && <PrayerRequestForm />}
+        {activeTab === 'share-materials' && <ShareMaterialsForm />}
       </div>
     </div>
   );

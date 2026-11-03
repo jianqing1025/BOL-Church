@@ -59,6 +59,31 @@ export class ApiError extends Error {
   }
 }
 
+export interface SharedFile { key: string; name: string; size: number; type: string }
+export interface SharedMaterial {
+  id: string; createdAt: string; name: string; contact: string; sunday: string; note: string;
+  links: string[]; files: SharedFile[]; status: 'new' | 'collected';
+}
+export type SharedMaterialInput = Pick<SharedMaterial, 'name' | 'contact' | 'sunday' | 'note' | 'links' | 'files'>;
+/** Files go up one by one, streamed (up to 100 MB each); `onProgress` gets 0–1. */
+export const SHARED_MAX_BYTES = 100 * 1000 * 1000;
+export function uploadSharedFile(file: File, onProgress: (share: number) => void): Promise<SharedFile> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/shared-materials/upload?name=${encodeURIComponent(file.name)}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
+    xhr.onload = () => {
+      let body: { error?: string } & Partial<SharedFile> = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300 && body.key) resolve(body as SharedFile);
+      else reject(new Error(body.error || (xhr.status === 413 ? '檔案超過 100 MB' : `上傳失敗 (${xhr.status})`)));
+    };
+    xhr.onerror = () => reject(new Error('網路錯誤，上傳失敗'));
+    xhr.send(file);
+  });
+}
+
 export type AnnouncementInput = Pick<Announcement, 'title' | 'bodyHtml' | 'eventDate' | 'showUntil'>;
 export type WeeklyInput = Pick<WeeklyReport, 'weekOf' | 'title' | 'bodyHtml' | 'attachments'>;
 
@@ -211,6 +236,16 @@ export const api = {
     form.append('file', file);
     return request<WeeklyAttachment>('/api/admin/weekly/upload', { method: 'POST', body: form });
   },
+  /** 資料上傳: the submission (the files went up first, through uploadSharedFile). */
+  submitSharedMaterial: (payload: SharedMaterialInput) =>
+    request<SharedMaterial>('/api/shared-materials', { method: 'POST', body: JSON.stringify(payload) }),
+  adminSharedMaterials: () => request<{ items: SharedMaterial[] }>('/api/admin/shared-materials'),
+  adminSetSharedMaterialStatus: (id: string, status: SharedMaterial['status']) =>
+    request<SharedMaterial>(`/api/admin/shared-materials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  adminDeleteSharedMaterial: (id: string) =>
+    request<{ ok: true }>(`/api/admin/shared-materials/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sharedFileUrl: (file: SharedFile) =>
+    `/api/admin/shared-materials/file?key=${encodeURIComponent(file.key)}&name=${encodeURIComponent(file.name)}`,
   adminSetWeeklyPassword: (password: string) =>
     request<{ ok: true }>('/api/admin/weekly-password', { method: 'PUT', body: JSON.stringify({ password }) }),
   sermonList: (kind: SermonKind, version: string | null) =>

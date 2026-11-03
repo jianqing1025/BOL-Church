@@ -1701,6 +1701,159 @@ function weeklyHintCookie(request: Request, on: boolean): string {
   return `weekly_hint=${on ? '1' : ''}; Path=/; SameSite=Lax${secure}; Max-Age=${on ? ACCESS_TTL_DAYS * 86_400 : 0}`;
 }
 
+// ---------- 資料上傳 / 共享資料: materials sent in for a Sunday (videos, PPT, links), collected by staff ----------
+
+/** Cloudflare takes request bodies up to 100 MB. */
+const SHARED_MAX_BYTES = 100 * 1000 * 1000;
+const SHARED_FILE_TYPES = /\.(mp4|mov|m4v|webm|avi|mkv|mp3|m4a|wav|aac|ppt|pptx|pps|ppsx|key|pdf|doc|docx|xls|xlsx|txt|jpg|jpeg|png|gif|webp|heic|zip)$/i;
+const SHARED_UPLOADS_PER_HOUR = 30;
+const SHARED_MAX_FILES = 20;
+const SHARED_MAX_LINKS = 20;
+
+interface SharedFile { key: string; name: string; size: number; type: string }
+interface SharedMaterialRow {
+  id: string; created_at: string; name: string; contact: string | null; sunday: string | null; note: string | null;
+  links: string; files: string; status: string;
+}
+
+function parseJsonArray<T>(text: string | null): T[] {
+  try {
+    const value = JSON.parse(text || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapSharedMaterial(row: SharedMaterialRow) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    name: row.name,
+    contact: row.contact ?? '',
+    sunday: row.sunday ?? '',
+    note: row.note ?? '',
+    links: parseJsonArray<string>(row.links),
+    files: parseJsonArray<SharedFile>(row.files),
+    status: row.status === 'collected' ? 'collected' : 'new',
+  };
+}
+
+async function handleSharedMaterials(request: Request, env: Env, url: URL): Promise<Response | null> {
+  // A file, streamed straight into R2 (never held whole in memory): the bytes as the body, its name in the query.
+  if (url.pathname === '/api/shared-materials/upload' && request.method === 'POST') {
+    const name = (url.searchParams.get('name') || '').trim().slice(0, 200);
+    const size = Number(request.headers.get('content-length'));
+    if (!name || !request.body) return badRequest('請選擇檔案');
+    if (!SHARED_FILE_TYPES.test(name)) return badRequest('檔案類型不支援（可上傳影片、音訊、PPT、PDF、文件、圖片）');
+    if (!Number.isFinite(size) || size <= 0) return json({ error: '無法讀取檔案大小' }, 411);
+    if (size > SHARED_MAX_BYTES) return json({ error: '檔案超過 100 MB' }, 413);
+    const ip = request.headers.get('cf-connecting-ip') || '';
+    const since = new Date(Date.now() - 3600_000).toISOString();
+    const recent = await env.DB.prepare('SELECT COUNT(*) AS n FROM shared_material_uploads WHERE ip = ? AND uploaded_at > ?')
+      .bind(ip, since).first<{ n: number }>();
+    if ((recent?.n ?? 0) >= SHARED_UPLOADS_PER_HOUR) return json({ error: '上傳次數過多，請一小時後再試' }, 429);
+    const key = `shared/${crypto.randomUUID()}-${sanitizeFileName(name)}`;
+    const type = request.headers.get('content-type') || 'application/octet-stream';
+    await env.MEDIA_BUCKET.put(key, request.body.pipeThrough(new FixedLengthStream(size)), { httpMetadata: { contentType: type } });
+    await env.DB.prepare('INSERT INTO shared_material_uploads (key, ip, size, uploaded_at) VALUES (?, ?, ?, ?)')
+      .bind(key, ip, size, new Date().toISOString()).run();
+    return noStore(json({ key, name, size, type }));
+  }
+
+  // The submission: who, for which Sunday, a note, links, and the files uploaded above.
+  if (url.pathname === '/api/shared-materials' && request.method === 'POST') {
+    const payload = await readJson<Record<string, unknown>>(request);
+    const text = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+    const name = text(payload.name, 100);
+    const contact = text(payload.contact, 200);
+    const note = text(payload.note, 5000);
+    const sunday = /^\d{4}-\d{2}-\d{2}$/.test(text(payload.sunday, 10)) ? text(payload.sunday, 10) : '';
+    const links = (Array.isArray(payload.links) ? payload.links : [])
+      .map(link => text(link, 2000))
+      .filter(link => /^https?:\/\/\S+$/i.test(link))
+      .slice(0, SHARED_MAX_LINKS);
+    const wanted = (Array.isArray(payload.files) ? payload.files : []).slice(0, SHARED_MAX_FILES) as Partial<SharedFile>[];
+    if (!name) return badRequest('請填寫姓名');
+    // Only files really uploaded here may be named.
+    const keys = wanted.map(file => String(file.key || '')).filter(key => key.startsWith('shared/'));
+    const known = new Set<string>();
+    if (keys.length) {
+      const rows = await env.DB.prepare(`SELECT key FROM shared_material_uploads WHERE key IN (${keys.map(() => '?').join(',')})`)
+        .bind(...keys).all<{ key: string }>();
+      for (const row of rows.results ?? []) known.add(row.key);
+    }
+    const files: SharedFile[] = wanted
+      .filter(file => known.has(String(file.key)))
+      .map(file => ({ key: String(file.key), name: text(file.name, 200) || 'file', size: Number(file.size) || 0, type: text(file.type, 100) }));
+    if (!note && !links.length && !files.length) return badRequest('請上傳檔案、填寫網址或說明');
+    const row: SharedMaterialRow = {
+      id: crypto.randomUUID(), created_at: new Date().toISOString(), name, contact, sunday, note,
+      links: JSON.stringify(links), files: JSON.stringify(files), status: 'new',
+    };
+    await env.DB.prepare(
+      'INSERT INTO shared_materials (id, created_at, name, contact, sunday, note, links, files, status, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(row.id, row.created_at, name, contact, sunday, note, row.links, row.files, 'new', request.headers.get('cf-connecting-ip') || '').run();
+    return noStore(json(mapSharedMaterial(row), 201));
+  }
+
+  if (!url.pathname.startsWith('/api/admin/shared-materials')) return null;
+  const auth = await requireUser(request, env, 'contributor');
+  if (auth instanceof Response) return auth;
+
+  if (url.pathname === '/api/admin/shared-materials/file' && request.method === 'GET') {
+    const key = url.searchParams.get('key') || '';
+    if (!key.startsWith('shared/') || key.includes('..')) return noStore(notFound());
+    const object = await env.MEDIA_BUCKET.get(key);
+    if (!object) return noStore(notFound('File not found'));
+    const name = url.searchParams.get('name') || key.split('/').pop() || 'file';
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+        'Content-Length': String(object.size),
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  }
+
+  if (url.pathname === '/api/admin/shared-materials' && request.method === 'GET') {
+    // Files uploaded two days ago or more that no submission names (a form left unsent): gone.
+    const stale = await env.DB.prepare(
+      "SELECT key FROM shared_material_uploads u WHERE uploaded_at < ? AND NOT EXISTS (SELECT 1 FROM shared_materials m WHERE instr(m.files, u.key) > 0)",
+    ).bind(new Date(Date.now() - 2 * 86_400_000).toISOString()).all<{ key: string }>();
+    for (const { key } of stale.results ?? []) {
+      await env.MEDIA_BUCKET.delete(key).catch(err => console.error('shared file cleanup failed', key, err));
+      await env.DB.prepare('DELETE FROM shared_material_uploads WHERE key = ?').bind(key).run();
+    }
+    const rows = await env.DB.prepare('SELECT * FROM shared_materials ORDER BY created_at DESC LIMIT 500').all<SharedMaterialRow>();
+    return noStore(json({ items: (rows.results ?? []).map(mapSharedMaterial) }));
+  }
+
+  const id = decodeURIComponent(url.pathname.slice('/api/admin/shared-materials/'.length));
+  if (!id) return notFound();
+  if (request.method === 'PATCH') {
+    const payload = await readJson<{ status?: string }>(request);
+    const status = payload.status === 'collected' ? 'collected' : 'new';
+    await env.DB.prepare('UPDATE shared_materials SET status = ? WHERE id = ?').bind(status, id).run();
+    const row = await env.DB.prepare('SELECT * FROM shared_materials WHERE id = ?').bind(id).first<SharedMaterialRow>();
+    return noStore(row ? json(mapSharedMaterial(row)) : notFound());
+  }
+  if (request.method === 'DELETE') {
+    const row = await env.DB.prepare('SELECT * FROM shared_materials WHERE id = ?').bind(id).first<SharedMaterialRow>();
+    if (row) {
+      for (const file of parseJsonArray<SharedFile>(row.files)) {
+        if (!file.key?.startsWith('shared/')) continue;
+        await env.MEDIA_BUCKET.delete(file.key).catch(err => console.error('shared file delete failed', file.key, err));
+        await env.DB.prepare('DELETE FROM shared_material_uploads WHERE key = ?').bind(file.key).run();
+      }
+      await env.DB.prepare('DELETE FROM shared_materials WHERE id = ?').bind(id).run();
+    }
+    return noStore(json({ ok: true }));
+  }
+  return null;
+}
+
 async function handleWeeklyUnlock(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const rateKey = `weekly-unlock:${ip}:${Math.floor(Date.now() / 60_000)}`;
@@ -5739,7 +5892,8 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
         ?? await handleAdminMeetingRooms(request, env, url)
         ?? await handleWeeklyPublic(request, env, url)
         ?? await handleAdminWeekly(request, env, url)
-        ?? await handleAdminDesktopDownload(request, env, url);
+        ?? await handleAdminDesktopDownload(request, env, url)
+        ?? await handleSharedMaterials(request, env, url);
       if (bulletin) return bulletin;
     }
 

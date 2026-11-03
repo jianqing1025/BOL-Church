@@ -17,6 +17,7 @@ import AdminAppDownload from './admin/AdminAppDownload';
 import AnnouncementManager from './AnnouncementManager';
 import MeetingRoomManager from './MeetingRoomManager';
 import WeeklyReportManager from './WeeklyReportManager';
+import SharedMaterials from './admin/SharedMaterials';
 import { api } from '../api';
 import type { AnalyticsSummary, DesktopDownloadStats, WebAnalyticsRange, WebAnalyticsSummary, WebAnalyticsRankedItem } from '../data';
 import { useLocalization } from '../hooks/useLocalization';
@@ -27,7 +28,7 @@ import { geoEqualEarth, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 
-type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'meeting-rooms' | 'announcements' | 'weekly' | 'manna' | 'inbox' | 'prayer' | 'giving' | 'users' | 'analytics' | 'account';
+type Section = 'overview' | 'homepage' | 'text' | 'photos' | 'sermons' | 'worship-praise' | 'healing-prayer' | 'testimony' | 'livestream' | 'meeting-rooms' | 'announcements' | 'weekly' | 'manna' | 'inbox' | 'prayer' | 'shared' | 'giving' | 'users' | 'analytics' | 'account';
 
 const sectionLabelKeys: Record<Section, string> = {
   overview: 'admin.overview',
@@ -45,6 +46,7 @@ const sectionLabelKeys: Record<Section, string> = {
   manna: 'admin.manna',
   inbox: 'admin.inbox',
   prayer: 'admin.prayerRequest',
+  shared: 'admin.sharedMaterials',
   giving: 'admin.givingTab',
   users: 'admin.users',
   analytics: 'admin.webAnalytics',
@@ -289,7 +291,7 @@ const AdminDashboard: React.FC = () => {
   const navGroups: Section[][] = [
     ['overview', 'homepage', 'text', 'photos', 'weekly', 'announcements'],
     ['sermons', 'worship-praise', 'healing-prayer', 'testimony', 'manna', 'livestream', 'meeting-rooms'],
-    ['inbox', 'prayer', 'giving'],
+    ['inbox', 'prayer', 'shared', 'giving'],
     ['analytics', 'users'],
   ];
   const visibleNavGroups = navGroups.map(group => group.filter(canAccessSection)).filter(group => group.length > 0);
@@ -1401,6 +1403,8 @@ const AdminDashboard: React.FC = () => {
         return renderMessages();
       case 'prayer':
         return renderPrayerRequests();
+      case 'shared':
+        return <SharedMaterials />;
       case 'giving':
         return renderGiving();
       case 'users':

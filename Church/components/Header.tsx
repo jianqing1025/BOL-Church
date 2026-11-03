@@ -24,6 +24,9 @@ type NavLink =
   | { href: string; key: string; subLinks?: never }
   | { key: string; subLinks: NavSubLink[]; href?: never };
 
+/** OBS 在線: the church OBS's scenes and slides, edited on the web (password protected). */
+const OBS_ONLINE_URL = 'https://obs-sync.bolccop.org/editor/?lang=zh-TW';
+
 const BOLD_NAV_KEYS = new Set([
   'header.navSermons',
   'photosPage.navChurchPhotos',
@@ -98,6 +101,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
         { href: '/events/alpha', key: 'eventsPage.navAlpha' },
         { href: '/events/prayer', key: 'eventsPage.navPrayer' },
         { href: '/weekly', key: 'weekly.nav' },
+        { href: OBS_ONLINE_URL, key: 'eventsPage.navObsOnline' },
         { href: '/meeting', key: 'eventsPage.navOnlineBibleStudy' },
     ]},
     { key: 'header.navSermons', subLinks: [
@@ -118,6 +122,7 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
         { href: '/contact/contact-us', key: 'header.navContact' },
         { href: '/contact/join-us', key: 'contactPage.navJoinUs' },
         { href: '/contact/prayer-request', key: 'contactPage.navPrayerRequest' },
+        { href: '/contact/share-materials', key: 'contactPage.navShareMaterials' },
         { href: '/announcements', key: 'announcements.nav' },
     ]},
   ];
@@ -356,6 +361,9 @@ const Header: React.FC<HeaderProps> = ({ isTransparent, useHeroBackground = fals
                             {t(link.key)}
                         </a>
                       </div>
+                      <a href={OBS_ONLINE_URL} onClick={event => navigateTo(event, OBS_ONLINE_URL)} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-semibold">
+                        {t('eventsPage.navObsOnline')}
+                      </a>
                       <a href="/meeting" onClick={event => navigateTo(event, '/meeting')} className="text-gray-600 hover:text-blue-600 transition-colors py-2 text-base sm:text-lg font-bold">
                         {t('eventsPage.navOnlineBibleStudy')}
                       </a>
