@@ -18,6 +18,7 @@
 /* The item's settings key: the panel's item, as JSON (without its id, which is the source's UUID). */
 #define CHURCH_SLIDES_ID "church_slides"
 #define CHURCH_SLIDES_ITEM "item"
+#define CHURCH_CAPTION_ID "church_caption"
 
 namespace ChurchSlides {
 
@@ -26,6 +27,8 @@ void Register();
 
 /* The browser page that draws the slide that is on screen (one, shared by every item). */
 void SetOutput(obs_source_t *output);
+/* The same slide's text as a lower third (for the Camera + caption feed). */
+void SetCaptionOutput(obs_source_t *output);
 
 /* The item whose slide is on screen: it alone shows the page (and plays its sound). */
 void SetLive(const std::string &uuid);

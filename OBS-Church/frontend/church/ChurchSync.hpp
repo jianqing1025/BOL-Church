@@ -41,13 +41,20 @@ class ChurchSync : public QObject {
 	QPointer<QToolButton> button;
 	QPointer<QTimer> autoTimer;
 
+	/* A few seconds after an edit here, the account gets it. */
+	QPointer<QTimer> pushTimer;
 	bool busy = false;
+	/* The first sync after opening: the one moment a conflict may be asked about without being asked. */
+	bool startupSync = true;
+	/* Changes made here by hand since the last sync (kept across restarts). */
+	bool Dirty() const;
+	static bool HasItems(const QJsonObject &content);
+	void SetDirty(bool dirty);
 	/* File hashes already worked out: path → (modified time, size, sha256). */
 	std::map<QString, std::tuple<qint64, qint64, QString>> hashCache;
 
 	QString Server() const;
 	QString Token() const;
-	QString Email() const;
 	qint64 BaseRev() const;
 	void SetBaseRev(qint64 rev);
 	/* What this computer's content was when it was last in step with the account. */
@@ -75,9 +82,23 @@ public:
 
 	/* The Sync button, at the right end of the Scenes toolbar. */
 	void Attach(QToolBar *toolbar);
+	/* The account's menu (sign in, or sync now and sign out), from the profile icon on the Slides bar. */
+	void ShowAccountMenu();
+	/* The signed-in account's email; empty when signed out. */
+	QString SignedInEmail() const;
+	QString Email() const;
+
+signals:
+	void accountChanged();
 
 public slots:
 	void SyncNow(bool quiet = false);
+	/* The content changed here: send it to the account shortly. */
+	void ContentEdited();
+	/* OBS is closing: send what changed here, waiting a little for it. */
+	void FlushBeforeExit();
+	/* Takes everything from the account again (this computer's own changes give way). */
+	void DownloadAll();
 	void SignIn();
 	void SignOut();
 };

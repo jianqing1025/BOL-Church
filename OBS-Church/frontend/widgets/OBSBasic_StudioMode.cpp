@@ -19,6 +19,9 @@
 
 #include "OBSBasic.hpp"
 #include "OBSProjector.hpp"
+#ifdef BROWSER_AVAILABLE
+#include <church/ChurchMode.hpp>
+#endif
 
 #include <utility/display-helpers.hpp>
 #include <utility/QuickTransition.hpp>
@@ -26,6 +29,7 @@
 #include <qt-wrappers.hpp>
 #include <slider-ignorewheel.hpp>
 
+#include <QTimer>
 #include <QToolTip>
 
 void OBSBasic::CreateProgramDisplay()
@@ -150,6 +154,7 @@ void OBSBasic::CreateProgramOptions()
 		action->setToolTip(QTStr("QuickTransitions.DuplicateSceneTT"));
 		action->setCheckable(true);
 		action->setChecked(sceneDuplicationMode);
+		action->setEnabled(!churchLayout);
 		connect(action, &QAction::triggered, this, toggleSceneDuplication);
 		connect(action, &QAction::hovered, action, showToolTip);
 
@@ -165,6 +170,7 @@ void OBSBasic::CreateProgramOptions()
 		action->setToolTip(QTStr("QuickTransitions.SwapScenesTT"));
 		action->setCheckable(true);
 		action->setChecked(swapScenesMode);
+		action->setEnabled(!churchLayout);
 		connect(action, &QAction::triggered, this, toggleSwapScenesMode);
 		connect(action, &QAction::hovered, action, showToolTip);
 
@@ -178,8 +184,10 @@ void OBSBasic::CreateProgramOptions()
 
 void OBSBasic::TogglePreviewProgramMode()
 {
-	/* OBS Church always runs in studio mode: the Streaming/Recording dock picks the program. */
+	/* OBS Church always runs in studio mode (the Recording & Streaming dock picks the program);
+	 * the button shows or hides OBS's own Program pane and transition controls. */
 	if (churchLayout && IsPreviewProgramMode()) {
+		SetChurchProgramPane(!churchProgramPane);
 		return;
 	}
 	SetPreviewProgramMode(!IsPreviewProgramMode());
@@ -241,12 +249,14 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		programWidget->setLayout(programLayout);
 
 		if (churchLayout) {
-			/* OBS Church: no program pane or transition buttons beside the preview; the
-			 * Streaming/Recording dock's three screens choose the program instead. */
+			/* OBS Church: the Program pane only when Studio Mode is pressed (SetChurchProgramPane). */
 			programOptions->setParent(this);
 			programWidget->setParent(this);
 			programOptions->hide();
 			programWidget->hide();
+			churchProgramPane = false;
+			bool show = config_get_bool(App()->GetUserConfig(), "Church", "ProgramPane");
+			QTimer::singleShot(0, this, [this, show]() { SetChurchProgramPane(show); });
 		} else {
 			ui->previewLayout->addWidget(programOptions);
 			ui->previewLayout->addWidget(programWidget);
@@ -309,6 +319,23 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 	ResetUI();
 	UpdateTitleBar();
+}
+
+void OBSBasic::SetChurchProgramPane(bool show)
+{
+	churchProgramPane = show;
+	config_set_bool(App()->GetUserConfig(), "Church", "ProgramPane", show);
+
+	/* The Program pane is a screen of its own in the church layout's right column. */
+	if (programOptions && programWidget && church) {
+		church->ShowProgramPane(programWidget, programOptions, show);
+	}
+
+	/* The Studio Mode button lights up with the pane. */
+	if (controlsDock) {
+		QMetaObject::invokeMethod(controlsDock->widget(), "UpdateStudioModeState", Qt::QueuedConnection,
+					  Q_ARG(bool, show));
+	}
 }
 
 void OBSBasic::RenderProgram(void *data, uint32_t, uint32_t)

@@ -47,6 +47,7 @@ void OBSBasic::DisplayStreamStartError()
 
 void OBSBasic::StartStreaming()
 {
+	if (setupStreamingGuard.valid() && setupStreamingGuard.wait_for(std::chrono::seconds{0}) != std::future_status::ready) return;
 	if (outputHandler->StreamingActive()) {
 		return;
 	}
@@ -77,10 +78,10 @@ void OBSBasic::StartStreaming()
 
 	if (sysTrayStream) {
 		sysTrayStream->setEnabled(false);
-		sysTrayStream->setText("Basic.Main.PreparingStream");
+		sysTrayStream->setText(QTStr("Basic.Main.PreparingStream"));
 	}
 
-	auto finish_stream_setup = [&](bool setupStreamingResult) {
+	auto finish_stream_setup = [this](bool setupStreamingResult) {
 		if (!setupStreamingResult) {
 			DisplayStreamStartError();
 			return;
@@ -93,7 +94,7 @@ void OBSBasic::StartStreaming()
 		emit StreamingStarting(autoStartBroadcast);
 
 		if (sysTrayStream) {
-			sysTrayStream->setText("Basic.Main.Connecting");
+			sysTrayStream->setText(QTStr("Basic.Main.Connecting"));
 		}
 
 		if (!outputHandler->StartStreaming(service)) {
@@ -123,6 +124,7 @@ void OBSBasic::StartStreaming()
 			OBSBasic::ShowYouTubeAutoStartWarning();
 #endif
 	};
+
 
 	setupStreamingGuard = outputHandler->SetupStreaming(service, finish_stream_setup);
 }

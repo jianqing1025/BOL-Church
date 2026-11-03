@@ -1,16 +1,17 @@
 import {
-  BookOpen, ChevronDown, ChevronRight, Eraser, FileText, Film, Image as ImageIcon, Lock, LockOpen,
-  MonitorOff, Palette, Pencil, Presentation, Trash2, Type,
+  BookOpen, Eraser, FileText, Film, Image as ImageIcon, Lock, LockOpen,
+  MonitorOff, Palette, Pencil, Presentation, Trash2, Type, Play, Music, CircleUserRound, Plus, Copy,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { insideObs, sendToHost, type HostToPanel } from '../shared/host';
-import { t } from '../shared/i18n';
-import { kindName, LAYOUTS, type ItemKind, type LibraryItem, type Look, type SlideRef, type SlideSpec } from '../shared/model';
+import { LANG, t } from '../shared/i18n';
+import { CardMediaEditor } from './CardMediaEditor';
+import { kindName, newId, LAYOUTS, type ItemKind, type LibraryItem, type Look, type SlideRef, type SlideSpec } from '../shared/model';
 import { lookOf, slidesOf, type SlideEntry } from '../shared/slides';
 import { themeById, themeName } from '../shared/themes';
 import { blankItem, ItemEditor } from './ItemEditor';
 import { LookPicker } from './LookPicker';
-import { pickFile, useDeck } from './store';
+import { draftId, pickFile, useDeck } from './store';
 import { Thumb } from './Thumb';
 
 const KIND_ICONS: Record<ItemKind, ReactNode> = {
@@ -34,19 +35,42 @@ type Live =
 const SIZE_KEY = 'church-presenter.thumb-size';
 const readSize = () => { try { return Number(localStorage.getItem(SIZE_KEY)) || 220; } catch { return 220; } };
 
-const lookText = (look: Look) => `${themeName(themeById(look.themeId))} · ${LAYOUTS.find((l) => l.id === look.layout)?.name ?? ''}`;
 
-export function App() {
+/** `web`: the web editor ("OBS 在線") — editing only, nothing goes on a screen. */
+export function App({ web = false }: { web?: boolean } = {}) {
   const hostRef = useRef<(message: HostToPanel) => void>(() => undefined);
+  /** The sync account (the profile icon), from OBS. */
+  const [account, setAccount] = useState('');
+
   const onHost = useCallback((message: HostToPanel) => hostRef.current(message), []);
   const { deck, loaded } = useDeck(onHost);
 
   const [slides, setSlides] = useState<Record<string, Slides>>({});
   const [live, setLive] = useState<Live>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ item: LibraryItem; isNew: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ item: LibraryItem; isNew: boolean; target?: { sceneId: string; afterId: string | null } } | null>(null);
+  const [mediaFor, setMediaFor] = useState<{ item: LibraryItem; entry: SlideEntry } | null>(null);
   const [lookFor, setLookFor] = useState<'default' | string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** Dragging a slide item (any of its cards) to another place or scene; where it would land. */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [drop, setDrop] = useState<{ sceneId: string; beforeId: string | null; end: boolean; at?: string; side?: 'before' | 'after'; first?: boolean; last?: boolean } | null>(null);
+  /** The "+" menu on a scene's heading. */
+  const [addMenuFor, setAddMenuFor] = useState<string | null>(null);
+  /** A card's right-click menu. */
+  const [cardMenu, setCardMenu] = useState<{ x: number; y: number; item: LibraryItem; entry: SlideEntry; sceneId: string } | null>(null);
+  useEffect(() => {
+    if (!cardMenu) return;
+    const close = () => setCardMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [cardMenu]);
   const [size, setSize] = useState(readSize);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   /** Saved with "show": shown as soon as OBS has created it (it gets the source's id then). */
@@ -76,7 +100,8 @@ export function App() {
   const flat = useMemo(() => allItems.flatMap(({ item }) => slides[item.id]?.entries ?? []), [allItems, slides]);
 
   // ---------- putting things on screen ----------
-  const show = useCallback((entry: SlideEntry) => {
+  const show = useCallback((entry: SlideEntry, playMedia = false) => {
+    entry = { ...entry, spec: { ...entry.spec, mediaPlayback: { playing: playMedia, nonce: newId() } } };
     sendToHost({ type: 'show', spec: entry.spec, ref: entry.ref });
     setLive({ mode: 'slide', ref: entry.ref, spec: entry.spec });
     setSelected(entry.ref.itemId);
@@ -90,7 +115,7 @@ export function App() {
     }
     if (live?.mode !== 'slide') return;
     const entry = slides[live.ref.itemId]?.entries?.[live.ref.index];
-    if (entry && JSON.stringify(entry.spec) !== JSON.stringify(live.spec)) show(entry);
+    if (entry && JSON.stringify(entry.spec) !== JSON.stringify((({ mediaPlayback: _playback, ...spec }) => spec)(live.spec))) show(entry, live.spec.mediaPlayback?.playing);
   }, [slides, live, show]);
 
   /** Clear ('text'): the slide comes off and only the live video shows. Black ('all'): all black. */
@@ -121,12 +146,33 @@ export function App() {
     }
     // After Clear / Black, the next press brings the same slide back.
     if (live?.mode !== 'slide') { show(flat[at]); return; }
+    // A card with its own video / audio: the first press forward lands on it, the next one plays it.
+    if (delta === 1 && flat[at].spec.media?.length && !live.spec.mediaPlayback?.playing) { show(flat[at], true); return; }
     at += delta;
     if (at >= 0 && at < flat.length) show(flat[at]);
   }, [flat, live, selected, show, deck.currentScene]);
 
   // ---------- changes, through OBS ----------
-  async function add(kind: ItemKind) {
+  /** The dragged item into its new place (OBS moves the source; the deck comes back). */
+  function finishDrop() {
+    const id = dragging;
+    const target = drop;
+    setDragging(null);
+    setDrop(null);
+    if (!id || !target || target.beforeId === id) return;
+    const from = findItem(id);
+    const scene = deck.scenes.find((s) => s.id === target.sceneId);
+    if (!from || !scene) return;
+    // Dropped where it already is: nothing to do.
+    const at = scene.items.findIndex((i) => i.id === id);
+    if (at >= 0 && (scene.items[at + 1]?.id ?? null) === target.beforeId) return;
+    sendToHost({ type: 'move-item', id, sceneId: target.sceneId, beforeId: target.beforeId });
+  }
+
+  /** `sceneId`: the "+" of that scene — the new item goes at its end. */
+  async function add(kind: ItemKind, sceneId?: string) {
+    const scene = sceneId ? deck.scenes.find((s) => s.id === sceneId) : undefined;
+    const target = scene ? { sceneId: scene.id, afterId: scene.items[scene.items.length - 1]?.id ?? null } : undefined;
     if (kind === 'ppt' || kind === 'image') {
       // Straight to the file dialog; the editor is for changing it later.
       const path = await pickFile(kind);
@@ -134,29 +180,51 @@ export function App() {
       const item = { ...blankItem(kind), path } as LibraryItem;
       item.name = path.replace(/\\/g, '/').split('/').pop()!.replace(/\.[^.]+$/, '');
       showWhenReady.current = null;
-      sendToHost({ type: 'save-items', items: [item], sceneId: sceneForNew() });
+      sendToHost({ type: 'save-items', items: [item], sceneId: target?.sceneId ?? sceneForNew(), afterId: target ? target.afterId : undefined });
       return;
     }
-    setEditing({ item: blankItem(kind), isNew: true });
+    setEditing({ item: blankItem(kind), isNew: true, target });
   }
 
   /** New items go into the scene of the selected item, else the scene on screen. */
   function sceneForNew(): string | null {
-    return (selected && findItem(selected)?.sceneId) || deck.currentScene || deck.scenes[0]?.id || null;
+    return deck.currentScene || (selected && findItem(selected)?.sceneId) || deck.scenes[0]?.id || null;
   }
 
-  function saveEdited(items: LibraryItem[], showNow: boolean, isNew: boolean) {
+  function saveEdited(items: LibraryItem[], showNow: boolean, isNew: boolean, target?: { sceneId: string; afterId: string | null }) {
     setEditing(null);
-    sendToHost({ type: 'save-items', items, sceneId: sceneForNew() });
+    const sceneId = target?.sceneId ?? sceneForNew();
+    sendToHost({ type: 'save-items', items, sceneId, afterId: target ? target.afterId : selected });
     if (showNow) {
       if (isNew) {
         // OBS creates the source and sends the deck back; the first new item is the one at the end of its scene.
-        pendingNewShow.current = { count: allItems.length, sceneId: sceneForNew() };
+        pendingNewShow.current = { count: allItems.length, sceneId };
       } else {
         showWhenReady.current = items[0].id;
       }
     }
   }
+  /** A copy of the item, right after it, opened for editing once OBS has made it. */
+  function duplicate(item: LibraryItem, sceneId: string) {
+    // A copy is a new item of its own: never the original's sync id (the account would take them for one).
+    const { syncId: _syncId, ...rest } = item as LibraryItem & { syncId?: string };
+    const copy = { ...rest, id: draftId(), name: `${item.name || kindName(item.kind)}${t('item.copySuffix')}` } as LibraryItem;
+    pendingCopyEdit.current = { count: allItems.length };
+    sendToHost({ type: 'save-items', items: [copy], sceneId, afterId: item.id });
+  }
+  const pendingCopyEdit = useRef<{ count: number } | null>(null);
+  useEffect(() => {
+    const pending = pendingCopyEdit.current;
+    if (!pending || allItems.length <= pending.count) return;
+    pendingCopyEdit.current = null;
+    const known = new Set(Object.keys(slides));
+    const fresh = allItems.find(({ item }) => !known.has(item.id));
+    if (!fresh) return;
+    setSelected(fresh.item.id);
+    setEditing({ item: fresh.item, isNew: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems]);
+
   /** Shows the first slide of the item OBS adds next (its id is only known once it exists). */
   const pendingNewShow = useRef<{ count: number; sceneId: string | null } | null>(null);
   useEffect(() => {
@@ -179,7 +247,8 @@ export function App() {
   }
 
   hostRef.current = (message: HostToPanel) => {
-    if (message.type === 'nav') nav(message.delta);
+    if (message.type === 'account') setAccount(message.email);
+    else if (message.type === 'nav') nav(message.delta);
     else if (message.type === 'clear') clear(message.what);
     else if (message.type === 'add') void add(message.kind);
     else if (message.type === 'edit-item') {
@@ -191,18 +260,18 @@ export function App() {
   // The keyboard and USB presenters (they send PageUp / PageDown, arrows, B or ".").
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editing || lookFor) return;
+      if (editing || lookFor || mediaFor) return;
       const target = e.target as Element | null;
       if (target?.closest?.('input, textarea, select')) return;
       const key = e.key;
       if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(key)) { e.preventDefault(); nav(1); }
       else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(key)) { e.preventDefault(); nav(-1); }
-      else if (key === 'F1' || key === 'b' || key === 'B' || key === '.') { e.preventDefault(); clear('all'); }
-      else if (key === 'F2' || key === 'Escape') { e.preventDefault(); clear('text'); }
+      else if (!locked && (key === 'F1' || key === 'b' || key === 'B' || key === '.')) { e.preventDefault(); clear('all'); }
+      else if (!locked && (key === 'F2' || key === 'Escape')) { e.preventDefault(); clear('text'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [nav, clear, editing, lookFor]);
+  }, [nav, clear, editing, lookFor, mediaFor, locked]);
 
   // While the panel has the keyboard it pages itself; OBS's PageUp/PageDown hotkeys
   // (for a presenter used while OBS is in the background) stand down meanwhile.
@@ -231,36 +300,43 @@ export function App() {
   return (
     <div className="app" style={{ '--thumb': `${size}px` } as React.CSSProperties}>
       <header className="toolbar">
-        {!insideObs() && (
+        {!insideObs() && !web && (
           // In OBS these buttons sit under the Sources list.
           <div className="group">
             {(['text', 'scripture', 'image', 'video', 'ppt'] as const).map((kind) => (
-              <button key={kind} type="button" className="add" onClick={() => void add(kind)}>
+              <button key={kind} type="button" className="add" disabled={locked} onClick={() => void add(kind)}>
                 {KIND_ICONS[kind]}<span>{kindName(kind)}</span>
               </button>
             ))}
           </div>
         )}
         <h1 className="panel-title">{t('panel.title')}</h1>
-        <button type="button" className="default-look" onClick={() => setLookFor('default')} title={t('toolbar.defaultLook.tip')}>
+        <button type="button" className="default-look" disabled={locked} onClick={() => setLookFor('default')} title={t('toolbar.defaultLook.tip')}>
           <Palette size={15} /><span>{t('toolbar.defaultLook', { theme: themeName(themeById(deck.defaultLook.themeId)), layout: LAYOUTS.find((l) => l.id === deck.defaultLook.layout)?.name ?? '' })}</span>
         </button>
         <div className="spacer" />
         <label className="size" title={t('toolbar.size')}>
           <input type="range" min={140} max={420} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} />
         </label>
-        <div className="group">
+        {!web && <div className="group">
           <button type="button" className={locked ? 'on danger' : ''} onClick={() => setLocked((l) => !l)}
             title={t(locked ? 'toolbar.unlock.tip' : 'toolbar.lock.tip')} aria-pressed={locked}>
             {locked ? <Lock size={15} /> : <LockOpen size={15} />}<span>{t('toolbar.lock')}</span>
           </button>
-          <button type="button" className={live?.mode === 'clear' ? 'on' : ''} onClick={() => clear('text')} title={t('toolbar.clearText.tip')}>
+          <button type="button" className={live?.mode === 'clear' ? 'on' : ''} disabled={locked} onClick={() => clear('text')} title={t('toolbar.clearText.tip')}>
             <Eraser size={15} /><span>{t('toolbar.clearText')}</span>
           </button>
-          <button type="button" className={live?.mode === 'black' ? 'on danger' : ''} onClick={() => clear('all')} title={t('toolbar.blank.tip')}>
+          <button type="button" className={live?.mode === 'black' ? 'on danger' : ''} disabled={locked} onClick={() => clear('all')} title={t('toolbar.blank.tip')}>
             <MonitorOff size={15} /><span>{t('toolbar.blank')}</span>
           </button>
-        </div>
+        </div>}
+        {!web && insideObs() && (
+          <button type="button" className={`account${account ? ' signed-in' : ''}`} onClick={() => sendToHost({ type: 'account-menu' })}
+            title={account ? t('toolbar.account.signedIn', { email: account }) : t('toolbar.account.signIn')}
+            aria-label={account ? t('toolbar.account.signedIn', { email: account }) : t('toolbar.account.signIn')}>
+            <CircleUserRound size={18} />
+          </button>
+        )}
       </header>
 
       <main className={`slides${locked ? ' locked' : ''}`} ref={main}>
@@ -272,63 +348,148 @@ export function App() {
           </div>
         )}
         {!empty && deck.scenes.map((scene) => (
-          <section key={scene.id} className={`scene${scene.id === deck.currentScene ? ' current' : ''}`}>
-            <div className="scene-head">
+          <section key={scene.id}
+            className={`scene${!web && scene.id === deck.currentScene ? ' current' : ''}${drop?.sceneId === scene.id && drop.end ? ' drop-end' : ''}`}
+            onDragOver={(e) => { if (dragging) { e.preventDefault(); setDrop({ sceneId: scene.id, beforeId: null, end: true }); } }}
+            onDrop={(e) => { e.preventDefault(); finishDrop(); }}>
+            <div className="scene-head"
+              onDragOver={(e) => {
+                if (!dragging) return;
+                e.preventDefault(); e.stopPropagation();
+                setDrop({ sceneId: scene.id, beforeId: scene.items[0]?.id ?? null, end: !scene.items.length });
+              }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); finishDrop(); }}>
               <h2>{scene.name}</h2>
-              {scene.id === deck.currentScene && <span className="scene-badge">{t('scene.current')}</span>}
-            </div>
-            {!scene.items.length && <p className="muted scene-empty">{t('scene.empty')}</p>}
-            {scene.items.map((item) => {
-              const state = slides[item.id];
-              const look = lookOf(item, deck.defaultLook);
-              const isCollapsed = collapsed.has(item.id);
-              return (
-                <section key={item.id} id={`item-${item.id}`} className={`item${selected === item.id ? ' selected' : ''}`}>
-                  <div className="item-head" onClick={() => setSelected(item.id)}>
-                    <button type="button" className="icon" aria-label={t(isCollapsed ? 'item.expand' : 'item.collapse')}
-                      onClick={(e) => { e.stopPropagation(); setCollapsed((s) => { const n = new Set(s); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; }); }}>
-                      {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                    </button>
-                    <span className="kind">{KIND_ICONS[item.kind]}</span>
-                    <h3 onDoubleClick={() => setEditing({ item, isNew: false })}>{item.name || kindName(item.kind)}</h3>
-                    {item.kind !== 'ppt' && <span className="look-tag">{lookText(look)}{item.look ? '' : ` ${t('item.default')}`}</span>}
-                    <div className="spacer" />
-                    {item.kind !== 'ppt' && (
-                      <button type="button" className="icon" title={t('item.style')} onClick={(e) => { e.stopPropagation(); setLookFor(item.id); }}><Palette size={15} /></button>
-                    )}
-                    <button type="button" className="icon" title={t('item.edit')} onClick={(e) => { e.stopPropagation(); setEditing({ item, isNew: false }); }}><Pencil size={15} /></button>
-                    <button type="button" className={`icon${confirmDelete === item.id ? ' danger-text' : ''}`} title={t('item.delete')}
-                      onBlur={() => setConfirmDelete(null)}
-                      onClick={(e) => { e.stopPropagation(); remove(item.id); }}>
-                      <Trash2 size={15} />{confirmDelete === item.id && <span>{t('item.deleteConfirm')}</span>}
-                    </button>
-                  </div>
-                  {!isCollapsed && (
-                    <div className="grid">
-                      {state?.error && <div className="item-error"><FileText size={16} />{state.error}</div>}
-                      {!state?.entries && !state?.error && <div className="muted loading">{t('item.loading')}</div>}
-                      {state?.entries?.map((entry) => {
-                        const key = `${entry.ref.itemId}:${entry.ref.index}`;
-                        return (
-                          <button type="button" key={key} className={`thumb${liveKey === key ? ' live' : ''}`}
-                            onClick={() => { if (!locked) show(entry); }} title={entry.label}>
-                            <Thumb spec={entry.spec} />
-                            <span className="thumb-label"><b>{entry.ref.index + 1}</b>{entry.label}</span>
-                          </button>
-                        );
-                      })}
+              {!web && scene.id === deck.currentScene && <span className="scene-badge">{t('scene.current')}</span>}
+              {!locked && (
+                <div className="scene-add">
+                  <button type="button" className="icon" title={t('scene.add')} aria-expanded={addMenuFor === scene.id}
+                    onClick={() => setAddMenuFor((open) => (open === scene.id ? null : scene.id))}><Plus size={16} /></button>
+                  {addMenuFor === scene.id && (
+                    <div className="scene-add-menu" role="menu" onMouseLeave={() => setAddMenuFor(null)}>
+                      {(['text', 'scripture', 'image', 'video', 'ppt'] as const).map((kind) => (
+                        <button key={kind} type="button" role="menuitem" onClick={() => { setAddMenuFor(null); void add(kind, scene.id); }}>
+                          {KIND_ICONS[kind]}<span>{kindName(kind)}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
-                </section>
-              );
-            })}
+                </div>
+              )}
+            </div>
+            {!scene.items.length && <p className="muted scene-empty">{t('scene.empty')}</p>}
+            {/* Every slide of the scene in one grid: each card titled with its item, which drags as a whole. */}
+            <div className="grid">
+              {scene.items.map((item, itemIndex) => {
+                const state = slides[item.id];
+                const nextId = scene.items[itemIndex + 1]?.id ?? null;
+                const tools = (
+                  <span className="card-tools">
+                    {item.kind !== 'ppt' && (
+                      <button type="button" className="icon" title={t('item.style')} disabled={locked}
+                        onClick={(e) => { e.stopPropagation(); setLookFor(item.id); }}><Palette size={13} /></button>
+                    )}
+                    <button type="button" className="icon" title={t('item.edit')} disabled={locked}
+                      onClick={(e) => { e.stopPropagation(); setEditing({ item, isNew: false }); }}><Pencil size={13} /></button>
+                    <button type="button" className={`icon${confirmDelete === item.id ? ' danger-text' : ''}`} title={t('item.delete')} disabled={locked}
+                      onBlur={() => setConfirmDelete(null)}
+                      onClick={(e) => { e.stopPropagation(); remove(item.id); }}>
+                      <Trash2 size={13} />{confirmDelete === item.id && <span>{t('item.deleteConfirm')}</span>}
+                    </button>
+                  </span>
+                );
+                const title = (
+                  <div className="card-title" onClick={() => setSelected(item.id)}
+                    onDoubleClick={() => { if (!locked) setEditing({ item, isNew: false }); }}>
+                    <span className="kind">{KIND_ICONS[item.kind]}</span>
+                    <span className="card-title-text" title={item.name}>{item.name || kindName(item.kind)}</span>
+                    {tools}
+                  </div>
+                );
+                const dragProps = (first: boolean, last: boolean) => ({
+                  draggable: !locked,
+                  onDragStart: (e: React.DragEvent) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); setDragging(item.id); },
+                  onDragEnd: () => { setDragging(null); setDrop(null); },
+                  onDragOver: (e: React.DragEvent) => {
+                    if (!dragging) return;
+                    e.preventDefault(); e.stopPropagation();
+                    // Left half of a card: before its item; right half: after it.
+                    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const before = e.clientX < box.left + box.width / 2;
+                    setDrop({ sceneId: scene.id, beforeId: before ? item.id : nextId, end: !before && !nextId, at: item.id, side: before ? 'before' : 'after', first, last });
+                  },
+                  onDrop: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); finishDrop(); },
+                });
+                const dropClass = (first: boolean, last: boolean) => drop?.at === item.id
+                  ? (drop.side === 'before' && first ? ' drop-before' : drop.side === 'after' && last ? ' drop-after' : '') : '';
+                if (!state?.entries?.length) {
+                  return (
+                    <div key={item.id} id={`item-${item.id}`} {...dragProps(true, true)}
+                      className={`card-wrap${selected === item.id ? ' selected' : ''}${dragging === item.id ? ' dragging' : ''}${dropClass(true, true)}`}>
+                      {title}
+                      <div className="card-status">
+                        {state?.error ? <span className="item-error"><FileText size={16} />{state.error}</span> : <span className="muted">{t('item.loading')}</span>}
+                      </div>
+                    </div>
+                  );
+                }
+                return state.entries.map((entry, i) => {
+                  const key = `${entry.ref.itemId}:${entry.ref.index}`;
+                  const first = i === 0;
+                  const last = i === state.entries!.length - 1;
+                  return (
+                    <div key={key} id={first ? `item-${item.id}` : undefined} {...dragProps(first, last)}
+                      className={`card-wrap${liveKey === key ? ' live' : ''}${selected === item.id ? ' selected' : ''}${dragging === item.id ? ' dragging' : ''}${dropClass(first, last)}`}>
+                      {title}
+                      <button type="button" className={`thumb${liveKey === key ? ' live' : ''}`}
+                        onClick={() => { if (!locked) { setSelected(item.id); show(entry); } }} title={entry.label}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          if (!locked) setCardMenu({ x: event.clientX, y: event.clientY, item, entry, sceneId: scene.id });
+                        }}>
+                        <Thumb spec={entry.spec} />
+                        <span className="thumb-label"><b>{entry.ref.index + 1}</b>{entry.label}</span>
+                      </button>
+                      <button type="button" className="card-media-edit" disabled={locked}
+                        title={LANG === 'zh' ? '新增／編輯卡片影音' : 'Add / edit card media'}
+                        onClick={() => setMediaFor({ item, entry })}><Music size={14} /></button>
+                      {(entry.spec.media?.length || entry.spec.kind === 'video') ? <button type="button" className="card-play" disabled={locked}
+                        title={LANG === 'zh' ? '播放卡片影音' : 'Play card media'}
+                        onClick={() => show(entry, true)}><Play size={16} fill="currentColor" /></button> : null}
+                    </div>
+                  );
+                });
+              })}
+            </div>
           </section>
         ))}
       </main>
 
+      {cardMenu && (
+        <div className="card-menu" role="menu" style={{ left: Math.min(cardMenu.x, window.innerWidth - 200), top: Math.min(cardMenu.y, window.innerHeight - 140) }}
+          onPointerDown={(e) => e.stopPropagation()}>
+          <button type="button" role="menuitem" onClick={() => { const m = cardMenu; setCardMenu(null); duplicate(m.item, m.sceneId); }}>
+            <Copy size={14} /><span>{t('item.duplicate')}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => { const m = cardMenu; setCardMenu(null); setEditing({ item: m.item, isNew: false }); }}>
+            <Pencil size={14} /><span>{t('item.edit')}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => { const m = cardMenu; setCardMenu(null); setMediaFor({ item: m.item, entry: m.entry }); }}>
+            <Music size={14} /><span>{t('item.cardMedia')}</span>
+          </button>
+        </div>
+      )}
+
+      {mediaFor && <CardMediaEditor spec={mediaFor.entry.spec} tracks={mediaFor.item.cardMedia?.[String(mediaFor.entry.ref.index)] ?? []}
+        onClose={() => setMediaFor(null)} onSave={(tracks) => {
+          const latest = findItem(mediaFor.item.id)?.item ?? mediaFor.item;
+          sendToHost({ type: 'save-items', items: [{ ...latest, cardMedia: { ...latest.cardMedia, [String(mediaFor.entry.ref.index)]: tracks } }], sceneId: mediaFor.entry.ref.sceneId ?? null });
+          setMediaFor(null);
+        }} />}
+
       {editing && (
         <ItemEditor item={editing.item} isNew={editing.isNew} defaultLook={deck.defaultLook}
-          onSave={(items, showNow) => saveEdited(items, showNow, editing.isNew)} onClose={() => setEditing(null)} />
+          onSave={(items, showNow) => saveEdited(items, showNow, editing.isNew, editing.target)} onClose={() => setEditing(null)} />
       )}
 
       {lookFor && (

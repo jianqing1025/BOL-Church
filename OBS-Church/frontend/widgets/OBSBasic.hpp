@@ -458,6 +458,9 @@ private:
 	/* OBS Church: slides on the left, three screens on the right (see church/ChurchMode). */
 	ChurchMode *church = nullptr;
 	bool churchLayout = false;
+	/* Studio mode always runs underneath; the Studio Mode button shows or hides the Program pane. */
+	bool churchProgramPane = false;
+	void SetChurchProgramPane(bool show);
 	QPointer<OBSDock> mixerDock;
 
 public:
@@ -630,6 +633,8 @@ private slots:
 	void on_actionFullscreenInterface_triggered();
 	void on_actionRemux_triggered();
 	void on_action_Settings_triggered();
+	/* OBS Church: Settings, opened on one page (OBSBasicSettings::Pages; -1 for the last one). */
+	void OpenSettingsPage(int page);
 	void on_actionShowMacPermissions_triggered();
 	void on_actionShowLogs_triggered();
 	void on_actionUploadCurrentLog_triggered();

@@ -3,7 +3,14 @@
  * served from http://absolute/<path> (obs-browser's local-file address), where
  * any absolute path can be fetched from the same origin.
  */
+const localPreviews = new Map<string, string>();
+export function registerFilePreview(path: string, url: string) { localPreviews.set(path, url); }
+
 export function fileUrl(path: string): string {
+  // A root-only absolute URL crashes older OBS browser scheme handlers.
+  if (!path.trim() || /^[\\/]+$/.test(path)) return 'about:blank';
+  const preview = localPreviews.get(path);
+  if (preview) return preview;
   if (/^(https?|data|blob):/i.test(path)) return path;
   const normal = path.replace(/\\/g, '/').replace(/^\/+/, '');
   return `http://absolute/${normal.split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:')}`;

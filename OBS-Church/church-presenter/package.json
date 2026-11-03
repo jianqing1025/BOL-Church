@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",
+    "build:editor": "tsc --noEmit -p . && vite build --mode editor",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
   },

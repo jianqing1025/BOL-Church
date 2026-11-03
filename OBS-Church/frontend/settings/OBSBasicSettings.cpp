@@ -3944,6 +3944,13 @@ void OBSBasicSettings::reject()
 	}
 }
 
+void OBSBasicSettings::ShowPage(int page)
+{
+	if (page >= 0 && page < ui->listWidget->count()) {
+		ui->listWidget->setCurrentRow(page);
+	}
+}
+
 void OBSBasicSettings::on_listWidget_itemSelectionChanged()
 {
 	int row = ui->listWidget->currentRow();

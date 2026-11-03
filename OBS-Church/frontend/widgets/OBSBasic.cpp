@@ -52,6 +52,7 @@
 #ifdef BROWSER_AVAILABLE
 #include <browser-panel.hpp>
 #include <church/ChurchMode.hpp>
+#include <church/ChurchVersion.hpp>
 #endif
 #ifdef ENABLE_WAYLAND
 #include <obs-nix-platform.h>
@@ -182,6 +183,8 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 	controlsDock->setWidget(controls);
 
 	connect(controls, &OBSBasicControls::StreamButtonClicked, this, &OBSBasic::StreamActionTriggered);
+	connect(controls, &OBSBasicControls::StreamSettingsButtonClicked, this,
+		[this]() { OpenSettingsPage(OBSBasicSettings::Pages::STREAM); });
 
 	connect(controls, &OBSBasicControls::StartStreamMenuActionClicked, this, &OBSBasic::StartStreaming);
 	connect(controls, &OBSBasicControls::StopStreamMenuActionClicked, this, &OBSBasic::StopStreaming);
@@ -339,7 +342,7 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 	installEventFilter(shortcutFilter);
 
 	stringstream name;
-	name << "OBS " << App()->GetVersionString();
+	name << "OBS Church " << OBS_CHURCH_VERSION << " (OBS " << App()->GetVersionString() << ")";
 	blog(LOG_INFO, "%s", name.str().c_str());
 	blog(LOG_INFO, "---------------------------------");
 
@@ -2004,12 +2007,8 @@ void OBSBasic::UpdateTitleBar()
 	const char *profile = config_get_string(App()->GetUserConfig(), "Basic", "Profile");
 	const char *sceneCollection = config_get_string(App()->GetUserConfig(), "Basic", "SceneCollection");
 
-	name << "OBS ";
-	if (previewProgramMode) {
-		name << "Studio ";
-	}
-
-	name << App()->GetVersionString(false);
+	/* OBS Church's own version first; the OBS Studio it is built on after it. */
+	name << "OBS Church " << OBS_CHURCH_VERSION << " (OBS " << App()->GetVersionString(false) << ")";
 	if (safe_mode) {
 		name << " (" << Str("TitleBar.SafeMode") << ")";
 	}

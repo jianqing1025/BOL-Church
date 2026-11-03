@@ -58,3 +58,4 @@ build-aux/flatpak-github-action-modified-*
 /frontend/data/church-presenter/
 /cloud/node_modules/
 /cloud/.wrangler/
+/cloud/public/

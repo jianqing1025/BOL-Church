@@ -49,7 +49,13 @@ class OBSBasicSettings : public QDialog {
 	Q_PROPERTY(QIcon accessibilityIcon READ GetAccessibilityIcon WRITE SetAccessibilityIcon DESIGNABLE true)
 	Q_PROPERTY(QIcon advancedIcon READ GetAdvancedIcon WRITE SetAdvancedIcon DESIGNABLE true)
 
+public:
 	enum Pages { GENERAL, APPEARANCE, STREAM, OUTPUT, AUDIO, VIDEO, HOTKEYS, ACCESSIBILITY, ADVANCED, NUM_PAGES };
+
+	/* OBS Church: open on a given page (Pages), e.g. Stream from the button beside Start Streaming. */
+	void ShowPage(int page);
+
+private:
 
 private:
 	OBSBasic *main;

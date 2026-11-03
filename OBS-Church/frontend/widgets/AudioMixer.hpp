@@ -54,7 +54,15 @@ public:
 	void createMixerContextMenu();
 	void showMixerContextMenu();
 
+	/* OBS Church: a private source listed all the same, beside Desktop Audio and the microphones —
+	 * the slides' sound (a private page, which the mixer would otherwise never see). */
+	static void AddExtraSource(obs_source_t *source);
+
 private:
+	static std::vector<OBSWeakSource> extraSources;
+	static QPointer<AudioMixer> instance;
+	bool isExtraSource(obs_source_t *source) const;
+
 	std::vector<OBSSignal> signalHandlers;
 	std::vector<OBSSignal> previewSignals;
 	static void onFrontendEvent(enum obs_frontend_event event, void *data);

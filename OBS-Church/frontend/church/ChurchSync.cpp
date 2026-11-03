@@ -38,6 +38,9 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QCursor>
+#include <QEventLoop>
+#include <QElapsedTimer>
 #include <QMenu>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
@@ -59,11 +62,31 @@ namespace {
 
 const char *CONFIG_SECTION = "Church";
 const char *DEFAULT_SERVER = "https://obs-sync.bolccop.org";
+/* The account keeps files of at most 100 MB; bigger ones stay on the computer that has them. */
+const qint64 MAX_FILE_BYTES = 100LL * 1024 * 1024;
 
 bool IsLocalFile(const QString &path)
 {
 	return !path.isEmpty() && !path.startsWith("http://", Qt::CaseInsensitive) &&
 	       !path.startsWith("https://", Qt::CaseInsensitive);
+}
+
+/* Apply the same file handling to the source itself, every further video of a video item and every
+ * card attachment. */
+QJsonObject MapCardFiles(QJsonObject item, const std::function<QJsonObject(QJsonObject)> &map)
+{
+	item = map(item);
+	QJsonArray playlist = item.value("playlist").toArray();
+	for (int i = 0; i < playlist.size(); i++) playlist[i] = map(playlist[i].toObject());
+	if (!playlist.isEmpty()) item["playlist"] = playlist;
+	QJsonObject cards = item.value("cardMedia").toObject();
+	for (auto it = cards.begin(); it != cards.end(); ++it) {
+		QJsonArray tracks = it.value().toArray();
+		for (int i = 0; i < tracks.size(); i++) tracks[i] = map(tracks[i].toObject());
+		it.value() = tracks;
+	}
+	if (!cards.isEmpty()) item["cardMedia"] = cards;
+	return item;
 }
 
 /* The server's error code as a sentence. */
@@ -150,6 +173,77 @@ QString ChurchSync::ContentHash(const QJsonObject &content)
 	return QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
 }
 
+bool ChurchSync::HasItems(const QJsonObject &content)
+{
+	for (const QJsonValue &scene : content.value("scenes").toArray()) {
+		if (!scene.toObject().value("items").toArray().isEmpty()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ChurchSync::Dirty() const
+{
+	return config_get_bool(App()->GetUserConfig(), CONFIG_SECTION, ("SyncDirty." + Email().toStdString()).c_str());
+}
+
+void ChurchSync::SetDirty(bool dirty)
+{
+	config_t *config = App()->GetUserConfig();
+	config_set_bool(config, CONFIG_SECTION, ("SyncDirty." + Email().toStdString()).c_str(), dirty);
+	config_save_safe(config, "tmp", nullptr);
+}
+
+void ChurchSync::ContentEdited()
+{
+	if (Token().isEmpty() || SyncedHash().isEmpty()) {
+		return;
+	}
+	/* Only a real difference from what was last synced (an edit undone is none). */
+	const QJsonObject local = mode->ExportContent();
+	if (ContentHash(local) == SyncedHash() || !HasItems(local)) {
+		return;
+	}
+	SetDirty(true);
+	if (!pushTimer) {
+		pushTimer = new QTimer(this);
+		pushTimer->setSingleShot(true);
+		pushTimer->setInterval(5000);
+		connect(pushTimer.data(), &QTimer::timeout, this, [this]() {
+			if (busy) {
+				pushTimer->start();
+			} else {
+				SyncNow(true);
+			}
+		});
+	}
+	pushTimer->start();
+}
+
+void ChurchSync::FlushBeforeExit()
+{
+	if (Token().isEmpty() || !Dirty()) {
+		return;
+	}
+	if (!busy) {
+		SyncNow(true);
+	}
+	/* Wait for the upload (files and all) — at most half a minute, so closing never hangs long. */
+	QEventLoop loop;
+	QTimer poll;
+	poll.setInterval(100);
+	QElapsedTimer waited;
+	waited.start();
+	connect(&poll, &QTimer::timeout, &loop, [&]() {
+		if (!busy || waited.elapsed() > 30000) {
+			loop.quit();
+		}
+	});
+	poll.start();
+	loop.exec();
+}
+
 bool ChurchSync::LocalChanged() const
 {
 	QJsonObject local = mode->ExportContent();
@@ -181,41 +275,20 @@ void ChurchSync::Attach(QToolBar *toolbar)
 	}
 	rowLayout->addWidget(toolbar, 1);
 
+	/* Only "Sync" here; signing in and out is the profile icon's, on the Slides bar. */
 	button = new QToolButton();
 	button->setObjectName("churchSyncButton");
-	button->setPopupMode(QToolButton::MenuButtonPopup);
 	button->setToolButtonStyle(Qt::ToolButtonTextOnly);
-	QMenu *menu = new QMenu(button);
-	connect(menu, &QMenu::aboutToShow, this, [this, menu]() {
-		menu->clear();
-		if (Token().isEmpty()) {
-			menu->addAction(QTStr("Church.Sync.SignIn"), this, &ChurchSync::SignIn);
-		} else {
-			QAction *who = menu->addAction(QTStr("Church.Sync.SignedInAs").arg(Email()));
-			who->setEnabled(false);
-			menu->addAction(QTStr("Church.Sync.Now"), this, [this]() { SyncNow(false); });
-			menu->addSeparator();
-			menu->addAction(QTStr("Church.Sync.SignOut"), this, &ChurchSync::SignOut);
-		}
-	});
-	button->setMenu(menu);
-	connect(button.data(), &QToolButton::clicked, this, [this]() {
-		if (Token().isEmpty()) {
-			SignIn();
-		} else {
-			SyncNow(false);
-		}
-	});
+	connect(button.data(), &QToolButton::clicked, this, [this]() { SyncNow(false); });
 	rowLayout->addWidget(button);
 
-	SetStatus(QTStr(Token().isEmpty() ? "Church.Sync.Button" : "Church.Sync.Button"),
-		  Token().isEmpty() ? QTStr("Church.Sync.SignInTip") : QTStr("Church.Sync.Tip"));
+	SetStatus(QTStr("Church.Sync.Button"), QString());
 
 	/* Online and signed in: pick up the account at startup, then follow changes. */
 	autoTimer = new QTimer(this);
 	autoTimer->setInterval(60 * 1000);
 	connect(autoTimer.data(), &QTimer::timeout, this, [this]() {
-		if (!Token().isEmpty() && !busy && LocalChanged()) {
+		if (!Token().isEmpty() && !busy) {
 			SyncNow(true);
 		}
 	});
@@ -232,8 +305,31 @@ void ChurchSync::SetStatus(const QString &text, const QString &tip)
 	if (!button) {
 		return;
 	}
+	bool signedIn = !Token().isEmpty();
 	button->setText(text);
-	button->setToolTip(tip);
+	button->setEnabled(signedIn);
+	button->setToolTip(signedIn ? (tip.isEmpty() ? QTStr("Church.Sync.Tip") : tip) : QTStr("Church.Sync.SignInFromProfile"));
+}
+
+QString ChurchSync::SignedInEmail() const
+{
+	return Token().isEmpty() ? QString() : Email();
+}
+
+void ChurchSync::ShowAccountMenu()
+{
+	QMenu menu(main);
+	if (Token().isEmpty()) {
+		menu.addAction(QTStr("Church.Sync.SignIn"), this, &ChurchSync::SignIn);
+	} else {
+		QAction *who = menu.addAction(QTStr("Church.Sync.SignedInAs").arg(Email()));
+		who->setEnabled(false);
+		menu.addAction(QTStr("Church.Sync.Now"), this, [this]() { SyncNow(false); });
+		menu.addAction(QTStr("Church.Sync.DownloadAll"), this, &ChurchSync::DownloadAll);
+		menu.addSeparator();
+		menu.addAction(QTStr("Church.Sync.SignOut"), this, &ChurchSync::SignOut);
+	}
+	menu.exec(QCursor::pos());
 }
 
 void ChurchSync::Fail(const QString &message)
@@ -319,6 +415,7 @@ void ChurchSync::SignIn()
 
 	if (dialog.exec() == QDialog::Accepted) {
 		SetStatus(QTStr("Church.Sync.Button"), QTStr("Church.Sync.Tip"));
+		emit accountChanged();
 		SyncNow(false);
 	}
 }
@@ -329,6 +426,7 @@ void ChurchSync::SignOut()
 	config_remove_value(config, CONFIG_SECTION, "SyncToken");
 	config_save_safe(config, "tmp", nullptr);
 	SetStatus(QTStr("Church.Sync.Button"), QTStr("Church.Sync.SignInTip"));
+	emit accountChanged();
 }
 
 /* ---------------------------- sync -------------------------------------- */
@@ -360,9 +458,25 @@ void ChurchSync::SyncNow(bool quiet)
 		}
 		QJsonObject remote = QJsonDocument::fromJson(data).object();
 		qint64 remoteRev = remote.value("rev").toInteger();
-		bool localChanged = LocalChanged();
+		/* Changed here means edited here by hand: OBS tidying up (fuller file paths, layouts) never stops
+		 * the account's newer content from coming in. */
+		const bool neverSynced = SyncedHash().isEmpty();
+		bool localChanged = neverSynced ? LocalChanged() : (Dirty() && LocalChanged());
 		bool remoteChanged = remoteRev != BaseRev();
 		qint64 base = BaseRev();
+		const bool askNow = !quiet || startupSync;
+		startupSync = false;
+		if (!neverSynced && !Dirty() && !remoteChanged && LocalChanged()) {
+			/* Only OBS's own tidying: bring the account in line quietly. */
+			localChanged = true;
+		}
+
+		if (quiet && localChanged && !HasItems(mode->ExportContent()) && HasItems(remote.value("content").toObject())) {
+			/* No slides here but slides in the account: never wipe it on our own — take the account's. */
+			blog(LOG_WARNING, "[Church] sync: no slides here; not sending that over the account's");
+			localChanged = false;
+			remoteChanged = true;
+		}
 
 		if (remoteRev == 0) {
 			Push(0);
@@ -382,8 +496,8 @@ void ChurchSync::SyncNow(bool quiet)
 			QPushButton *mine = box.addButton(QTStr("Church.Sync.KeepMine"), QMessageBox::AcceptRole);
 			QPushButton *theirs = box.addButton(QTStr("Church.Sync.KeepAccount"), QMessageBox::DestructiveRole);
 			box.addButton(QMessageBox::Cancel);
-			if (quiet) {
-				/* Never decide this alone: wait for a click on Sync. */
+			if (!askNow) {
+				/* Never decide this alone, and never pop up during a service: wait for a click on Sync. */
 				busy = false;
 				SetStatus(QTStr("Church.Sync.ButtonError"), QTStr("Church.Sync.ConflictWaiting"));
 				return;
@@ -401,12 +515,49 @@ void ChurchSync::SyncNow(bool quiet)
 	});
 }
 
+void ChurchSync::DownloadAll()
+{
+	if (busy || Token().isEmpty()) {
+		return;
+	}
+	if (QMessageBox::question(main, QTStr("Church.Sync.DownloadAll"), QTStr("Church.Sync.DownloadAllConfirm")) !=
+	    QMessageBox::Yes) {
+		return;
+	}
+	busy = true;
+	SetStatus(QTStr("Church.Sync.ButtonBusy"), QTStr("Church.Sync.Working"));
+	QNetworkReply *reply = Request("GET", "/api/content");
+	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+		reply->deleteLater();
+		QByteArray data = reply->readAll();
+		if (reply->error() != QNetworkReply::NoError) {
+			Fail(ErrorText(data, reply->error()));
+			return;
+		}
+		QJsonObject remote = QJsonDocument::fromJson(data).object();
+		if (remote.value("rev").toInteger() == 0) {
+			busy = false;
+			SetStatus(QTStr("Church.Sync.Button"), QTStr("Church.Sync.Tip"));
+			return;
+		}
+		Pull(remote.value("rev").toInteger(), remote.value("content").toObject());
+	});
+}
+
 void ChurchSync::Pull(qint64 rev, const QJsonObject &content)
 {
-	DownloadFiles(content, [this, rev](QJsonObject ready) {
+	const QString localHash = ContentHash(mode->ExportContent());
+	DownloadFiles(content, [this, rev, localHash](QJsonObject ready) {
+		/* A user may edit while large files download. Keep those edits for conflict resolution. */
+		if (ContentHash(mode->ExportContent()) != localHash) {
+			busy = false;
+			SetStatus(QTStr("Church.Sync.ButtonError"), QTStr("Church.Sync.ConflictWaiting"));
+			return;
+		}
 		mode->ImportContent(ready);
 		SetBaseRev(rev);
 		SetSyncedHash(ContentHash(mode->ExportContent()));
+		SetDirty(false);
 		QTimer::singleShot(0, this, [this]() {
 			busy = false;
 			SetStatus(QTStr("Church.Sync.Button"),
@@ -427,9 +578,9 @@ void ChurchSync::Push(qint64 baseRev)
 			QByteArray data = reply->readAll();
 			int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 			if (status == 409) {
-				/* The account moved on meanwhile: start over, which will ask. */
+				/* The account moved on meanwhile: start over (asking only if this sync may ask). */
 				busy = false;
-				SyncNow(false);
+				SyncNow(true);
 				return;
 			}
 			if (reply->error() != QNetworkReply::NoError) {
@@ -438,6 +589,7 @@ void ChurchSync::Push(qint64 baseRev)
 			}
 			SetBaseRev(QJsonDocument::fromJson(data).object().value("rev").toInteger());
 			SetSyncedHash(localHash);
+			SetDirty(false);
 			busy = false;
 			SetStatus(QTStr("Church.Sync.Button"),
 				  QTStr("Church.Sync.UpToDate").arg(QDateTime::currentDateTime().toString("HH:mm")));
@@ -450,8 +602,8 @@ void ChurchSync::Push(qint64 baseRev)
 QString ChurchSync::LocalPath(const QJsonObject &item)
 {
 	QString kind = item.value("kind").toString();
-	QString path = kind == "video" ? item.value("url").toString() : item.value("path").toString();
-	return (kind == "image" || kind == "ppt" || kind == "video") && IsLocalFile(path) ? path : QString();
+	QString path = (kind == "video" || kind == "audio") ? item.value("url").toString() : item.value("path").toString();
+	return (kind == "image" || kind == "ppt" || kind == "video" || kind == "audio") && IsLocalFile(path) ? path : QString();
 }
 
 QString ChurchSync::FileHash(const QString &path)
@@ -480,7 +632,9 @@ QString ChurchSync::CacheDir() const
 {
 	BPtr<char> path = GetAppConfigPathPtr("obs-studio/church-presenter/files");
 	QDir().mkpath(QT_UTF8(path.Get()));
-	return QT_UTF8(path.Get());
+	/* A full path: in portable mode OBS names its config folder relative to the program ("../../config"),
+	 * which the slide pages cannot open. */
+	return QDir::cleanPath(QFileInfo(QT_UTF8(path.Get())).absoluteFilePath());
 }
 
 /* Every local file the items use, uploaded once; the content then names each by its hash. */
@@ -496,15 +650,21 @@ void ChurchSync::UploadFiles(QJsonObject content, std::function<void(QJsonObject
 		QJsonObject scene = scenes[s].toObject();
 		QJsonArray items = scene.value("items").toArray();
 		for (int i = 0; i < items.size(); i++) {
-			QJsonObject item = items[i].toObject();
-			QString path = LocalPath(item);
-			QString hash = path.isEmpty() ? QString() : FileHash(path);
-			if (!hash.isEmpty()) {
-				item["fileHash"] = hash;
-				item["fileName"] = QFileInfo(path).fileName();
-				jobs->push_back({path, hash});
-			}
-			items[i] = item;
+			items[i] = MapCardFiles(items[i].toObject(), [this, jobs](QJsonObject file) {
+				QString path = LocalPath(file);
+				if (!path.isEmpty() && QFileInfo(path).size() > MAX_FILE_BYTES) {
+					blog(LOG_INFO, "[Church] sync: %s is over 100 MB; it stays on this computer",
+					     QT_TO_UTF8(QFileInfo(path).fileName()));
+					return file;
+				}
+				QString hash = path.isEmpty() ? QString() : FileHash(path);
+				if (!hash.isEmpty()) {
+					file["fileHash"] = hash;
+					file["fileName"] = QFileInfo(path).fileName();
+					jobs->push_back({path, hash});
+				}
+				return file;
+			});
 		}
 		scene["items"] = items;
 		scenes[s] = scene;
@@ -565,26 +725,18 @@ void ChurchSync::DownloadFiles(QJsonObject content, std::function<void(QJsonObje
 		QJsonObject scene = scenes[s].toObject();
 		QJsonArray items = scene.value("items").toArray();
 		for (int i = 0; i < items.size(); i++) {
-			QJsonObject item = items[i].toObject();
-			QString hash = item.value("fileHash").toString();
-			if (hash.isEmpty()) {
-				continue;
-			}
-			QString path = LocalPath(item);
-			if (!path.isEmpty() && FileHash(path) == hash) {
-				continue;
-			}
-			QString ext = QFileInfo(item.value("fileName").toString()).suffix();
-			QString target = QDir::fromNativeSeparators(cache + "/" + hash + (ext.isEmpty() ? "" : "." + ext));
-			if (item.value("kind").toString() == "video") {
-				item["url"] = target;
-			} else {
-				item["path"] = target;
-			}
-			items[i] = item;
-			if (!QFileInfo::exists(target)) {
-				jobs->push_back({hash, target});
-			}
+			items[i] = MapCardFiles(items[i].toObject(), [this, jobs, cache](QJsonObject file) {
+				QString hash = file.value("fileHash").toString();
+				if (hash.isEmpty()) return file;
+				QString path = LocalPath(file);
+				if (!path.isEmpty() && !QDir::isRelativePath(path) && FileHash(path) == hash) return file;
+				QString ext = QFileInfo(file.value("fileName").toString()).suffix();
+				QString target = QDir::fromNativeSeparators(cache + "/" + hash + (ext.isEmpty() ? "" : "." + ext));
+				QString kind = file.value("kind").toString();
+				file[kind == "video" || kind == "audio" ? "url" : "path"] = target;
+				if (!QFileInfo::exists(target)) jobs->push_back({hash, target});
+				return file;
+			});
 		}
 		scene["items"] = items;
 		scenes[s] = scene;

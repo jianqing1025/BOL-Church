@@ -208,13 +208,18 @@ void OBSBasic::on_actionRemux_triggered()
 
 void OBSBasic::on_action_Settings_triggered()
 {
+	OpenSettingsPage(-1);
+}
+
+void OBSBasic::OpenSettingsPage(int page)
+{
 	static bool settings_already_executing = false;
 
 	/* Do not load settings window if inside of a temporary event loop
 	 * because we could be inside of an Auth::LoadUI call.  Keep trying
 	 * once per second until we've exit any known sub-loops. */
 	if (os_atomic_load_long(&insideEventLoop) != 0) {
-		QTimer::singleShot(1000, this, &OBSBasic::on_action_Settings_triggered);
+		QTimer::singleShot(1000, this, [this, page]() { OpenSettingsPage(page); });
 		return;
 	}
 
@@ -226,6 +231,9 @@ void OBSBasic::on_action_Settings_triggered()
 
 	{
 		OBSBasicSettings settings(this);
+		if (page >= 0) {
+			settings.ShowPage(page);
+		}
 		settings.exec();
 	}
 

@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.28)
+project(browser_local_file_regression LANGUAGES CXX)
+enable_testing()
+add_executable(browser-local-file-test main.cpp)
+target_compile_features(browser-local-file-test PRIVATE cxx_std_17)
+target_include_directories(browser-local-file-test PRIVATE ../../plugins/obs-browser)
+add_test(NAME browser-local-file-regression COMMAND browser-local-file-test)

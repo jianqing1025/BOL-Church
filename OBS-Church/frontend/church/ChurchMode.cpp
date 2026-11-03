@@ -26,12 +26,15 @@
 ******************************************************************************/
 
 #include "ChurchMode.hpp"
+
+#include <widgets/AudioMixer.hpp>
 #include "ChurchSceneView.hpp"
 #include "ChurchSlidesSource.hpp"
 #include "ChurchSync.hpp"
 
 #include <OBSApp.hpp>
 #include <components/VolumeControl.hpp>
+#include <components/SourceTree.hpp>
 #include <docks/OBSDock.hpp>
 #include <utility/platform.hpp>
 #include <widgets/OBSBasic.hpp>
@@ -47,6 +50,8 @@
 #include <QSvgRenderer>
 #include <QClipboard>
 #include <QDate>
+#include <QDialog>
+#include <QInputDialog>
 #include <QStatusBar>
 #include <QDir>
 #include <QFile>
@@ -60,6 +65,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSplitter>
 #include <QTimer>
 #include <QToolButton>
@@ -82,9 +88,9 @@ const char *CONFIG_SECTION = "Church";
 /* A feed scene's private setting, and an item's role inside it. */
 const char *FEED_KEY = "church_feed";
 const char *ROLE_KEY = "church_role";
-const char *FEED_IDS[ChurchMode::FEEDS] = {"main", "camera", "pip", "side"};
+const char *FEED_IDS[ChurchMode::FEEDS] = {"main", "camera", "pip", "caption"};
 const char *FEED_NAMES[ChurchMode::FEEDS] = {"Church.Feed.Main", "Church.Feed.Camera", "Church.Feed.Pip",
-					     "Church.Feed.Side"};
+					     "Church.Feed.Caption"};
 
 #ifdef _WIN32
 const char *CAMERA_SOURCE_ID = "dshow_input";
@@ -193,10 +199,41 @@ void CollectItems(obs_scene_t *scene, std::vector<OBSSource> &out)
 	}
 }
 
+/* A file on this computer named relative to OBS's folder (portable mode keeps the sync cache under
+ * "../../config"), as a full path: the slide pages can only open full paths. Links stay as they are. */
+QString AbsoluteLocal(const QString &path)
+{
+	if (path.isEmpty() || path.contains("://") || path.startsWith("data:") || path.startsWith("about:") ||
+	    !QDir::isRelativePath(path)) {
+		return path;
+	}
+	return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+}
+
+QJsonObject AbsoluteFiles(QJsonObject file)
+{
+	for (const char *field : {"path", "url"}) {
+		if (file.contains(field)) {
+			file[field] = AbsoluteLocal(file.value(field).toString());
+		}
+	}
+	return file;
+}
+
 QJsonObject ItemJson(obs_source_t *source)
 {
 	OBSDataAutoRelease settings = obs_source_get_settings(source);
-	QJsonObject item = QJsonDocument::fromJson(obs_data_get_string(settings, CHURCH_SLIDES_ITEM)).object();
+	QJsonObject item = AbsoluteFiles(QJsonDocument::fromJson(obs_data_get_string(settings, CHURCH_SLIDES_ITEM)).object());
+	QJsonArray playlist = item.value("playlist").toArray();
+	for (int i = 0; i < playlist.size(); i++) playlist[i] = AbsoluteFiles(playlist[i].toObject());
+	if (!playlist.isEmpty()) item["playlist"] = playlist;
+	QJsonObject cards = item.value("cardMedia").toObject();
+	for (auto it = cards.begin(); it != cards.end(); ++it) {
+		QJsonArray tracks = it.value().toArray();
+		for (int i = 0; i < tracks.size(); i++) tracks[i] = AbsoluteFiles(tracks[i].toObject());
+		it.value() = tracks;
+	}
+	if (!cards.isEmpty()) item["cardMedia"] = cards;
 	item["id"] = QString::fromUtf8(obs_source_get_uuid(source));
 	item["name"] = QString::fromUtf8(obs_source_get_name(source));
 	return item;
@@ -216,14 +253,14 @@ std::string UniqueName(const QString &wanted, obs_source_t *self = nullptr)
 	}
 }
 
-/* An adaptive grid: four small screens in one row, two rows, or one column — whichever makes them biggest. */
+/* Four recording selectors in a fixed 2 by 2 grid. */
 class Tiles : public QWidget {
 	std::vector<QWidget *> tiles;
 	const int gap = 6;
 	const int header = 18;
 
 public:
-	explicit Tiles(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(200, 120); }
+	explicit Tiles(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(2 * 96 + gap, 2 * (54 + header) + gap); }
 	void Add(QWidget *tile)
 	{
 		tile->setParent(this);
@@ -237,22 +274,7 @@ protected:
 		if (!n) {
 			return;
 		}
-		int best = 1;
-		double bestArea = 0;
-		for (int cols : {1, 2, 4}) {
-			if (cols > n) {
-				continue;
-			}
-			int rows = (n + cols - 1) / cols;
-			double w = double(width() - gap * (cols - 1)) / cols;
-			double h = double(height() - gap * (rows - 1)) / rows - header;
-			double vw = std::min(w, h * 16.0 / 9.0);
-			if (vw > bestArea) {
-				bestArea = vw;
-				best = cols;
-			}
-		}
-		int cols = best;
+		const int cols = 2;
 		int rows = (n + cols - 1) / cols;
 		int w = (width() - gap * (cols - 1)) / cols;
 		int h = (height() - gap * (rows - 1)) / rows;
@@ -305,13 +327,22 @@ void ChurchMode::Init()
 	autoCameraTimer = new QTimer(this);
 	autoCameraTimer->setSingleShot(true);
 	connect(autoCameraTimer.data(), &QTimer::timeout, this, [this]() {
-		if (AutoSwitch()) {
-			GoLive(Feed::Camera);
+		if (!AutoSwitch() || !autoCameraPending) {
+			return;
 		}
+		/* A video (or a card's video / audio) still playing keeps Main live; when it stops, the
+		 * countdown starts again from there (ShowMediaProgress). A still slide goes to Camera only. */
+		if (mediaPlaying) {
+			return;
+		}
+		autoCameraPending = false;
+		GoLive(Feed::Camera);
 	});
 
 	sync = new ChurchSync(this, main);
 	sync->Attach(main->ui->scenesToolbar);
+	connect(sync, &ChurchSync::accountChanged, this, &ChurchMode::SendAccount);
+	connect(this, &ChurchMode::contentEdited, sync, &ChurchSync::ContentEdited);
 
 	ChurchSlides::SetEditHandler([this](const std::string &uuid) {
 		QMetaObject::invokeMethod(this, [this, uuid]() { EditItem(uuid); }, Qt::QueuedConnection);
@@ -440,14 +471,112 @@ void ChurchMode::EnsureOutput()
 	obs_source_set_output_volume(output, float(config_get_double(config, CONFIG_SECTION, "SlidesOutputVolume")));
 	obs_source_set_output_muted(output, config_get_bool(config, CONFIG_SECTION, "SlidesOutputMuted"));
 	obs_source_set_monitoring_enabled(output, config_get_bool(config, CONFIG_SECTION, "SlidesMonitor"));
+	/* In OBS's Audio Mixer too: its volume there is the room's (monitoring) — the Recording & Streaming
+	 * mixer sets the level that goes out to the stream and recording. */
+	AudioMixer::AddExtraSource(output);
 
 	outputSignal.Connect(obs_source_get_signal_handler(output), "host_message", ChurchMode::OutputHostMessage,
 			     this);
 	ChurchSlides::SetOutput(output);
+
+	/* The lower-third copy: the same page in caption mode (text only, centred at the bottom). */
+	OBSDataAutoRelease captionSettings = obs_data_create();
+	obs_data_set_bool(captionSettings, "is_local_file", false);
+	obs_data_set_string(captionSettings, "url", (AbsoluteUrl(file) + "?mode=caption").c_str());
+	obs_data_set_int(captionSettings, "width", int(cx));
+	obs_data_set_int(captionSettings, "height", int(cy));
+	obs_data_set_bool(captionSettings, "shutdown", false);
+	obs_data_set_bool(captionSettings, "restart_when_active", false);
+	OBSSourceAutoRelease captionPage =
+		obs_source_create_private("browser_source", Str("Church.Source.Caption"), captionSettings);
+	captionOutput = captionPage.Get();
+	if (captionOutput) {
+		captionSignal.Connect(obs_source_get_signal_handler(captionOutput), "host_message",
+				      ChurchMode::OutputHostMessage, this);
+		ChurchSlides::SetCaptionOutput(captionOutput);
+		obs_source_inc_showing(captionOutput);
+		obs_source_inc_active(captionOutput);
+	}
 	/* Always on screen as far as the browser is concerned: a hidden page stops painting, and an
 	 * item that turns live must show its slide at once. */
 	obs_source_inc_showing(output);
 	obs_source_inc_active(output);
+}
+
+/* The device a camera source opens ("" when none is picked). */
+static std::string CameraDevice(obs_source_t *source)
+{
+	OBSDataAutoRelease settings = obs_source_get_settings(source);
+	return obs_data_get_string(settings, CAMERA_DEVICE_PROPERTY);
+}
+
+/* A camera source already in the collection, other than `except`, opening `device` (any device when empty). */
+static OBSSource OtherCamera(obs_source_t *except, const std::string &device)
+{
+	struct Find {
+		obs_source_t *except;
+		const std::string &device;
+		OBSSource found;
+	} find{except, device, nullptr};
+	obs_enum_sources(
+		[](void *param, obs_source_t *source) {
+			auto *f = static_cast<Find *>(param);
+			if (source == f->except || strcmp(obs_source_get_unversioned_id(source), CAMERA_SOURCE_ID) != 0) {
+				return true;
+			}
+			std::string device = CameraDevice(source);
+			if (device.empty() || (!f->device.empty() && device != f->device)) {
+				return true;
+			}
+			f->found = source;
+			return false;
+		},
+		&find);
+	return find.found;
+}
+
+static bool CollectItemsOf(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	auto *swap = static_cast<std::pair<obs_source_t *, std::vector<OBSSceneItem>> *>(param);
+	if (obs_sceneitem_get_source(item) == swap->first) {
+		swap->second.emplace_back(item);
+	}
+	if (obs_sceneitem_is_group(item)) {
+		obs_sceneitem_group_enum_items(item, CollectItemsOf, param);
+	}
+	return true;
+}
+
+/* Every scene item showing `from` (inside groups too) shows `to` instead, in the same place. */
+static void ReplaceSourceItems(obs_source_t *from, obs_source_t *to)
+{
+	std::pair<obs_source_t *, std::vector<OBSSceneItem>> swap{from, {}};
+	obs_enum_scenes(
+		[](void *param, obs_source_t *source) {
+			obs_scene_enum_items(obs_scene_from_source(source), CollectItemsOf, param);
+			return true;
+		},
+		&swap);
+	for (OBSSceneItem &old : swap.second) {
+		obs_scene_t *parent = obs_sceneitem_get_scene(old);
+		obs_sceneitem_t *item = parent ? obs_scene_add(parent, to) : nullptr;
+		if (!item) {
+			continue;
+		}
+		obs_transform_info info;
+		obs_sceneitem_get_info2(old, &info);
+		obs_sceneitem_set_info2(item, &info);
+		obs_sceneitem_crop crop;
+		obs_sceneitem_get_crop(old, &crop);
+		obs_sceneitem_set_crop(item, &crop);
+		obs_sceneitem_set_visible(item, obs_sceneitem_visible(old));
+		obs_sceneitem_set_locked(item, obs_sceneitem_locked(old));
+		OBSDataAutoRelease oldPriv = obs_sceneitem_get_private_settings(old);
+		OBSDataAutoRelease priv = obs_sceneitem_get_private_settings(item);
+		obs_data_apply(priv, oldPriv);
+		obs_sceneitem_set_order_position(item, obs_sceneitem_get_order_position(old));
+		obs_sceneitem_remove(old);
+	}
 }
 
 OBSSource ChurchMode::EnsureCamera()
@@ -458,7 +587,7 @@ OBSSource ChurchMode::EnsureCamera()
 	}
 
 	/* The camera the feeds already use, if the collection has them. */
-	for (Feed feed : {Feed::Camera, Feed::Pip, Feed::Side}) {
+	for (Feed feed : {Feed::Camera, Feed::Pip, Feed::Caption}) {
 		OBSSource scene = Scene(feed);
 		if (!scene) {
 			continue;
@@ -469,6 +598,12 @@ OBSSource ChurchMode::EnsureCamera()
 			camera = OBSGetWeakRef(source);
 			return source;
 		}
+	}
+
+	/* A webcam opens for one source only: share the camera the collection already has. */
+	if (OBSSource other = OtherCamera(nullptr, "")) {
+		camera = OBSGetWeakRef(other);
+		return other;
 	}
 
 	OBSDataAutoRelease settings = obs_data_create();
@@ -540,12 +675,53 @@ void ChurchMode::EnsureScenes()
 				PlaceItem(item, 0.0f, 0.0f, cx, cy);
 			}
 		}
+		if (feed == Feed::Caption) {
+			OBSDataAutoRelease captionSettings = obs_data_create();
+			OBSSourceAutoRelease caption = obs_source_create(
+				CHURCH_CAPTION_ID, UniqueName(QTStr("Church.Source.Caption")).c_str(), captionSettings, nullptr);
+			if (caption) {
+				obs_sceneitem_t *item = obs_scene_add(scene, caption);
+				SetRole(item, "caption");
+				PlaceItem(item, 0.0f, 0.0f, cx, cy);
+				obs_sceneitem_set_order(item, OBS_ORDER_MOVE_TOP);
+			}
+		}
 	}
-	EnsureCamera();
+	/* Earlier versions made their own camera source even when the collection had one on the same
+	 * device; the second never got a picture. The feeds take the collection's camera instead. */
+	if (OBSSource ours = EnsureCamera()) {
+		std::string device = CameraDevice(ours);
+		OBSSource other = device.empty() ? OBSSource() : OtherCamera(ours, device);
+		if (other) {
+			blog(LOG_INFO, "[Church] '%s' and '%s' open the same camera; using '%s'",
+			     obs_source_get_name(ours), obs_source_get_name(other), obs_source_get_name(other));
+			ReplaceSourceItems(ours, other);
+			obs_source_remove(ours);
+			camera = OBSGetWeakRef(other);
+			created = true;
+		}
+	}
+
+	/* Earlier versions had a side-by-side feed in fourth place; it is the caption feed now. */
+	struct Old {
+		std::vector<OBSSource> scenes;
+	} old;
+	obs_enum_scenes(
+		[](void *param, obs_source_t *source) {
+			OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+			if (strcmp(obs_data_get_string(priv, FEED_KEY), "side") == 0) {
+				static_cast<Old *>(param)->scenes.emplace_back(source);
+			}
+			return true;
+		},
+		&old);
+	for (OBSSource &scene : old.scenes) {
+		obs_source_remove(scene);
+		created = true;
+	}
 
 	if (created) {
 		ApplyLayout(Feed::Pip, true, 0.32f);
-		ApplyLayout(Feed::Side, false, 0.30f);
 		main->SaveProject();
 	}
 }
@@ -554,6 +730,7 @@ void ChurchMode::EnsureScenes()
  * or the slides on the left and the camera beside them on the right. `cameraShare`: the camera's width. */
 void ChurchMode::ApplyLayout(Feed feed, bool cameraCorner, float cameraShare)
 {
+	cameraShare = std::clamp(cameraShare, .05f, .85f);
 	OBSSource source = Scene(feed);
 	obs_scene_t *scene = obs_scene_from_source(source);
 	if (!scene) {
@@ -593,6 +770,7 @@ void ChurchMode::ApplyLayout(Feed feed, bool cameraCorner, float cameraShare)
 
 	config_set_string(App()->GetUserConfig(), CONFIG_SECTION,
 			  (std::string(FEED_IDS[size_t(feed)]) + "Layout").c_str(), cameraCorner ? "corner" : "side");
+	config_set_double(App()->GetUserConfig(), CONFIG_SECTION, "PipCameraShare", cameraShare);
 }
 
 /* The current scene, nested in a feed scene — replacing the one that was there, in the same place. */
@@ -631,9 +809,7 @@ void ChurchMode::PlaceContent(obs_scene_t *feedScene, obs_source_t *content, Fee
 	}
 	obs_sceneitem_set_order(item, OBS_ORDER_MOVE_BOTTOM);
 
-	if (!hadPlace && feed == Feed::Side) {
-		ApplyLayout(Feed::Side, false, 0.30f);
-	}
+
 }
 
 void ChurchMode::SetContent(obs_source_t *scene)
@@ -641,8 +817,9 @@ void ChurchMode::SetContent(obs_source_t *scene)
 	if (!scene || IsFeedScene(scene)) {
 		return;
 	}
+	if (main->churchProgramPane && !committingStage) return;
 	contentScene = OBSGetWeakRef(scene);
-	for (Feed feed : {Feed::Main, Feed::Pip, Feed::Side}) {
+	for (Feed feed : {Feed::Main, Feed::Pip}) {
 		PlaceContent(obs_scene_from_source(Scene(feed)), scene, feed);
 	}
 	RefreshDeck();
@@ -661,7 +838,17 @@ void ChurchMode::SlideChanged()
 	if (!AutoSwitch() || !autoCameraTimer) {
 		return;
 	}
-	GoLive(Feed::Main);
+	if (!committingStage) GoLive(Feed::Main);
+	autoCameraPending = true;
+	StartAutoCameraCountdown();
+}
+
+/* Camera only after the set time (right-click a screen to change it) on a still Main. */
+void ChurchMode::StartAutoCameraCountdown()
+{
+	if (!autoCameraTimer) {
+		return;
+	}
 	config_t *config = App()->GetUserConfig();
 	int seconds = (int)config_get_int(config, CONFIG_SECTION, "AutoCameraSeconds");
 	autoCameraTimer->start((seconds > 0 ? seconds : 120) * 1000);
@@ -713,48 +900,51 @@ void ChurchMode::BuildSlideButtons()
 
 void ChurchMode::EnsureLiveGroups()
 {
-	if (ensuringGroups) {
-		return;
-	}
+	if (ensuringGroups) return;
 	ensuringGroups = true;
-	float cx, cy;
-	Canvas(cx, cy);
+	bool changed = false;
+	float cx, cy; Canvas(cx, cy);
 	for (OBSSource &scene : ContentScenes()) {
-		/* Once per scene: if it is deleted on purpose, it stays deleted. */
+		obs_scene_t *root = obs_scene_from_source(scene);
 		OBSDataAutoRelease priv = obs_source_get_private_settings(scene);
-		if (obs_data_get_bool(priv, "church_live_added")) {
-			continue;
-		}
-		obs_data_set_bool(priv, "church_live_added", true);
-		OBSSource cam = EnsureCamera();
-		obs_scene_t *s = obs_scene_from_source(scene);
-		if (!cam || !s) {
-			continue;
-		}
-
-		obs_sceneitem_t *group = obs_scene_add_group2(s, UniqueName(QTStr("Church.LiveVideo")).c_str(), true);
+		OBSSceneItem group = FindRole(root, "live");
 		if (!group) {
-			continue;
+			/* Respect a group explicitly deleted by its owner. */
+			if (obs_data_get_bool(priv, "church_live_added")) continue;
+			OBSSource cam = EnsureCamera();
+			if (!cam || !root) continue;
+			group = obs_scene_add_group2(root, UniqueName(QTStr("Church.LiveVideo")).c_str(), true);
+			if (!group) continue;
+			obs_data_set_bool(priv, "church_live_added", true);
+			SetRole(group, "live");
+			obs_sceneitem_t *camItem = obs_scene_add(root, cam);
+			if (camItem) {
+				PlaceItem(camItem, 0.0f, 0.0f, cx, cy);
+				obs_sceneitem_group_add_item(group, camItem);
+			}
+			obs_sceneitem_set_order(group, OBS_ORDER_MOVE_TOP);
+			OBSDataAutoRelease settings = obs_data_create();
+			obs_data_set_double(settings, "opacity", 0.0);
+			OBSSourceAutoRelease filter = obs_source_create_private("color_filter_v2", QT_TO_UTF8(QTStr("Church.Opacity")), settings);
+			if (filter) obs_source_filter_add(obs_sceneitem_get_source(group), filter);
+			changed = true;
 		}
-		SetRole(group, "live");
-		obs_sceneitem_t *camItem = obs_scene_add(s, cam);
-		if (camItem) {
-			PlaceItem(camItem, 0.0f, 0.0f, cx, cy);
-			obs_sceneitem_group_add_item(group, camItem);
-		}
-		obs_sceneitem_set_order(group, OBS_ORDER_MOVE_TOP);
-
-		/* Opacity (Color Correction): 0% — the slides show; raise it to blend the video over them. */
-		OBSDataAutoRelease filterSettings = obs_data_create();
-		obs_data_set_double(filterSettings, "opacity", 0.0);
-		OBSSourceAutoRelease filter =
-			obs_source_create_private("color_filter_v2", QT_TO_UTF8(QTStr("Church.Opacity")), filterSettings);
-		if (filter) {
-			obs_source_filter_add(obs_sceneitem_get_source(group), filter);
+		/* Native media sources join the same opacity-controlled live layer as the camera. */
+		std::vector<OBSSceneItem> media;
+		obs_scene_enum_items(root, [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			const char *id = obs_source_get_unversioned_id(obs_sceneitem_get_source(item));
+			if (strcmp(id, "ffmpeg_source") == 0 || strcmp(id, "vlc_source") == 0) {
+				static_cast<std::vector<OBSSceneItem> *>(param)->emplace_back(item);
+			}
+			return true;
+		}, &media);
+		for (const OBSSceneItem &item : media) {
+			obs_sceneitem_group_add_item(group, item);
+			changed = true;
 		}
 	}
 	ensuringGroups = false;
-	main->SaveProject();
+	if (changed) main->SaveProject();
 }
 
 /* "slide": the video as the opacity filter says; "clear": the video in full (the slide is gone);
@@ -859,13 +1049,40 @@ void ChurchMode::BuildLayout()
 	previewLayout->setSpacing(0);
 	previewLayout->addWidget(ui->canvasEditor, 1);
 	previewLayout->addWidget(ui->contextContainer);
+
+	/* The playing video / audio on screen: how far it is, and a slider to move it (shown while one plays). */
+	mediaBar = new QWidget();
+	QHBoxLayout *mediaLayout = new QHBoxLayout(mediaBar);
+	mediaLayout->setContentsMargins(6, 2, 6, 2);
+	mediaLayout->setSpacing(8);
+	mediaSlider = new QSlider(Qt::Horizontal);
+	mediaSlider->setRange(0, 1000);
+	mediaSlider->setToolTip(QTStr("Church.Media.Seek"));
+	mediaTime = new QLabel();
+	mediaTime->setStyleSheet("font-variant-numeric: tabular-nums;");
+	mediaLayout->addWidget(mediaSlider, 1);
+	mediaLayout->addWidget(mediaTime);
+	previewLayout->addWidget(mediaBar);
+	mediaBar->hide();
+	connect(mediaSlider.data(), &QSlider::sliderReleased, this,
+		[this]() { SeekMedia(mediaSlider->value() / 1000.0 * mediaDuration); });
+	connect(mediaSlider.data(), &QSlider::actionTriggered, this, [this](int action) {
+		/* A click on the groove (not a drag) jumps there at once. */
+		if (action == QAbstractSlider::SliderPageStepAdd || action == QAbstractSlider::SliderPageStepSub) {
+			QTimer::singleShot(0, this, [this]() { SeekMedia(mediaSlider->value() / 1000.0 * mediaDuration); });
+		}
+	});
+	previewEditor = previewBox;
+	studioLive = new ChurchSceneDisplay();
+	previewLayout->addWidget(studioLive);
+	studioLive->hide();
 	previewScreen = new ChurchScreen(QTStr("Church.Screen.Main"), previewBox);
 
 	QMenu *previewMenu = new QMenu(previewScreen);
 	connect(previewMenu, &QMenu::aboutToShow, this, [this, previewMenu]() { FillPreviewProjectMenu(previewMenu); });
 	previewScreen->ProjectButton()->setMenu(previewMenu);
 
-	QSplitter *column = new QSplitter(Qt::Vertical);
+	column = new QSplitter(Qt::Vertical);
 	column->setChildrenCollapsible(false);
 	column->addWidget(previewScreen);
 
@@ -888,9 +1105,10 @@ void ChurchMode::BuildLayout()
 	};
 	addColumnScreen(Feed::Camera, "Church.Screen.Camera", columnCamera, columnCameraScreen);
 	addColumnScreen(Feed::Pip, "Church.Screen.Pip", columnPip, columnPipScreen);
-	column->setStretchFactor(0, 4);
-	column->setStretchFactor(1, 3);
-	column->setStretchFactor(2, 3);
+	/* The three screens share the column equally. */
+	column->setStretchFactor(0, 1);
+	column->setStretchFactor(1, 1);
+	column->setStretchFactor(2, 1);
 
 	/* The slide area. */
 	QWidget *left = nullptr;
@@ -922,7 +1140,9 @@ void ChurchMode::BuildLayout()
 
 	config_t *config = App()->GetUserConfig();
 	const char *state = config_get_string(config, CONFIG_SECTION, "SplitterState");
-	const char *columnState = config_get_string(config, CONFIG_SECTION, "ColumnState");
+	/* "ColumnState2": the screens' heights as last dragged. (The older "ColumnState" is left behind,
+	 * so the screens start out equal once.) */
+	const char *columnState = config_get_string(config, CONFIG_SECTION, "ColumnState2");
 	if (state && *state) {
 		splitter->restoreState(QByteArray::fromBase64(state));
 	} else {
@@ -934,15 +1154,59 @@ void ChurchMode::BuildLayout()
 	}
 	if (columnState && *columnState) {
 		column->restoreState(QByteArray::fromBase64(columnState));
+	} else {
+		QTimer::singleShot(0, column, [this]() {
+			const int each = column->height() / std::max(1, column->count());
+			QList<int> sizes;
+			for (int i = 0; i < column->count(); i++) {
+				sizes.append(each);
+			}
+			column->setSizes(sizes);
+		});
 	}
 	connect(splitter, &QSplitter::splitterMoved, this, [this]() {
 		config_set_string(App()->GetUserConfig(), CONFIG_SECTION, "SplitterState",
 				  splitter->saveState().toBase64().constData());
 	});
-	connect(column, &QSplitter::splitterMoved, this, [column]() {
-		config_set_string(App()->GetUserConfig(), CONFIG_SECTION, "ColumnState",
-				  column->saveState().toBase64().constData());
+	QSplitter *columnSplitter = column;
+	connect(column, &QSplitter::splitterMoved, this, [columnSplitter]() {
+		config_set_string(App()->GetUserConfig(), CONFIG_SECTION, "ColumnState2",
+				  columnSplitter->saveState().toBase64().constData());
 	});
+}
+
+void ChurchMode::ShowProgramPane(QWidget *program, QWidget *options, bool show)
+{
+	if (!column) {
+		return;
+	}
+	if (!programPane) {
+		/* The Program view with OBS's transition controls (Transition, quick transitions, T-bar) beside it. */
+		QWidget *body = new QWidget();
+		QHBoxLayout *layout = new QHBoxLayout(body);
+		layout->setContentsMargins(0, 0, 0, 0);
+		layout->setSpacing(4);
+		studioStaged = new ChurchSceneDisplay();
+		layout->addWidget(studioStaged, 1);
+		layout->addWidget(options);
+		ChurchScreen *screen = new ChurchScreen(QTStr("Church.Screen.Program"), body);
+		screen->ProjectButton()->hide();
+		programPane = screen;
+		column->insertWidget(1, screen);
+		column->setStretchFactor(1, 1);
+	}
+	program->setVisible(false);
+	main->ui->canvasEditor->setVisible(!show);
+	main->ui->contextContainer->setVisible(!show);
+	studioLive->setVisible(show);
+	if (show) {
+		stagedFeed = OBSGetWeakRef(main->GetProgramSource());
+		studioStaged->SetSource(OBSGetStrongRef(stagedFeed));
+	}
+	UpdateLive();
+	options->setVisible(show);
+	programPane->setVisible(show);
+	if (!show) { stagedMessage.clear(); stagedFeed = nullptr; }
 }
 
 void ChurchMode::BuildOutputDock()
@@ -972,6 +1236,7 @@ void ChurchMode::BuildOutputDock()
 		view->setContextMenuPolicy(Qt::CustomContextMenu);
 		connect(view, &QWidget::customContextMenuRequested, this, [this, feed, view]() { ShowFeedMenu(feed, view); });
 		connect(view, &ChurchSceneDisplay::layoutChanged, main, &OBSBasic::SaveProject);
+		connect(view, &ChurchSceneDisplay::doubleClicked, this, [this, feed]() { OpenFeedEditor(feed); });
 
 		pickerViews[i] = view;
 		pickerScreens[i] = screen;
@@ -1055,6 +1320,11 @@ void ChurchMode::ResetDocks()
 
 void ChurchMode::BindViews()
 {
+	OBSSceneItem caption = FindRole(obs_scene_from_source(Scene(Feed::Caption)), "caption");
+	if (caption && obs_sceneitem_get_bounds_type(caption) == OBS_BOUNDS_NONE) {
+		float cx, cy; Canvas(cx, cy);
+		PlaceItem(caption, 0.0f, 0.0f, cx, cy);
+	}
 	for (size_t i = 0; i < FEEDS; i++) {
 		if (pickerViews[i]) {
 			pickerViews[i]->SetSource(Scene(Feed(i)));
@@ -1071,6 +1341,7 @@ void ChurchMode::BindViews()
 void ChurchMode::UpdateLive()
 {
 	OBSSource program = main->IsPreviewProgramMode() ? main->GetProgramSource() : main->GetCurrentSceneSource();
+	if (studioLive) studioLive->SetSource(program);
 	for (size_t i = 0; i < FEEDS; i++) {
 		bool live = program && program == Scene(Feed(i));
 		if (pickerScreens[i]) {
@@ -1084,6 +1355,43 @@ void ChurchMode::UpdateLive()
 	}
 }
 
+void ChurchMode::SendStagedOutput()
+{
+	if (!stagedOutput || stagedMessage.isEmpty()) return;
+	QJsonObject message = QJsonDocument::fromJson(stagedMessage.toUtf8()).object();
+	QByteArray spec = QJsonDocument(message.value("spec").toObject()).toJson(QJsonDocument::Compact);
+	calldata_t cd = {};
+	calldata_set_string(&cd, "eventName", "church-show");
+	calldata_set_string(&cd, "jsonString", spec.constData());
+	proc_handler_call(obs_source_get_proc_handler(stagedOutput), "javascript_event", &cd);
+	calldata_free(&cd);
+}
+
+OBSSource ChurchMode::PrepareStagedFeed()
+{
+	OBSSource source = OBSGetStrongRef(stagedFeed);
+	if (!main->churchProgramPane || !source) return nullptr;
+	if (!stagedMessage.isEmpty()) {
+		committingStage = true;
+		PanelMessage(stagedMessage);
+		const QJsonObject message = QJsonDocument::fromJson(stagedMessage.toUtf8()).object();
+		const QString sceneId = message.value("ref").toObject().value("sceneId").toString();
+		OBSSourceAutoRelease content = obs_get_source_by_uuid(QT_TO_UTF8(sceneId));
+		if (content) SetContent(content);
+		committingStage = false;
+		stagedMessage.clear();
+	}
+	return source;
+}
+
+bool ChurchMode::CommitStagedFeed()
+{
+	OBSSource source = PrepareStagedFeed();
+	if (!source) return false;
+	main->TransitionToScene(source);
+	return true;
+}
+
 void ChurchMode::GoLive(Feed feed, bool byHand)
 {
 	OBSSource scene = Scene(feed);
@@ -1091,7 +1399,13 @@ void ChurchMode::GoLive(Feed feed, bool byHand)
 		return;
 	}
 	if (byHand && autoCameraTimer) {
+		autoCameraPending = false;
 		autoCameraTimer->stop();
+	}
+	if (main->churchProgramPane && !committingStage && studioStaged) {
+		stagedFeed = OBSGetWeakRef(scene);
+		studioStaged->SetSource(scene);
+		return;
 	}
 	if (main->GetProgramSource() == scene) {
 		return;
@@ -1117,7 +1431,7 @@ void ChurchMode::ShowFeedMenu(Feed feed, ChurchSceneDisplay *view)
 		}
 	});
 
-	if (feed == Feed::Pip || feed == Feed::Side) {
+	{
 		menu.addSeparator();
 		QAction *edit = menu.addAction(QTStr("Church.Menu.EditLayout"));
 		edit->setCheckable(true);
@@ -1138,17 +1452,21 @@ void ChurchMode::ShowFeedMenu(Feed feed, ChurchSceneDisplay *view)
 			UNUSED_PARAMETER(feed);
 		});
 
-		const char *layoutKey = feed == Feed::Pip ? "pipLayout" : "sideLayout";
+	}
+	if (feed == Feed::Pip) {
+		const char *layoutKey = "pipLayout";
 		const char *current = config_get_string(App()->GetUserConfig(), CONFIG_SECTION, layoutKey);
-		bool corner = current ? strcmp(current, "corner") == 0 : feed == Feed::Pip;
+		bool corner = !current || !*current || strcmp(current, "corner") == 0;
+		float share = float(config_get_double(App()->GetUserConfig(), CONFIG_SECTION, "PipCameraShare"));
+		if (share <= 0.0f) share = .32f;
 
 		QMenu *layout = menu.addMenu(QTStr("Church.Menu.Layout"));
-		QAction *cornerAction = layout->addAction(QTStr("Church.Menu.LayoutCorner"), this, [this, feed]() {
-			ApplyLayout(feed, true, 0.32f);
+		QAction *cornerAction = layout->addAction(QTStr("Church.Menu.LayoutCorner"), this, [this, feed, share]() {
+			ApplyLayout(feed, true, share);
 			main->SaveProject();
 		});
-		QAction *sideAction = layout->addAction(QTStr("Church.Menu.LayoutSide"), this, [this, feed]() {
-			ApplyLayout(feed, false, 0.30f);
+		QAction *sideAction = layout->addAction(QTStr("Church.Menu.LayoutSide"), this, [this, feed, share]() {
+			ApplyLayout(feed, false, share);
 			main->SaveProject();
 		});
 		cornerAction->setCheckable(true);
@@ -1163,10 +1481,68 @@ void ChurchMode::ShowFeedMenu(Feed feed, ChurchSceneDisplay *view)
 				main->SaveProject();
 			});
 		}
+		size->addAction(QTStr("Church.Menu.CustomSize"), this, [this, feed, corner, share]() {
+			bool ok = false;
+			int percent = QInputDialog::getInt(main, QTStr("Church.Menu.CameraSize"), "%", int(share * 100), 5, 85, 1, &ok);
+			if (ok) { ApplyLayout(feed, corner, percent / 100.0f); main->SaveProject(); }
+		});
 	}
 
+	if (feed != Feed::Camera) {
+		menu.addAction(QTStr("Church.Menu.EditTextBox"), this, [this, view, feed]() {
+			QJsonObject spec = QJsonDocument::fromJson(lastShow.toUtf8()).object();
+			if (spec.value("kind").toString() != "text") return;
+			const QJsonObject box = feed == Feed::Caption
+				? QJsonDocument::fromJson(config_get_string(App()->GetUserConfig(), CONFIG_SECTION, "CaptionTextBox")).object()
+				: spec.value("look").toObject().value("textBox").toObject();
+			float cx, cy; Canvas(cx, cy);
+			const bool caption = feed == Feed::Caption;
+			view->SetTextEditing(true, QRectF(box.value("x").toDouble(caption ? 200.0 / 1920 : 0.0625) * cx,
+				box.value("y").toDouble(caption ? 790.0 / 1080 : 110.0 / 1080) * cy,
+				box.value("w").toDouble(caption ? 1520.0 / 1920 : 0.875) * cx,
+				box.value("h").toDouble(caption ? 230.0 / 1080 : 860.0 / 1080) * cy));
+			if (!view->property("churchTextBoxConnected").toBool()) {
+				view->setProperty("churchTextBoxConnected", true);
+				connect(view, &ChurchSceneDisplay::textBoxChanged, this, [this, feed](const QRectF &rect) {
+					QJsonObject box{{"x", rect.x()}, {"y", rect.y()}, {"w", rect.width()}, {"h", rect.height()}};
+					if (feed == Feed::Caption) {
+						config_set_string(App()->GetUserConfig(), CONFIG_SECTION, "CaptionTextBox", QJsonDocument(box).toJson(QJsonDocument::Compact).constData());
+						SendToOutput(lastShow);
+						return;
+					}
+					QJsonObject spec = QJsonDocument::fromJson(lastShow.toUtf8()).object();
+					QJsonObject look = spec.value("look").toObject();
+					look["textBox"] = box;
+					spec["look"] = look;
+					lastShow = QString::fromUtf8(QJsonDocument(spec).toJson(QJsonDocument::Compact));
+					OBSSourceAutoRelease source = obs_get_source_by_uuid(ChurchSlides::Live().c_str());
+					if (source && ChurchSlides::Is(source)) {
+						QJsonObject item = ItemJson(source);
+						item["look"] = look;
+						OBSDataAutoRelease settings = obs_source_get_settings(source);
+						obs_data_set_string(settings, CHURCH_SLIDES_ITEM, QJsonDocument(item).toJson(QJsonDocument::Compact).constData());
+						obs_source_update(source, settings);
+					}
+					SendToOutput(lastShow);
+				});
+			}
+		});
+	}
+	if (feed == Feed::Caption) {
+		menu.addAction(QTStr("Church.Caption.Opacity"), this, [this]() {
+			bool ok = false;
+			config_t *config = App()->GetUserConfig();
+			int value = config_has_user_value(config, CONFIG_SECTION, "CaptionOpacity")
+				? int(config_get_int(config, CONFIG_SECTION, "CaptionOpacity")) : 70;
+			value = QInputDialog::getInt(main, QTStr("Church.Caption.Opacity"), "%", value, 0, 100, 1, &ok);
+			if (ok) {
+				config_set_int(config, CONFIG_SECTION, "CaptionOpacity", value);
+				SendToOutput(lastShow);
+			}
+		});
+	}
 	OBSSource cam = OBSGetStrongRef(camera);
-	if ((feed == Feed::Camera || feed == Feed::Pip || feed == Feed::Side) && cam) {
+	if ((feed == Feed::Camera || feed == Feed::Pip || feed == Feed::Caption) && cam) {
 		menu.addSeparator();
 		menu.addAction(QTStr("Church.Menu.CameraProperties"), this,
 			       [this, cam]() { main->CreatePropertiesWindow(cam); });
@@ -1180,6 +1556,22 @@ void ChurchMode::ShowFeedMenu(Feed feed, ChurchSceneDisplay *view)
 		FillProjectMenu(&menu, feed);
 	}
 	menu.exec(QCursor::pos());
+}
+
+void ChurchMode::OpenFeedEditor(Feed feed)
+{
+	auto *dialog = new QDialog(main);
+	dialog->setAttribute(Qt::WA_DeleteOnClose);
+	dialog->setWindowTitle(QTStr(FEED_NAMES[size_t(feed)]));
+	dialog->resize(1100, 680);
+	auto *layout = new QVBoxLayout(dialog);
+	auto *view = new ChurchSceneDisplay(dialog);
+	view->SetSource(Scene(feed));
+	view->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(view, &QWidget::customContextMenuRequested, dialog, [this, feed, view]() { ShowFeedMenu(feed, view); });
+	connect(view, &ChurchSceneDisplay::layoutChanged, main, &OBSBasic::SaveProject);
+	layout->addWidget(view);
+	dialog->show();
 }
 
 void ChurchMode::FillProjectMenu(QMenu *menu, Feed feed)
@@ -1375,6 +1767,7 @@ QJsonObject ChurchMode::BuildDeck() const
 
 void ChurchMode::RefreshDeck()
 {
+	EnsureLiveGroups();
 	if (!panel) {
 		return;
 	}
@@ -1390,6 +1783,10 @@ void ChurchMode::RefreshDeck()
 	old.remove("currentScene");
 	if (old != content) {
 		contentRevision++;
+		/* The first deck after loading is not an edit; nor is what an import brings in. */
+		if (!old.isEmpty() && !importing && !sceneDataGoing) {
+			emit contentEdited();
+		}
 	}
 	lastDeck = text;
 	SendToPanel({{"type", "deck"}, {"deck", deck}});
@@ -1463,7 +1860,7 @@ void ChurchMode::PlaceAfterAnchor(obs_scene_t *scene, obs_sceneitem_t *added)
 	insertAnchor = added;
 }
 
-void ChurchMode::SaveItems(const QJsonArray &items, const QString &sceneId)
+void ChurchMode::SaveItems(const QJsonArray &items, const QString &sceneId, const QString &afterId)
 {
 	OBSSourceAutoRelease target =
 		sceneId.isEmpty() ? nullptr : obs_get_source_by_uuid(QT_TO_UTF8(sceneId));
@@ -1474,6 +1871,11 @@ void ChurchMode::SaveItems(const QJsonArray &items, const QString &sceneId)
 	obs_scene_t *scene = obs_scene_from_source(sceneSource);
 	/* Read the selection now: OBS selects each item as it is added. */
 	insertAnchor = main->GetCurrentSceneItem();
+	if (scene && !afterId.isEmpty()) {
+		OBSSourceAutoRelease anchor = obs_get_source_by_uuid(QT_TO_UTF8(afterId));
+		OBSSceneItem found = anchor ? obs_scene_find_source(scene, obs_source_get_name(anchor)) : nullptr;
+		if (found) insertAnchor = found;
+	}
 
 	for (const QJsonValue &value : items) {
 		QJsonObject item = value.toObject();
@@ -1502,6 +1904,92 @@ void ChurchMode::SaveItems(const QJsonArray &items, const QString &sceneId)
 		}
 	}
 	insertAnchor = nullptr;
+	main->SaveProject();
+	RefreshDeck();
+}
+
+/* A slide item dragged in the panel: into `sceneId`, just above `beforeId` in the Sources list (the
+ * slides' order), or below the scene's other slides when there is none. */
+void ChurchMode::MoveItem(const QString &id, const QString &sceneId, const QString &beforeId)
+{
+	OBSSourceAutoRelease source = obs_get_source_by_uuid(QT_TO_UTF8(id));
+	OBSSourceAutoRelease targetSource = obs_get_source_by_uuid(QT_TO_UTF8(sceneId));
+	obs_scene_t *target = targetSource ? obs_scene_from_source(targetSource) : nullptr;
+	if (!source || !ChurchSlides::Is(source) || !target || IsFeedScene(targetSource)) {
+		RefreshDeck();
+		return;
+	}
+
+	/* Where it is now (top level of a content scene). */
+	OBSSceneItem old;
+	for (OBSSource &scene : ContentScenes()) {
+		obs_sceneitem_t *found = obs_scene_find_source(obs_scene_from_source(scene), obs_source_get_name(source));
+		if (found) {
+			old = found;
+			break;
+		}
+	}
+	OBSSceneItem moved = old;
+	if (!old || obs_sceneitem_get_scene(old) != target) {
+		moved = obs_scene_add(target, source);
+		if (!moved) {
+			RefreshDeck();
+			return;
+		}
+		if (old) {
+			obs_transform_info info;
+			obs_sceneitem_get_info2(old, &info);
+			obs_sceneitem_set_info2(moved, &info);
+			obs_sceneitem_crop crop;
+			obs_sceneitem_get_crop(old, &crop);
+			obs_sceneitem_set_crop(moved, &crop);
+			obs_sceneitem_set_visible(moved, obs_sceneitem_visible(old));
+			OBSDataAutoRelease oldPriv = obs_sceneitem_get_private_settings(old);
+			OBSDataAutoRelease priv = obs_sceneitem_get_private_settings(moved);
+			obs_data_apply(priv, oldPriv);
+			obs_sceneitem_remove(old);
+		}
+	}
+
+	/* The new order, bottom to top: taken out, then put back above `beforeId` (or below the last slide). */
+	std::vector<obs_sceneitem_t *> order;
+	obs_scene_enum_items(
+		target,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			static_cast<std::vector<obs_sceneitem_t *> *>(param)->push_back(item);
+			return true;
+		},
+		&order);
+	order.erase(std::remove(order.begin(), order.end(), moved.Get()), order.end());
+	size_t at = order.size();
+	OBSSourceAutoRelease before = beforeId.isEmpty() ? nullptr : obs_get_source_by_uuid(QT_TO_UTF8(beforeId));
+	bool placed = false;
+	for (size_t i = 0; before && i < order.size(); i++) {
+		if (obs_sceneitem_get_source(order[i]) == before.Get()) {
+			at = i + 1;
+			placed = true;
+			break;
+		}
+	}
+	if (!placed) {
+		/* Below the scene's lowest slide; with none, just below the Live Video group (or on top). */
+		for (size_t i = 0; i < order.size(); i++) {
+			if (ChurchSlides::Is(obs_sceneitem_get_source(order[i]))) {
+				at = i;
+				placed = true;
+				break;
+			}
+		}
+		for (size_t i = 0; !placed && i < order.size(); i++) {
+			if (Role(order[i]) == "live") {
+				at = i;
+				break;
+			}
+		}
+	}
+	order.insert(order.begin() + std::min(at, order.size()), moved.Get());
+	obs_scene_reorder_items(target, order.data(), order.size());
+
 	main->SaveProject();
 	RefreshDeck();
 }
@@ -1554,29 +2042,94 @@ QJsonObject ChurchMode::ExportContent() const
 			item.remove("id");
 			items.append(item);
 		}
-		scenesOut.append(QJsonObject{{"name", scene.value("name")}, {"items", items}});
+		/* A scene's id for syncing: kept in the scene, so a rename elsewhere is a rename here too. */
+		QString sceneSync;
+		OBSSourceAutoRelease sceneSource = obs_get_source_by_uuid(QT_TO_UTF8(scene.value("id").toString()));
+		if (sceneSource) {
+			OBSDataAutoRelease priv = obs_source_get_private_settings(sceneSource);
+			sceneSync = QT_UTF8(obs_data_get_string(priv, "church_sync_id"));
+			if (sceneSync.isEmpty()) {
+				sceneSync = scene.value("id").toString();
+				obs_data_set_string(priv, "church_sync_id", QT_TO_UTF8(sceneSync));
+			}
+		}
+		scenesOut.append(QJsonObject{{"name", scene.value("name")}, {"syncId", sceneSync}, {"items", items}});
 	}
-	return {{"version", 1}, {"defaultLook", deck.value("defaultLook")}, {"scenes", scenesOut}};
+	config_t *config = App()->GetUserConfig();
+	QJsonObject settings{{"autoSwitch", AutoSwitch()},
+		{"autoCameraSeconds", config_get_int(config, CONFIG_SECTION, "AutoCameraSeconds") > 0 ? config_get_int(config, CONFIG_SECTION, "AutoCameraSeconds") : 120},
+		{"captionOpacity", config_has_user_value(config, CONFIG_SECTION, "CaptionOpacity") ? config_get_int(config, CONFIG_SECTION, "CaptionOpacity") : 70},
+		{"pipLayout", QT_UTF8(config_get_string(config, CONFIG_SECTION, "pipLayout"))},
+		{"pipCameraShare", config_has_user_value(config, CONFIG_SECTION, "PipCameraShare") ? config_get_double(config, CONFIG_SECTION, "PipCameraShare") : 0.32}};
+	float cx, cy; Canvas(cx, cy);
+	QJsonObject layouts;
+	for (size_t i = 0; i < FEEDS; i++) {
+		QJsonObject roles;
+		for (const char *role : {"camera", "content", "caption"}) {
+			OBSSceneItem item = FindRole(obs_scene_from_source(Scene(Feed(i))), role);
+			if (!item || obs_sceneitem_get_bounds_type(item) == OBS_BOUNDS_NONE) continue;
+			vec2 pos, bounds; obs_sceneitem_get_pos(item, &pos); obs_sceneitem_get_bounds(item, &bounds);
+			roles[role] = QJsonObject{{"x", pos.x / cx}, {"y", pos.y / cy}, {"w", bounds.x / cx}, {"h", bounds.y / cy}};
+		}
+		layouts[FEED_IDS[i]] = roles;
+	}
+	settings["feedLayouts"] = layouts;
+	settings["captionTextBox"] = QJsonDocument::fromJson(config_get_string(config, CONFIG_SECTION, "CaptionTextBox")).object();
+	return {{"version", 1}, {"defaultLook", deck.value("defaultLook")}, {"scenes", scenesOut}, {"settings", settings}};
 }
 
 void ChurchMode::ImportContent(const QJsonObject &content)
 {
+	importing = true;
+	struct Done {
+		ChurchMode *mode;
+		~Done() { mode->importing = false; }
+	} done{this};
+
 	if (content.contains("defaultLook")) {
 		config_set_string(App()->GetUserConfig(), CONFIG_SECTION, "DefaultLook",
 				  QJsonDocument(content.value("defaultLook").toObject()).toJson(QJsonDocument::Compact).constData());
 	}
 
+	/* Local scenes by their sync id. */
+	std::map<QString, OBSSource> scenesBySync;
+	for (OBSSource &local : ContentScenes()) {
+		OBSDataAutoRelease priv = obs_source_get_private_settings(local);
+		QString id = QT_UTF8(obs_data_get_string(priv, "church_sync_id"));
+		if (!id.isEmpty()) {
+			scenesBySync[id] = local;
+		}
+	}
+	std::set<QString> remoteScenes;
+	std::vector<OBSSource> sceneOrder;
+
 	for (const QJsonValue &sceneValue : content.value("scenes").toArray()) {
 		QJsonObject remote = sceneValue.toObject();
 		const QString name = remote.value("name").toString();
+		const QString sceneSync = remote.value("syncId").toString();
+		remoteScenes.insert(sceneSync);
 
-		/* The scene with this name, or a new one. */
-		OBSSourceAutoRelease found = obs_get_source_by_name(QT_TO_UTF8(name));
-		OBSSource sceneSource = found.Get();
-		if (!sceneSource || !obs_scene_from_source(sceneSource) || IsFeedScene(sceneSource)) {
-			OBSSceneAutoRelease created = obs_scene_create(UniqueName(name).c_str());
-			sceneSource = obs_scene_get_source(created);
+		/* The same scene (by id — renamed if need be), else the one with this name, else a new one. */
+		OBSSource sceneSource;
+		auto byId = scenesBySync.find(sceneSync);
+		if (!sceneSync.isEmpty() && byId != scenesBySync.end()) {
+			sceneSource = byId->second;
+			if (name != QT_UTF8(obs_source_get_name(sceneSource))) {
+				obs_source_set_name(sceneSource, UniqueName(name, sceneSource).c_str());
+			}
+		} else {
+			OBSSourceAutoRelease found = obs_get_source_by_name(QT_TO_UTF8(name));
+			sceneSource = found.Get();
+			if (!sceneSource || !obs_scene_from_source(sceneSource) || IsFeedScene(sceneSource)) {
+				OBSSceneAutoRelease created = obs_scene_create(UniqueName(name).c_str());
+				sceneSource = obs_scene_get_source(created);
+			}
 		}
+		if (!sceneSync.isEmpty()) {
+			OBSDataAutoRelease priv = obs_source_get_private_settings(sceneSource);
+			obs_data_set_string(priv, "church_sync_id", QT_TO_UTF8(sceneSync));
+		}
+		sceneOrder.push_back(sceneSource);
 		obs_scene_t *scene = obs_scene_from_source(sceneSource);
 
 		/* Local items by sync id. */
@@ -1633,10 +2186,77 @@ void ChurchMode::ImportContent(const QJsonObject &content)
 					obs_sceneitem_set_order(item, OBS_ORDER_MOVE_TOP);
 				}
 			}
+			/* The live video stays on top. */
+			OBSSceneItem live = FindRole(scene, "live");
+			if (live) {
+				obs_sceneitem_set_order(live, OBS_ORDER_MOVE_TOP);
+			}
 		}
 	}
+
+	/* Scenes deleted elsewhere (only ones that were synced before; never the last one). A scene the
+	 * account's content just went into is never one of them: on a new computer the default "Scene"
+	 * had an id of its own, then took the account's scene of the same name — and was deleted with
+	 * everything in it, so nothing seemed to arrive. */
+	std::set<obs_source_t *> imported;
+	for (OBSSource &scene : sceneOrder) {
+		imported.insert(scene.Get());
+	}
+	for (auto &[id, local] : scenesBySync) {
+		if (!remoteScenes.count(id) && !imported.count(local.Get()) && ContentScenes().size() > 1) {
+			obs_source_remove(local);
+		}
+	}
+
+	/* The same order as there, in the Scenes list. */
+	QListWidget *list = main->ui->scenes;
+	int target = 0;
+	for (OBSSource &scene : sceneOrder) {
+		for (int row = 0; row < list->count(); row++) {
+			OBSScene rowScene = GetOBSRef<OBSScene>(list->item(row));
+			if (obs_scene_get_source(rowScene) != scene) {
+				continue;
+			}
+			while (target < list->count() &&
+			       IsFeedScene(obs_scene_get_source(GetOBSRef<OBSScene>(list->item(target))))) {
+				target++;
+			}
+			if (row != target && target < list->count()) {
+				QListWidgetItem *taken = list->takeItem(row);
+				list->insertItem(target, taken);
+			}
+			target++;
+			break;
+		}
+	}
+	HideFeedScenes();
 	main->SaveProject();
 	RefreshDeck();
+	const QJsonObject settings = content.value("settings").toObject();
+	if (!settings.isEmpty()) {
+		config_t *config = App()->GetUserConfig();
+		if (settings.contains("autoSwitch")) config_set_bool(config, CONFIG_SECTION, "AutoSwitch", settings.value("autoSwitch").toBool());
+		if (settings.contains("autoCameraSeconds")) config_set_int(config, CONFIG_SECTION, "AutoCameraSeconds", std::clamp(settings.value("autoCameraSeconds").toInt(120), 1, 86400));
+		if (settings.contains("captionOpacity")) config_set_int(config, CONFIG_SECTION, "CaptionOpacity", std::clamp(settings.value("captionOpacity").toInt(70), 0, 100));
+		if (settings.contains("pipLayout")) config_set_string(config, CONFIG_SECTION, "pipLayout", QT_TO_UTF8(settings.value("pipLayout").toString()));
+		if (settings.contains("pipCameraShare")) config_set_double(config, CONFIG_SECTION, "PipCameraShare", std::clamp(settings.value("pipCameraShare").toDouble(.32), .05, .85));
+		float cx, cy; Canvas(cx, cy);
+		const QJsonObject layouts = settings.value("feedLayouts").toObject();
+		for (size_t i = 0; i < FEEDS; i++) {
+			const QJsonObject roles = layouts.value(FEED_IDS[i]).toObject();
+			for (const char *role : {"camera", "content", "caption"}) {
+				OBSSceneItem item = FindRole(obs_scene_from_source(Scene(Feed(i))), role);
+				const QJsonObject box = roles.value(role).toObject();
+				if (item && !box.isEmpty()) PlaceItem(item, box.value("x").toDouble() * cx, box.value("y").toDouble() * cy,
+					std::max(.01, box.value("w").toDouble(1)) * cx, std::max(.01, box.value("h").toDouble(1)) * cy);
+			}
+		}
+		if (settings.contains("captionTextBox")) config_set_string(config, CONFIG_SECTION, "CaptionTextBox", QJsonDocument(settings.value("captionTextBox").toObject()).toJson(QJsonDocument::Compact).constData());
+		if (!AutoSwitch() && autoCameraTimer) autoCameraTimer->stop();
+		config_save_safe(config, "tmp", nullptr);
+		main->SaveProject();
+	}
+
 }
 
 /* ---------------------------- messages ---------------------------------- */
@@ -1650,17 +2270,77 @@ void ChurchMode::SendToPanel(const QJsonObject &message)
 	panel->executeJavaScript(("window.churchHost && window.churchHost.receive(" + json + ");").toStdString());
 }
 
-void ChurchMode::SendToOutput(const QString &specJson)
+static QString Clock(double seconds)
 {
-	if (!output) {
+	const int whole = std::max(0, int(seconds));
+	const int h = whole / 3600, m = whole / 60 % 60, s = whole % 60;
+	return h ? QString("%1:%2:%3").arg(h).arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0'))
+		 : QString("%1:%2").arg(m).arg(s, 2, 10, QChar('0'));
+}
+
+/* The bar under the preview follows the video / audio playing on screen. */
+void ChurchMode::ShowMediaProgress(double current, double duration, bool playing)
+{
+	const bool wasPlaying = mediaPlaying;
+	mediaPlaying = playing && duration > 0;
+	/* The video ended or was paused: Main is still now, so the countdown to Camera only starts here. */
+	if (wasPlaying && !mediaPlaying && autoCameraPending && AutoSwitch()) {
+		StartAutoCameraCountdown();
+	}
+	if (!mediaBar) {
 		return;
 	}
-	const std::string json = specJson.toStdString();
+	mediaDuration = duration;
+	mediaBar->setVisible(duration > 0);
+	if (duration <= 0) {
+		return;
+	}
+	if (!mediaSlider->isSliderDown()) {
+		QSignalBlocker block(mediaSlider);
+		mediaSlider->setValue(int(std::clamp(current / duration, 0.0, 1.0) * 1000));
+	}
+	mediaTime->setText(QString::fromUtf8(playing ? "\u25B6 " : "\u23F8 ") + Clock(current) + " / " + Clock(duration));
+}
+
+/* Plays the video / audio on screen on from `seconds`. */
+void ChurchMode::SeekMedia(double seconds)
+{
+	if (!output || mediaDuration <= 0) {
+		return;
+	}
+	QJsonObject seek{{"seconds", seconds}};
+	const std::string seekJson = QJsonDocument(seek).toJson(QJsonDocument::Compact).toStdString();
 	calldata_t cd = {};
-	calldata_set_string(&cd, "eventName", "church-show");
-	calldata_set_string(&cd, "jsonString", json.c_str());
+	calldata_set_string(&cd, "eventName", "church-seek");
+	calldata_set_string(&cd, "jsonString", seekJson.c_str());
 	proc_handler_call(obs_source_get_proc_handler(output), "javascript_event", &cd);
 	calldata_free(&cd);
+}
+
+/* Who is signed in, for the profile icon on the Slides bar. */
+void ChurchMode::SendAccount()
+{
+	SendToPanel({{"type", "account"}, {"email", sync ? sync->SignedInEmail() : QString()}});
+}
+
+void ChurchMode::SendToOutput(const QString &specJson)
+{
+	QJsonObject spec = QJsonDocument::fromJson(specJson.toUtf8()).object();
+	config_t *config = App()->GetUserConfig();
+	spec["captionOpacity"] = config_has_user_value(config, CONFIG_SECTION, "CaptionOpacity")
+		? config_get_int(config, CONFIG_SECTION, "CaptionOpacity") / 100.0 : 0.7;
+	spec["captionTextBox"] = QJsonDocument::fromJson(config_get_string(config, CONFIG_SECTION, "CaptionTextBox")).object();
+	const std::string json = QJsonDocument(spec).toJson(QJsonDocument::Compact).toStdString();
+	for (obs_source_t *page : {output.Get(), captionOutput.Get()}) {
+		if (!page) {
+			continue;
+		}
+		calldata_t cd = {};
+		calldata_set_string(&cd, "eventName", "church-show");
+		calldata_set_string(&cd, "jsonString", json.c_str());
+		proc_handler_call(obs_source_get_proc_handler(page), "javascript_event", &cd);
+		calldata_free(&cd);
+	}
 }
 
 void ChurchMode::PanelMessage(const QString &json)
@@ -1674,9 +2354,19 @@ void ChurchMode::PanelMessage(const QString &json)
 	} else if (type == "panel-ready") {
 		lastDeck.clear();
 		RefreshDeck();
+		SendAccount();
+
+	} else if (type == "account-menu") {
+		if (sync) {
+			sync->ShowAccountMenu();
+		}
+
 
 	} else if (type == "save-items") {
-		SaveItems(message.value("items").toArray(), message.value("sceneId").toString());
+		SaveItems(message.value("items").toArray(), message.value("sceneId").toString(), message.value("afterId").toString());
+
+	} else if (type == "move-item") {
+		MoveItem(message.value("id").toString(), message.value("sceneId").toString(), message.value("beforeId").toString());
 
 	} else if (type == "remove-item") {
 		OBSSourceAutoRelease source = obs_get_source_by_uuid(QT_TO_UTF8(message.value("id").toString()));
@@ -1692,6 +2382,26 @@ void ChurchMode::PanelMessage(const QString &json)
 		RefreshDeck();
 
 	} else if (type == "show") {
+		if (main->churchProgramPane && !committingStage && studioStaged) {
+			stagedMessage = json;
+			if (!stagedOutput) {
+				float cx, cy; Canvas(cx, cy);
+				OBSDataAutoRelease settings = obs_data_create();
+				obs_data_set_string(settings, "url", AbsoluteUrl(PresenterFile("output.html")).c_str());
+				obs_data_set_int(settings, "width", int(cx));
+				obs_data_set_int(settings, "height", int(cy));
+				OBSSourceAutoRelease page = obs_source_create_private("browser_source", "Church staged slide", settings);
+				stagedOutput = page.Get();
+				if (stagedOutput) {
+					obs_source_set_muted(stagedOutput, true);
+					stagedSignal.Connect(obs_source_get_signal_handler(stagedOutput), "host_message", ChurchMode::OutputHostMessage, this);
+				}
+			}
+			stagedFeed = OBSGetWeakRef(Scene(Feed::Main));
+			studioStaged->SetSource(stagedOutput);
+			SendStagedOutput();
+			return;
+		}
 		const QString previousShow = lastShow;
 		lastShow = QString::fromUtf8(QJsonDocument(message.value("spec").toObject()).toJson(QJsonDocument::Compact));
 		const QJsonObject ref = message.value("ref").toObject();
@@ -1706,6 +2416,20 @@ void ChurchMode::PanelMessage(const QString &json)
 			if (scene && obs_scene_from_source(scene) && !IsFeedScene(scene) &&
 			    main->GetCurrentSceneSource() != scene.Get()) {
 				main->SetCurrentScene(scene.Get(), true);
+			}
+			if (scene && !IsFeedScene(scene)) {
+				const QString itemId = ref.value("itemId").toString();
+				OBSSource selectedScene = scene.Get();
+				QTimer::singleShot(0, this, [this, selectedScene, itemId]() {
+					if (main->GetCurrentSceneSource() != selectedScene || ChurchSlides::Live() != itemId.toStdString()) return;
+					OBSSourceAutoRelease source = obs_get_source_by_uuid(QT_TO_UTF8(itemId));
+					if (!source) return;
+					obs_sceneitem_t *item = obs_scene_find_source_recursive(obs_scene_from_source(selectedScene), obs_source_get_name(source));
+					if (item) {
+						main->ui->sources->clearSelection();
+						main->ui->sources->SelectItem(item, true);
+					}
+				});
 			}
 		}
 		const QString kind = message.value("spec").toObject().value("kind").toString();
@@ -1723,6 +2447,9 @@ void ChurchMode::PanelMessage(const QString &json)
 		} else if (kind == "image") {
 			title = QTStr("Church.Pick.Image");
 			filter = QTStr("Church.Pick.ImageFilter") + " (*.png *.jpg *.jpeg *.gif *.bmp *.webp)";
+		} else if (kind == "audio") {
+			title = QTStr("Church.Pick.Audio");
+			filter = "Audio (*.mp3 *.wav *.ogg *.m4a *.aac *.flac *.webm)";
 		} else {
 			title = QTStr("Church.Pick.Video");
 			filter = QTStr("Church.Pick.VideoFilter") + " (*.mp4 *.webm *.m4v *.mov *.ogg)";
@@ -1745,14 +2472,23 @@ void ChurchMode::OutputHostMessage(void *data, calldata_t *params)
 {
 	ChurchMode *mode = static_cast<ChurchMode *>(data);
 	const char *json = calldata_string(params, "json");
+	/* Playback progress counts from the page on the screens only (not Studio Mode's staged one). */
+	if (json && strstr(json, "\"media-progress\"") && calldata_ptr(params, "source") != mode->output.Get()) {
+		return;
+	}
 	QMetaObject::invokeMethod(mode, "OutputMessage", Qt::QueuedConnection, Q_ARG(QString, QT_UTF8(json ? json : "")));
 }
 
 void ChurchMode::OutputMessage(const QString &json)
 {
 	const QJsonObject message = QJsonDocument::fromJson(json.toUtf8()).object();
-	if (message.value("type").toString() == "output-ready" && !lastShow.isEmpty()) {
+	const QString type = message.value("type").toString();
+	if (type == "output-ready" && !lastShow.isEmpty()) {
 		SendToOutput(lastShow);
+		SendStagedOutput();
+	} else if (type == "media-progress") {
+		ShowMediaProgress(message.value("current").toDouble(), message.value("duration").toDouble(),
+				  message.value("playing").toBool());
 	}
 }
 
@@ -1841,7 +2577,19 @@ void ChurchMode::FrontendEvent(enum obs_frontend_event event, void *data)
 	ChurchMode *mode = static_cast<ChurchMode *>(data);
 
 	switch (event) {
+	case OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN:
+		/* OBS is closing; the scenes are still all there (they go next, before the exit event).
+		 * What was made here goes to the account now — home today, church on Sunday. */
+		if (mode->sync) {
+			mode->sync->FlushBeforeExit();
+		}
+		mode->sceneDataGoing = true;
+		break;
+	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGING:
+		mode->sceneDataGoing = true;
+		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CLEANUP:
+		mode->sceneDataGoing = true;
 		for (size_t i = 0; i < FEEDS; i++) {
 			if (mode->pickerViews[i]) {
 				mode->pickerViews[i]->SetSource(nullptr);
@@ -1857,6 +2605,9 @@ void ChurchMode::FrontendEvent(enum obs_frontend_event event, void *data)
 		mode->contentScene = nullptr;
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
+		/* Another collection's slides are not an edit of this one's. */
+		mode->lastDeck.clear();
+		mode->sceneDataGoing = false;
 		mode->EnsureScenes();
 		mode->EnsureLiveGroups();
 		mode->SetContent(mode->CurrentContent());
@@ -1913,6 +2664,13 @@ void ChurchMode::FrontendEvent(enum obs_frontend_event event, void *data)
 			obs_source_dec_showing(mode->output);
 		}
 		mode->output = nullptr;
+		mode->captionSignal.Disconnect();
+		ChurchSlides::SetCaptionOutput(nullptr);
+		if (mode->captionOutput) {
+			obs_source_dec_active(mode->captionOutput);
+			obs_source_dec_showing(mode->captionOutput);
+		}
+		mode->captionOutput = nullptr;
 		break;
 	}
 	default:

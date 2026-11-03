@@ -24,6 +24,7 @@ namespace {
 
 std::mutex lock;
 OBSWeakSource output;
+OBSWeakSource captionOutput;
 std::string liveUuid;
 std::function<void(const std::string &)> editHandler;
 
@@ -123,6 +124,29 @@ bool AudioRender(void *data, uint64_t *ts_out, struct obs_source_audio_mix *audi
 	return true;
 }
 
+/* "Church Caption": the slide's text, centred at the bottom, over whatever is beneath. */
+const char *CaptionName(void *)
+{
+	return Str("Church.Source.Caption");
+}
+
+void *CaptionCreate(obs_data_t *, obs_source_t *source)
+{
+	return new Slides{source};
+}
+
+void CaptionRender(void *, gs_effect_t *)
+{
+	OBSSource page;
+	{
+		std::lock_guard<std::mutex> guard(lock);
+		page = OBSGetStrongRef(captionOutput);
+	}
+	if (page) {
+		obs_source_video_render(page);
+	}
+}
+
 bool EditClicked(obs_properties_t *, obs_property_t *, void *data)
 {
 	Slides *slides = static_cast<Slides *>(data);
@@ -170,6 +194,29 @@ void Register()
 	info.get_properties = Properties;
 	info.icon_type = OBS_ICON_TYPE_SLIDESHOW;
 	obs_register_source(&info);
+
+	obs_source_info caption = {};
+	caption.id = CHURCH_CAPTION_ID;
+	caption.type = OBS_SOURCE_TYPE_INPUT;
+	caption.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_DO_NOT_DUPLICATE;
+	caption.get_name = CaptionName;
+	caption.create = CaptionCreate;
+	caption.destroy = Destroy;
+	caption.get_width = Width;
+	caption.get_height = Height;
+	caption.video_render = CaptionRender;
+	caption.icon_type = OBS_ICON_TYPE_TEXT;
+	obs_register_source(&caption);
+}
+
+void SetCaptionOutput(obs_source_t *source)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	if (source) {
+		captionOutput = OBSGetWeakRef(source);
+	} else {
+		captionOutput = nullptr;
+	}
 }
 
 void SetOutput(obs_source_t *source)

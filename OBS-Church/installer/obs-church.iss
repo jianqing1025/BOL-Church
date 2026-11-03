@@ -5,7 +5,7 @@
 ; mode: OBS Church keeps its settings beside itself, apart from any OBS Studio.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.2.19"
 #endif
 #ifndef StageDir
   #define StageDir "..\build_x64\stage"

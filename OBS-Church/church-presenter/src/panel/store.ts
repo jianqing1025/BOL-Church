@@ -12,10 +12,16 @@ import { emptyDeck, kindName, newId, type Deck, type LibraryItem } from '../shar
 
 const pendingPicks = new Map<string, (path: string | null) => void>();
 
+type FileKind = 'ppt' | 'image' | 'video' | 'audio';
+/** Outside OBS a page can pick files its own way (the web editor uploads them). */
+let filePicker: ((kind: FileKind) => Promise<string | null>) | null = null;
+export const setFilePicker = (picker: (kind: FileKind) => Promise<string | null>) => { filePicker = picker; };
+
 /** Asks OBS for a file (it opens Windows' own dialog, so the full path comes back). */
-export function pickFile(kind: 'ppt' | 'image' | 'video'): Promise<string | null> {
+export function pickFile(kind: FileKind): Promise<string | null> {
+  if (!insideObs() && filePicker) return filePicker(kind);
   if (!insideObs()) {
-    return Promise.resolve(window.prompt(t('editor.prompt', { kind: kindName(kind) }))?.trim() || null);
+    return Promise.resolve(window.prompt(t('editor.prompt', { kind: kind === 'audio' ? 'Audio' : kindName(kind) }))?.trim() || null);
   }
   const requestId = newId();
   return new Promise((resolve) => {
@@ -74,7 +80,12 @@ function devHost(deliver: (message: HostToPanel) => void) {
         for (const item of message.items) {
           const scene = deck.scenes.find((s) => s.items.some((i) => i.id === item.id));
           if (scene) scene.items = scene.items.map((i) => (i.id === item.id ? item : i));
-          else (deck.scenes.find((s) => s.id === (message.sceneId ?? deck.currentScene)) ?? deck.scenes[0]).items.push(item);
+          else {
+            const target = deck.scenes.find((s) => s.id === (message.sceneId ?? deck.currentScene)) ?? deck.scenes[0];
+            const anchor = target.items.findIndex((i) => i.id === message.afterId);
+            if (anchor >= 0) target.items.splice(anchor + 1, 0, item); else target.items.push(item);
+            message.afterId = item.id;
+          }
         }
         publish();
         break;
@@ -99,6 +110,11 @@ function devHost(deliver: (message: HostToPanel) => void) {
   };
 }
 
+/** The host outside OBS: the development stand-in, or (the web editor) the account in the cloud. */
+type HostFactory = (deliver: (message: HostToPanel) => void) => (message: PanelToHost) => void;
+let hostFactory: HostFactory = devHost;
+export const setHostFactory = (factory: HostFactory) => { hostFactory = factory; };
+
 // ---------- the hook ----------
 
 export function useDeck(onHost: (message: HostToPanel) => void): { deck: Deck; loaded: boolean } {
@@ -120,7 +136,7 @@ export function useDeck(onHost: (message: HostToPanel) => void): { deck: Deck; l
       }
     };
     const off = onHostMessage(receive);
-    if (!insideObs()) setDevHost(devHost((message) => setTimeout(() => receive(message), 0)));
+    if (!insideObs()) setDevHost(hostFactory((message) => setTimeout(() => receive(message), 0)));
     sendToHost({ type: 'panel-ready' });
     return off;
   }, []);

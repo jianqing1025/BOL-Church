@@ -13,8 +13,13 @@ import { themeArt, themeById, type Theme } from './themes';
 
 export const SLIDE_FONT = '"Microsoft JhengHei", "Noto Sans TC", "PingFang TC", "Microsoft YaHei", sans-serif';
 
-export const makeMeasure = (ctx: CanvasRenderingContext2D, weight: number) =>
-  (text: string, px: number) => { ctx.font = `${weight} ${px}px ${SLIDE_FONT}`; return ctx.measureText(text).width; };
+/** Serif themes (ProPresenter-style "classic" text). */
+export const SERIF_FONT = '"Noto Serif TC", "PMingLiU", "MingLiU", "Songti TC", Georgia, "Times New Roman", serif';
+
+const fontOf = (theme: Theme) => (theme.font === 'serif' ? SERIF_FONT : SLIDE_FONT);
+
+export const makeMeasure = (ctx: CanvasRenderingContext2D, weight: number, family: string = SLIDE_FONT) =>
+  (text: string, px: number) => { ctx.font = `${weight} ${px}px ${family}`; return ctx.measureText(text).width; };
 
 // ---------- files, decoded once ----------
 
@@ -95,39 +100,60 @@ function withShadow(ctx: CanvasRenderingContext2D, theme: Theme, px: number, dra
   ctx.restore();
 }
 
-function drawTextSlide(ctx: CanvasRenderingContext2D, theme: Theme, mode: LayoutMode, title: string, paragraphs: readonly string[]) {
+function drawTextSlide(ctx: CanvasRenderingContext2D, theme: Theme, mode: LayoutMode, title: string, paragraphs: readonly string[], bandOpacity = 0.7, textBox?: { x: number; y: number; w: number; h: number }) {
   const spec = MODES[mode];
-  const laid = fitText(mode, title, paragraphs, makeMeasure(ctx, 400), makeMeasure(ctx, 700));
+  const family = fontOf(theme);
+  const laid = fitText(mode, title, paragraphs, makeMeasure(ctx, 400, family), makeMeasure(ctx, 700, family));
+  /* ProPresenter's stroke: an outline under the letters. */
+  const draw = (line: string, x: number, y: number, px: number) => {
+    if (theme.stroke) {
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(3, px * 0.09);
+      ctx.strokeStyle = theme.stroke;
+      ctx.strokeText(line, x, y);
+      ctx.restore();
+    }
+    ctx.fillText(line, x, y);
+  };
 
   if (spec.band) {
-    // A soft dark band, so the words read over any picture beneath.
-    const band = ctx.createLinearGradient(0, spec.band.y, 0, spec.band.y + spec.band.h);
-    band.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    band.addColorStop(0.25, 'rgba(0, 0, 0, 0.55)');
-    band.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
-    ctx.fillStyle = band;
+    ctx.fillStyle = `rgba(0, 0, 0, ${Math.max(0, Math.min(1, bandOpacity))})`;
     ctx.fillRect(spec.band.x, spec.band.y, spec.band.w, spec.band.h);
   }
 
+  if (textBox) {
+    const original = spec.box;
+    ctx.translate(textBox.x * SLIDE_W, textBox.y * SLIDE_H);
+    ctx.scale(textBox.w * SLIDE_W / original.w, textBox.h * SLIDE_H / original.h);
+    ctx.translate(-original.x, -original.y);
+  }
   const { box } = spec;
+  // Main slides may contain much more text than a caption. Keep every line inside the lower third.
+  if (mode === 'lowerThird' && laid.height > box.h) {
+    const fit = box.h / laid.height;
+    ctx.translate(box.x + box.w * (1 - fit) / 2, box.y);
+    ctx.scale(fit, fit);
+    ctx.translate(-box.x, -box.y);
+  }
   let y = box.y + Math.max(0, (box.h - laid.height) / 2);
   const x = spec.align === 'center' ? box.x + box.w / 2 : box.x;
   ctx.textAlign = spec.align;
   ctx.textBaseline = 'top';
 
-  ctx.font = `700 ${laid.titlePx}px ${SLIDE_FONT}`;
+  ctx.font = `700 ${laid.titlePx}px ${family}`;
   ctx.fillStyle = theme.title;
   for (const line of laid.titleLines) {
-    withShadow(ctx, theme, laid.titlePx, () => ctx.fillText(line, x, y));
+    withShadow(ctx, theme, laid.titlePx, () => draw(line, x, y, laid.titlePx));
     y += laid.titlePx * 1.25;
   }
   if (laid.titleLines.length) y += spec.gap;
 
   const step = laid.bodyPx * spec.lineHeight;
-  ctx.font = `400 ${laid.bodyPx}px ${SLIDE_FONT}`;
+  ctx.font = `400 ${laid.bodyPx}px ${family}`;
   ctx.fillStyle = theme.body;
   for (const line of laid.bodyLines) {
-    withShadow(ctx, theme, laid.bodyPx, () => ctx.fillText(line, x, y + (step - laid.bodyPx) / 2));
+    withShadow(ctx, theme, laid.bodyPx, () => draw(line, x, y + (step - laid.bodyPx) / 2, laid.bodyPx));
     y += step;
   }
   ctx.textAlign = 'left';
@@ -166,16 +192,57 @@ async function drawImageSlide(ctx: CanvasRenderingContext2D, theme: Theme, path:
 }
 
 /** A video's stand-in on a thumbnail: its picture (YouTube's), a play mark and its name. */
+/** One frame of a video file (a second in, or a tenth of the way for short ones), for its card. */
+const videoFrames = new Map<string, Promise<HTMLCanvasElement>>();
+function videoFrame(url: string): Promise<HTMLCanvasElement> {
+  let frame = videoFrames.get(url);
+  if (!frame) {
+    frame = new Promise<HTMLCanvasElement>((resolve, reject) => {
+      const video = document.createElement('video');
+      const done = (error?: unknown) => {
+        window.clearTimeout(timer);
+        video.removeAttribute('src');
+        video.load();
+        if (error) reject(error);
+      };
+      const timer = window.setTimeout(() => done(new Error('video frame timeout')), 15000);
+      video.muted = true;
+      video.preload = 'auto';
+      video.playsInline = true;
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = Number.isFinite(video.duration) ? Math.min(1, video.duration / 10) : 0;
+      }, { once: true });
+      video.addEventListener('seeked', () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 360;
+        canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
+        resolve(canvas);
+        done();
+      }, { once: true });
+      video.addEventListener('error', () => done(new Error('video frame unavailable')), { once: true });
+      video.src = fileUrl(url);
+    });
+    // A failure is not kept: the file may arrive later (a sync still downloading it).
+    frame.catch(() => videoFrames.delete(url));
+    videoFrames.set(url, frame);
+  }
+  return frame;
+}
+
 async function drawVideoCard(ctx: CanvasRenderingContext2D, theme: Theme, url: string, title: string) {
   const id = youTubeId(url);
-  if (id) {
+  if (url.trim()) {
     try {
-      const thumb = await loadImage(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`);
+      // A YouTube video's own thumbnail; a video file's picture a second in.
+      const thumb: HTMLImageElement | HTMLCanvasElement = id
+        ? await loadImage(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`)
+        : await videoFrame(url);
       const scale = Math.max(SLIDE_W / thumb.width, SLIDE_H / thumb.height);
       ctx.drawImage(thumb, (SLIDE_W - thumb.width * scale) / 2, (SLIDE_H - thumb.height * scale) / 2, thumb.width * scale, thumb.height * scale);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
-    } catch { /* offline: the theme's background stays */ }
+    } catch { /* offline, or the file not here (yet): the theme's background stays */ }
   }
   ctx.beginPath();
   ctx.arc(SLIDE_W / 2, SLIDE_H / 2 - 40, 130, 0, Math.PI * 2);
@@ -229,7 +296,7 @@ export async function drawSlide(canvas: HTMLCanvasElement, spec: SlideSpec, opti
       case 'background':
         return;
       case 'text':
-        drawTextSlide(ctx, theme, spec.look.layout, spec.title + spec.pageLabel, spec.paragraphs);
+        drawTextSlide(ctx, theme, spec.look.layout, spec.title + spec.pageLabel, spec.paragraphs, spec.look.bandOpacity, spec.look.textBox);
         return;
       case 'image':
         await drawImageSlide(ctx, theme, spec.path, spec.fill, spec.caption);

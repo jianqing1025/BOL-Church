@@ -3,6 +3,8 @@
 #include "qt-wrappers.hpp"
 
 #include <QStyle>
+#include <QPainter>
+#include <QPainterPath>
 
 #include "moc_OBSBasicControls.cpp"
 
@@ -59,10 +61,35 @@ OBSBasicControls::OBSBasicControls(OBSBasic *main) : QFrame(nullptr), ui(new Ui:
 		forceStopStreamAction, &QAction::triggered, this,
 		[this]() { emit this->ForceStopStreamMenuActionClicked(); }, Qt::DirectConnection);
 
+	/* OBS Church: a settings button after Start Streaming opens the stream settings. */
+	QPushButton *streamSettingsButton = new QPushButton(this);
+	streamSettingsButton->setObjectName("streamSettingsButton");
+	streamSettingsButton->setProperty("class", "icon-gear");
+	streamSettingsButton->setToolTip(QTStr("Basic.Settings.Stream"));
+	streamSettingsButton->setAccessibleName(QTStr("Basic.Settings.Stream"));
+	streamSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+	ui->horizontalLayout_7->insertWidget(ui->horizontalLayout_7->indexOf(ui->streamButton) + 1, streamSettingsButton);
+	connect(
+		streamSettingsButton, &QPushButton::clicked, this,
+		[this]() { emit this->StreamSettingsButtonClicked(); }, Qt::DirectConnection);
+
 	/* OBS Church: a folder button after Start Recording opens where recordings go. */
 	QPushButton *recordFolderButton = new QPushButton(this);
 	recordFolderButton->setObjectName("recordFolderButton");
-	recordFolderButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+	QPixmap folder(20, 20);
+	folder.fill(Qt::transparent);
+	{
+		QPainter painter(&folder);
+		painter.setRenderHint(QPainter::Antialiasing);
+		painter.setPen(QPen(palette().buttonText().color(), 1.5));
+		painter.setBrush(Qt::NoBrush);
+		QPainterPath path;
+		path.moveTo(2, 6); path.lineTo(2, 4); path.lineTo(8, 4);
+		path.lineTo(10, 6); path.lineTo(18, 6); path.lineTo(18, 16);
+		path.lineTo(2, 16); path.closeSubpath();
+		painter.drawPath(path);
+	}
+	recordFolderButton->setIcon(QIcon(folder));
 	recordFolderButton->setToolTip(QTStr("Basic.MainMenu.File.ShowRecordings").remove('&'));
 	recordFolderButton->setAccessibleName(QTStr("Basic.MainMenu.File.ShowRecordings").remove('&'));
 	recordFolderButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
@@ -70,6 +97,16 @@ OBSBasicControls::OBSBasicControls(OBSBasic *main) : QFrame(nullptr), ui(new Ui:
 	connect(
 		recordFolderButton, &QPushButton::clicked, this, [this]() { emit this->RecordFolderButtonClicked(); },
 		Qt::DirectConnection);
+
+	for (QPushButton *button : {streamSettingsButton, recordFolderButton}) {
+		button->setFixedWidth(32);
+		button->setMinimumHeight(30);
+		button->setIconSize(QSize(18, 18));
+	}
+	ui->horizontalLayout_7->setSpacing(4);
+	ui->recordingLayout->setSpacing(4);
+	ui->streamButton->setMinimumHeight(30);
+	ui->recordButton->setMinimumHeight(30);
 
 	/* Set up default visibility */
 	ui->broadcastButton->setVisible(false);

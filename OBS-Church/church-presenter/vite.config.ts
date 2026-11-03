@@ -1,8 +1,8 @@
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type UserConfig } from 'vite';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const church = resolve(here, '../../Church');
@@ -21,7 +21,35 @@ function bible(): Plugin {
   };
 }
 
-export default defineConfig({
+/** The editor's page is the folder's index (served at /editor/). */
+function editorIndex(): Plugin {
+  return {
+    name: 'editor-index',
+    writeBundle(options) {
+      const page = resolve(options.dir!, 'editor.html');
+      if (existsSync(page)) renameSync(page, resolve(options.dir!, 'index.html'));
+    },
+  };
+}
+
+// `vite build --mode editor`: the web editor ("OBS 在線"), served by the sync service (cloud/public/editor).
+export default defineConfig(({ mode }): UserConfig => mode === 'editor' ? {
+  base: './',
+  plugins: [react(), bible(), editorIndex()],
+  resolve: {
+    alias: {
+      '@church': church,
+      '@obs-fonts': resolve(here, '../frontend/forms/fonts'),
+      fflate: resolve(here, 'node_modules/fflate'),
+    },
+  },
+  build: {
+    outDir: resolve(here, '../cloud/public/editor'),
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: { input: { index: resolve(here, 'editor.html') } },
+  },
+} : {
   base: './',
   plugins: [react(), bible()],
   resolve: {

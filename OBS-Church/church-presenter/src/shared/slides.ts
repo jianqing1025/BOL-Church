@@ -1,7 +1,7 @@
 import { loadChapter, scriptureLabel, verseParagraphs } from './bible';
 import { baseName } from './files';
 import { LANG, t } from './i18n';
-import type { LibraryItem, Look, SlideRef, SlideSpec } from './model';
+import type { LibraryItem, Look, SlideRef, SlideSpec, VideoEntry, VideoItem } from './model';
 import { makeMeasure, openDeck } from './render';
 import { paginate, splitGroups } from './textLayout';
 
@@ -23,6 +23,11 @@ const pageLabel = (i: number, n: number, chinese: boolean) => (n > 1 ? (chinese 
 
 /** An item, opened into its slides. */
 export async function slidesOf(item: LibraryItem, defaultLook: Look, sceneId?: string): Promise<SlideEntry[]> {
+  const entries = await baseSlidesOf(item, defaultLook, sceneId);
+  return entries.map((entry) => ({ ...entry, spec: { ...entry.spec, media: item.cardMedia?.[String(entry.ref.index)] } }));
+}
+
+async function baseSlidesOf(item: LibraryItem, defaultLook: Look, sceneId?: string): Promise<SlideEntry[]> {
   const look = lookOf(item, defaultLook);
   const at = (index: number): SlideRef => ({ itemId: item.id, index, sceneId });
   switch (item.kind) {
@@ -61,7 +66,11 @@ export async function slidesOf(item: LibraryItem, defaultLook: Look, sceneId?: s
     case 'image':
       return [{ ref: at(0), spec: { kind: 'image', look, path: item.path, fill: item.fill, caption: '' }, label: baseName(item.path) }];
     case 'video':
-      return [{ ref: at(0), spec: { kind: 'video', look, url: item.url, startSeconds: item.startSeconds, title: item.name }, label: item.name }];
+      return videosOf(item).map((video, i) => ({
+        ref: at(i),
+        spec: { kind: 'video', look, url: video.url, startSeconds: video.startSeconds, title: video.title },
+        label: video.title,
+      }));
     case 'ppt': {
       const deck = await openDeck(item.path);
       return deck.pages.map((page, i) => {
@@ -74,4 +83,12 @@ export async function slidesOf(item: LibraryItem, defaultLook: Look, sceneId?: s
       });
     }
   }
+}
+
+/** Every video of a video item, the item's own first: one card each. */
+export function videosOf(item: VideoItem): VideoEntry[] {
+  const first: VideoEntry = {
+    kind: 'video', url: item.url, startSeconds: item.startSeconds, title: item.videoTitle || item.name, fileHash: item.fileHash,
+  };
+  return [first, ...(item.playlist ?? [])];
 }

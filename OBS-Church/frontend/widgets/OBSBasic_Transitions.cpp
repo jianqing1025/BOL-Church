@@ -16,6 +16,9 @@
 ******************************************************************************/
 
 #include "OBSBasic.hpp"
+#ifdef BROWSER_AVAILABLE
+#include <church/ChurchMode.hpp>
+#endif
 
 #include <algorithm>
 
@@ -121,7 +124,13 @@ void OBSBasic::TriggerQuickTransition(int id)
 
 	if (qt && previewProgramMode) {
 		OBSScene scene = GetCurrentScene();
-		obs_source_t *source = obs_scene_get_source(scene);
+		OBSSource source = obs_scene_get_source(scene);
+#ifdef BROWSER_AVAILABLE
+		if (church) {
+			OBSSource staged = church->PrepareStagedFeed();
+			if (staged) source = staged;
+		}
+#endif
 
 		if (GetCurrentTransition() != qt->source) {
 			OverrideTransition(qt->source);
@@ -255,7 +264,7 @@ void OBSBasic::TransitionStarted()
 
 void OBSBasic::TransitionStopped()
 {
-	if (swapScenesMode) {
+	if (swapScenesMode && !churchLayout) {
 		OBSSource scene = OBSGetStrongRef(swapScene);
 		if (scene) {
 			SetCurrentScene(scene);
@@ -314,7 +323,7 @@ void OBSBasic::TransitionToScene(OBSSource source, bool force, bool quickTransit
 				return;
 			}
 
-			if (swapScenesMode && lastScene && lastScene != GetCurrentSceneSource()) {
+			if (!churchLayout && swapScenesMode && lastScene && lastScene != GetCurrentSceneSource()) {
 				swapScene = lastProgramScene;
 			}
 		}
@@ -738,6 +747,9 @@ void OBSBasic::SetCurrentScene(OBSSource scene, bool force)
 
 void OBSBasic::TransitionClicked()
 {
+#ifdef BROWSER_AVAILABLE
+	if (church && church->CommitStagedFeed()) return;
+#endif
 	if (previewProgramMode) {
 		TransitionToScene(GetCurrentScene());
 	}
@@ -800,6 +812,12 @@ void OBSBasic::TBarChanged(int value)
 
 	if (!tBarActive) {
 		OBSSource sceneSource = GetCurrentSceneSource();
+#ifdef BROWSER_AVAILABLE
+		if (church) {
+			OBSSource staged = church->PrepareStagedFeed();
+			if (staged) sceneSource = staged;
+		}
+#endif
 		OBSSource tBarTr = GetOverrideTransition(sceneSource);
 
 		if (!ValidTBarTransition(tBarTr)) {

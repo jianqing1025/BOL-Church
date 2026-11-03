@@ -1,11 +1,12 @@
-import { FolderOpen, X } from 'lucide-react';
+import { FolderOpen, ListVideo, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadChapter, scriptureLabel } from '../shared/bible';
 import { baseName, youTubeId } from '../shared/files';
 import { t } from '../shared/i18n';
-import { kindName, type LibraryItem, type Look } from '../shared/model';
+import { kindName, type LibraryItem, type Look, type VideoEntry } from '../shared/model';
 import { parseReferences, type Reference } from '../shared/reference';
-import { lookOf } from '../shared/slides';
+import { lookOf, videosOf } from '../shared/slides';
+import { fetchPlaylist, fetchVideoTitle, isPlaylistLink, watchUrl, youTubeListId } from '../shared/youtube';
 import { LookPicker } from './LookPicker';
 import { ScripturePicker } from './ScripturePicker';
 import { draftId, pickFile } from './store';
@@ -28,29 +29,76 @@ export function ItemEditor({ item, isNew, defaultLook, onSave, onClose }: {
 
   useEffect(() => { first.current?.focus(); }, []);
 
-  /* A video's name: its YouTube title, or the file's name — unless typed in by hand. */
+  /* A video item's videos, one card each. The section's name follows the video's title (one video)
+   * or the playlist's (several) — unless typed in by hand; so does each video's title. */
   const nameTyped = useRef(!isNew && draft.name.trim() !== '');
-  const videoUrl = draft.kind === 'video' ? draft.url.trim() : '';
+  const [videos, setVideos] = useState<VideoRow[]>(() => item.kind === 'video'
+    ? videosOf(item).map((video) => ({ ...video, key: draftId(), titleTyped: !isNew && video.title.trim() !== '' }))
+    : []);
+  const [playlistTitle, setPlaylistTitle] = useState('');
+  const [playlistBusy, setPlaylistBusy] = useState(false);
   useEffect(() => {
-    if (draft.kind !== 'video' || nameTyped.current || !videoUrl) return;
-    let cancelled = false;
-    const id = youTubeId(videoUrl);
-    if (!id) {
-      const file = baseName(videoUrl.split(/[?#]/)[0]).replace(/\.[^.]+$/, '');
-      if (file) set({ name: decodeURIComponent(file) });
-      return;
+    if (draft.kind !== 'video' || nameTyped.current) return;
+    const title = videos.length > 1 ? playlistTitle || videos[0]?.title : videos[0]?.title;
+    if (title && title !== draft.name) set({ name: title });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videos, playlistTitle]);
+
+  const patchVideo = (key: string, patch: Partial<VideoRow>) =>
+    setVideos((list) => list.map((video) => (video.key === key ? { ...video, ...patch } : video)));
+
+  /** Every video of the playlist, in place of the row that named it. */
+  async function addPlaylist(key: string, listId: string) {
+    setPlaylistBusy(true);
+    setError(null);
+    try {
+      const playlist = await fetchPlaylist(listId);
+      const rows: VideoRow[] = playlist.videos.map((video) => ({
+        kind: 'video', url: watchUrl(video.id), startSeconds: 0, title: video.title, key: draftId(), titleTyped: false,
+      }));
+      if (rows.length) {
+        setVideos((list) => {
+          const at = list.findIndex((video) => video.key === key);
+          const next = [...list];
+          if (at < 0) next.push(...rows);
+          else next.splice(at, 1, ...rows);
+          return next;
+        });
+      }
+      setPlaylistTitle(playlist.title);
+    } catch (e) {
+      setError(`${t('editor.playlistError')} ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPlaylistBusy(false);
     }
+  }
+
+  /* A changed link: a playlist link brings in all its videos; otherwise the video's title is looked up. */
+  const videoKeys = videos.map((video) => `${video.key}=${video.url.trim()}`).join('|');
+  useEffect(() => {
+    if (draft.kind !== 'video') return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}&format=json`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((info: { title?: string } | null) => {
-          if (!cancelled && !nameTyped.current && info?.title) set({ name: info.title });
-        })
-        .catch(() => undefined);
+      for (const video of videos) {
+        const url = video.url.trim();
+        if (!url) continue;
+        const listId = youTubeListId(url);
+        if (listId && isPlaylistLink(url)) { void addPlaylist(video.key, listId); continue; }
+        if (video.titleTyped || video.title) continue;
+        if (!youTubeId(url)) {
+          const file = baseName(url.split(/[?#]/)[0]).replace(/\.[^.]+$/, '');
+          if (file) patchVideo(video.key, { title: decodeURIComponent(file) });
+          continue;
+        }
+        void fetchVideoTitle(url).then((title) => {
+          if (!cancelled && title) setVideos((list) => list.map((row) =>
+            row.key === video.key && !row.titleTyped && row.url.trim() === url ? { ...row, title } : row));
+        });
+      }
     }, 300);
     return () => { cancelled = true; window.clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoUrl]);
+  }, [videoKeys]);
 
   const quickRefs = useMemo(() => parseReferences(quick), [quick]);
 
@@ -86,9 +134,22 @@ export function ItemEditor({ item, isNew, defaultLook, onSave, onClose }: {
       return;
     }
     if (draft.kind === 'image' && !draft.path) { setError(t('editor.needImage')); return; }
-    if (draft.kind === 'video' && !draft.url.trim()) { setError(t('editor.needVideo')); return; }
+    if (draft.kind === 'video') {
+      const list = videos.filter((video) => video.url.trim() && !isPlaylistLink(video.url.trim()))
+        .map(({ key: _key, titleTyped: _typed, ...video }): VideoEntry => ({
+          ...video, url: video.url.trim(), title: video.title.trim() || (youTubeId(video.url) ? 'YouTube' : baseName(video.url)),
+        }));
+      if (!list.length) { setError(t('editor.needVideo')); return; }
+      const [head, ...rest] = list;
+      const name = draft.name.trim() || (rest.length ? playlistTitle : '') || head.title;
+      onSave([{
+        ...draft, name, url: head.url, startSeconds: head.startSeconds, fileHash: head.fileHash,
+        videoTitle: rest.length ? head.title : undefined, playlist: rest.length ? rest : undefined,
+      }], show);
+      return;
+    }
     if (draft.kind === 'ppt' && !draft.path) { setError(t('editor.needPpt')); return; }
-    const fallback = draft.kind === 'video' ? (youTubeId(draft.url) ? 'YouTube' : baseName(draft.url)) : baseName(draft.kind === 'image' || draft.kind === 'ppt' ? draft.path : '');
+    const fallback = baseName(draft.kind === 'image' || draft.kind === 'ppt' ? draft.path : '');
     onSave([{ ...draft, name: draft.name.trim() || fallback.replace(/\.[^.]+$/, '') }], show);
   }
 
@@ -160,14 +221,50 @@ export function ItemEditor({ item, isNew, defaultLook, onSave, onClose }: {
 
               {draft.kind === 'video' && (
                 <>
-                  <label>{t('editor.videoUrl')}
-                    <div className="row">
-                      <input ref={(el) => { first.current = el; }} value={draft.url} placeholder="https://www.youtube.com/watch?v=…" onChange={(e) => set({ url: e.target.value, fileHash: undefined })} />
-                      <button type="button" className="chip" onClick={async () => { const url = await pickFile('video'); if (url) set({ url, fileHash: undefined }); }}><FolderOpen size={14} />{t('editor.chooseFile')}</button>
-                    </div>
-                  </label>
-                  <label>{t('editor.startAt')}<input type="number" min={0} value={draft.startSeconds} onChange={(e) => set({ startSeconds: Math.max(0, Number(e.target.value) || 0) })} /></label>
                   <label>{t('editor.name')}<input value={draft.name} placeholder={t('editor.name.hint')} onChange={(e) => { nameTyped.current = e.target.value.trim() !== ''; set({ name: e.target.value }); }} /></label>
+                  <div className="video-rows">
+                    <span className="video-rows-head">{t('editor.videos')}</span>
+                    {videos.map((video, i) => {
+                      const url = video.url.trim();
+                      const listId = youTubeListId(url);
+                      const changeUrl = (next: string) => patchVideo(video.key, {
+                        url: next, fileHash: undefined, fileName: undefined, title: video.titleTyped ? video.title : '',
+                      });
+                      return (
+                        <div key={video.key} className="video-row">
+                          <span className="video-n">{i + 1}</span>
+                          <div className="video-fields">
+                            <div className="row">
+                              <input ref={i === 0 ? (el) => { first.current = el; } : undefined} value={video.url}
+                                placeholder={t('editor.videoUrlHint')} aria-label={t('editor.videoUrl')}
+                                onChange={(e) => changeUrl(e.target.value)} />
+                              <button type="button" className="chip" onClick={async () => { const picked = await pickFile('video'); if (picked) changeUrl(picked); }}>
+                                <FolderOpen size={14} />{t('editor.chooseFile')}
+                              </button>
+                            </div>
+                            <div className="row">
+                              <input value={video.title} placeholder={t('editor.videoTitle')} aria-label={t('editor.videoTitle')}
+                                onChange={(e) => patchVideo(video.key, { title: e.target.value, titleTyped: e.target.value.trim() !== '' })} />
+                              <input className="video-start" type="number" min={0} value={video.startSeconds} title={t('editor.startAt')} aria-label={t('editor.startAt')}
+                                onChange={(e) => patchVideo(video.key, { startSeconds: Math.max(0, Number(e.target.value) || 0) })} />
+                            </div>
+                            {listId && !isPlaylistLink(url) && (
+                              <button type="button" className="chip" disabled={playlistBusy} onClick={() => void addPlaylist(video.key, listId)}>
+                                <ListVideo size={14} />{t('editor.addPlaylist')}
+                              </button>
+                            )}
+                          </div>
+                          <button type="button" className="icon" title={t('editor.removeVideo')} disabled={videos.length < 2}
+                            onClick={() => setVideos((list) => list.filter((row) => row.key !== video.key))}><Trash2 size={15} /></button>
+                        </div>
+                      );
+                    })}
+                    <button type="button" className="chip add-video" onClick={() => setVideos((list) => [...list, {
+                      kind: 'video', url: '', startSeconds: 0, title: '', key: draftId(), titleTyped: false,
+                    }])}><Plus size={14} />{t('editor.addVideo')}</button>
+                    {playlistBusy && <p className="muted">{t('editor.playlistLoading')}</p>}
+                  </div>
+                  <p className="muted">{t('editor.playlistNote')}</p>
                   <p className="muted">{t('editor.videoNote')}</p>
                 </>
               )}
@@ -193,6 +290,9 @@ export function ItemEditor({ item, isNew, defaultLook, onSave, onClose }: {
     </div>
   );
 }
+
+/** A video in the editor: its entry, a key for React, and whether its title was typed in by hand. */
+type VideoRow = VideoEntry & { key: string; titleTyped: boolean };
 
 function FileRow({ label, path, onPick }: { label: string; path: string; onPick: () => void }) {
   return (

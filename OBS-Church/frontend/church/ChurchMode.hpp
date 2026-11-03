@@ -27,6 +27,8 @@ class OBSDock;
 class QCefWidget;
 class QHBoxLayout;
 class QMenu;
+class QSlider;
+class QLabel;
 class QSplitter;
 class QTimer;
 class ChurchScreen;
@@ -39,7 +41,7 @@ class ChurchMode : public QObject {
 
 public:
 	/* What can be streamed and recorded; each is a scene of its own, kept out of the Scenes list. */
-	enum class Feed { Main = 0, Camera = 1, Pip = 2, Side = 3 };
+	enum class Feed { Main = 0, Camera = 1, Pip = 2, Caption = 3 };
 	static constexpr size_t FEEDS = 4;
 
 	explicit ChurchMode(OBSBasic *main);
@@ -54,6 +56,11 @@ public:
 	void Init();
 	/* View ▸ Docks ▸ Reset UI. */
 	void ResetDocks();
+	/* Studio Mode: OBS's Program view and transition controls, as a screen under the main screen. */
+	void ShowProgramPane(QWidget *program, QWidget *options, bool show);
+	bool CommitStagedFeed();
+	OBSSource PrepareStagedFeed();
+
 	/* An item's properties: open it in the slide editor. */
 	void EditItem(const std::string &uuid);
 
@@ -66,6 +73,12 @@ public:
 	/* Something the account should hear about changed. */
 	quint64 ContentRevision() const { return contentRevision; }
 
+signals:
+	/* The scenes or slides were changed here (not brought in from the account). */
+	void contentEdited();
+
+public:
+
 private:
 	OBSBasic *main;
 
@@ -76,6 +89,25 @@ private:
 
 	/* Right column: ① the editable preview, ② camera, ③ picture in picture. */
 	QPointer<ChurchScreen> previewScreen;
+	/* Under the preview: the playing video / audio. */
+	QPointer<QWidget> mediaBar;
+	QPointer<QSlider> mediaSlider;
+	QPointer<QLabel> mediaTime;
+	double mediaDuration = 0;
+	/* A video / audio playing on screen right now (the output page says so several times a second). */
+	bool mediaPlaying = false;
+	/* Main went live for a slide and Camera only is due when the countdown ends (not switched by hand since). */
+	bool autoCameraPending = false;
+	QPointer<QSplitter> column;
+	QPointer<QWidget> programPane;
+	QPointer<QWidget> previewEditor;
+	QPointer<ChurchSceneDisplay> studioLive, studioStaged;
+	OBSWeakSource stagedFeed;
+	OBSSource stagedOutput;
+	OBSSignal stagedSignal;
+	QString stagedMessage;
+	bool committingStage = false;
+	void SendStagedOutput();
 	QPointer<ChurchSceneDisplay> columnCamera, columnPip;
 	QPointer<ChurchScreen> columnCameraScreen, columnPipScreen;
 	/* Recording & Streaming: one small screen per feed. */
@@ -87,6 +119,9 @@ private:
 	/* The page that draws the slide on screen; private, shared by every slide item. */
 	OBSSource output;
 	OBSSignal outputSignal;
+	/* The same slide's text as a lower third (output.html?mode=caption), for the Camera + caption feed. */
+	OBSSource captionOutput;
+	OBSSignal captionSignal;
 	/* The scene whose content is on the main screen (never one of the feeds). */
 	OBSWeakSource contentScene;
 
@@ -102,6 +137,10 @@ private:
 	QString lastDeck;
 	QPointer<QTimer> deckTimer;
 	quint64 contentRevision = 0;
+	/* While the account's content is being brought in: those changes are not this computer's edits. */
+	bool importing = false;
+	/* While OBS empties the scenes (closing, or another scene collection): no edits of anyone's. */
+	bool sceneDataGoing = false;
 
 	/* The slide on screen now, resent when the output page (re)loads. */
 	QString lastShow;
@@ -146,12 +185,13 @@ private:
 	bool AutoSwitch() const;
 	void SlideChanged();
 	void ShowFeedMenu(Feed feed, ChurchSceneDisplay *view);
+	void OpenFeedEditor(Feed feed);
 	void FillProjectMenu(QMenu *menu, Feed feed);
 	void FillPreviewProjectMenu(QMenu *menu);
 
 	/* --- slide items --- */
 	QJsonObject BuildDeck() const;
-	void SaveItems(const QJsonArray &items, const QString &sceneId);
+	void SaveItems(const QJsonArray &items, const QString &sceneId, const QString &afterId = {});
 	void PlaceAfterAnchor(obs_scene_t *scene, obs_sceneitem_t *added);
 	/* Where the next new item goes after (the selection, then each item just added). */
 	OBSSceneItem insertAnchor;
@@ -163,6 +203,16 @@ private:
 	static void HotkeyPressed(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
 
 	void SendToPanel(const QJsonObject &message);
+
+	void SendAccount();
+
+	void MoveItem(const QString &id, const QString &sceneId, const QString &beforeId);
+
+	void ShowMediaProgress(double current, double duration, bool playing);
+
+	void SeekMedia(double seconds);
+
+	void StartAutoCameraCountdown();
 	void SendToOutput(const QString &specJson);
 
 	static void FrontendEvent(enum obs_frontend_event event, void *data);

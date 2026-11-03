@@ -1,3 +1,6 @@
+import { mountCardMedia } from '../shared/cardMedia';
+import { asCaption } from '../shared/caption';
+import { trackProgress } from '../shared/mediaProgress';
 import { onShow, sendToHost } from '../shared/host';
 import { fileUrl, youTubeId } from '../shared/files';
 import type { SlideSpec } from '../shared/model';
@@ -27,12 +30,14 @@ let front = 0;
 let video: HTMLElement | null = null;
 /** Only the latest request may paint: a slow PPT page never lands over a newer slide. */
 let ticket = 0;
+let stopCardMedia: (() => void) | null = null;
 
 function stopVideo() {
   if (!video) return;
   const old = video;
   video = null;
   old.style.opacity = '0';
+  old.dataset.leaving = '1';
   if (old instanceof HTMLVideoElement) old.pause();
   window.setTimeout(() => old.remove(), FADE_MS);
 }
@@ -43,7 +48,7 @@ function showVideo(spec: Extract<SlideSpec, { kind: 'video' }>) {
   let element: HTMLElement;
   if (id) {
     const frame = document.createElement('iframe');
-    const params = new URLSearchParams({ autoplay: '1', controls: '0', rel: '0', modestbranding: '1', playsinline: '1', start: String(Math.max(0, Math.floor(spec.startSeconds))) });
+    const params = new URLSearchParams({ autoplay: '1', controls: '0', rel: '0', modestbranding: '1', playsinline: '1', enablejsapi: '1', start: String(Math.max(0, Math.floor(spec.startSeconds))) });
     frame.src = `https://www.youtube.com/embed/${id}?${params}`;
     frame.allow = 'autoplay; encrypted-media';
     element = frame;
@@ -66,8 +71,10 @@ function showVideo(spec: Extract<SlideSpec, { kind: 'video' }>) {
 
 async function show(spec: SlideSpec) {
   const mine = ++ticket;
+  stopCardMedia?.(); stopCardMedia = null;
   if (spec.kind === 'video') {
     showVideo(spec);
+    stopCardMedia = mountCardMedia(stage, spec.media ?? [], spec.mediaPlayback?.playing ?? false, console.error);
     return;
   }
   const back = canvases[1 - front];
@@ -86,9 +93,19 @@ async function show(spec: SlideSpec) {
   // The new canvas on top while it fades in.
   stage.appendChild(back);
   front = 1 - front;
+  stopCardMedia = mountCardMedia(stage, spec.media ?? [], spec.mediaPlayback?.playing ?? false, console.error);
 }
 
-onShow((spec) => { void show(spec); });
+/**
+ * ?mode=caption — the Camera + lower third feed: whatever a text slide's own layout, its words go
+ * centred at the bottom on a see-through background; anything else (pictures, PPT, video) shows nothing.
+ */
+const captionMode = new URLSearchParams(location.search).get('mode') === 'caption';
+
+onShow((spec) => { void show(captionMode ? asCaption(spec) : spec); });
+
+// The progress bar on the panel's live card (not for the caption feed, which plays nothing).
+if (!captionMode) trackProgress(stage);
 
 // Tell OBS this page is ready, so it sends whatever is on screen now.
 sendToHost({ type: 'output-ready' });

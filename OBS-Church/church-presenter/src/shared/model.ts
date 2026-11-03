@@ -25,9 +25,23 @@ export const LAYOUTS: readonly { id: LayoutMode; name: string; hint: string }[] 
 });
 
 /** How an item's slides look: a background theme and a way of laying out text. */
-export interface Look { themeId: string; layout: LayoutMode }
+export interface Look { themeId: string; layout: LayoutMode; textBox?: { x: number; y: number; w: number; h: number }; bandOpacity?: number }
+
+export interface CardMedia {
+  id: string;
+  kind: 'audio' | 'video';
+  url: string;
+  fileHash?: string;
+  fileName?: string;
+  x: number; y: number; w: number; h: number;
+  volume: number;
+  startSeconds: number;
+  loop: boolean;
+}
 
 interface ItemBase {
+  /** Attachments are indexed by the individual generated card, not the whole item. */
+  cardMedia?: Record<string, CardMedia[]>;
   /** The OBS source's UUID (or a temporary id before OBS has created it). */
   id: string;
   name: string;
@@ -47,7 +61,15 @@ export interface ScriptureItem extends ItemBase {
 /** A picture on this computer, shown whole on the theme's background (or filling the screen). */
 export interface ImageItem extends ItemBase { kind: 'image'; path: string; fill: boolean; fileHash?: string }
 /** A YouTube link, a video link, or a video file on this computer. */
-export interface VideoItem extends ItemBase { kind: 'video'; url: string; startSeconds: number; fileHash?: string }
+export interface VideoItem extends ItemBase {
+  kind: 'video'; url: string; startSeconds: number; fileHash?: string;
+  /** The first video's own title, when the item holds several (the item's name is then the section's). */
+  videoTitle?: string;
+  /** The videos after the first, one card each (a whole YouTube playlist, say). */
+  playlist?: VideoEntry[];
+}
+/** One more video of a video item; `kind` lets the files sync treat it like an item. */
+export interface VideoEntry { kind: 'video'; url: string; startSeconds: number; title: string; fileHash?: string; fileName?: string }
 /** A PowerPoint file on this computer; each click of its animations is one slide. */
 export interface PptItem extends ItemBase { kind: 'ppt'; path: string; pages: number; fileHash?: string }
 
@@ -69,7 +91,7 @@ export const DEFAULT_LOOK: Look = { themeId: 'navy', layout: 'center' };
 export const emptyDeck = (): Deck => ({ scenes: [], defaultLook: DEFAULT_LOOK, currentScene: null });
 
 /** One slide, ready to draw. */
-export type SlideSpec =
+export type SlideSpec = (
   | { kind: 'text'; look: Look; title: string; paragraphs: string[]; /** A paged item's own title, e.g. "(2/3)". */ pageLabel: string }
   | { kind: 'image'; look: Look; path: string; fill: boolean; caption: string }
   | { kind: 'video'; look: Look; url: string; startSeconds: number; title: string }
@@ -79,7 +101,7 @@ export type SlideSpec =
   /** No slide: see-through, so only the live video beneath (or above) it shows — "Clear". */
   | { kind: 'blank' }
   /** Solid black over everything — "Black". */
-  | { kind: 'black' };
+  | { kind: 'black' }) & { media?: CardMedia[]; mediaPlayback?: { playing: boolean; nonce: string } };
 
 /** Where a slide sits, so the next and previous slides can be found. */
 export interface SlideRef { itemId: string; index: number; sceneId?: string }

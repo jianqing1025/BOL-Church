@@ -75,8 +75,34 @@ bool isVolumeLocked(obs_source_t *source)
 
 } // namespace
 
+std::vector<OBSWeakSource> AudioMixer::extraSources;
+QPointer<AudioMixer> AudioMixer::instance;
+
+void AudioMixer::AddExtraSource(obs_source_t *source)
+{
+	if (!source) {
+		return;
+	}
+	extraSources.emplace_back(OBSGetWeakRef(source));
+	if (instance) {
+		QMetaObject::invokeMethod(instance, "addSource", Qt::QueuedConnection,
+					  Q_ARG(QString, QString::fromUtf8(obs_source_get_uuid(source))));
+	}
+}
+
+bool AudioMixer::isExtraSource(obs_source_t *source) const
+{
+	for (const OBSWeakSource &weak : extraSources) {
+		if (OBSGetStrongRef(weak) == source) {
+			return true;
+		}
+	}
+	return false;
+}
+
 AudioMixer::AudioMixer(QWidget *parent) : QFrame(parent)
 {
+	instance = this;
 	mixerVertical = config_get_bool(App()->GetUserConfig(), "BasicWindow", "VerticalVolumeControl");
 	showInactive = config_get_bool(App()->GetUserConfig(), "BasicWindow", "MixerShowInactive");
 	keepInactiveLast = config_get_bool(App()->GetUserConfig(), "BasicWindow", "MixerKeepInactiveLast");
@@ -506,6 +532,13 @@ void AudioMixer::reloadVolumeControls()
 
 	obs_enum_sources(createMixerControls, this);
 
+	for (const OBSWeakSource &weak : extraSources) {
+		OBSSource source = OBSGetStrongRef(weak);
+		if (source && volumeList.find(QString::fromUtf8(obs_source_get_uuid(source))) == volumeList.end()) {
+			addControlForUuid(QString::fromUtf8(obs_source_get_uuid(source)));
+		}
+	}
+
 	queueLayoutUpdate();
 }
 
@@ -577,7 +610,8 @@ bool AudioMixer::isSourceGlobal(obs_source_t *source)
 		return true;
 	}
 
-	return false;
+	/* The slides' sound sorts with Desktop Audio and the microphones. */
+	return isExtraSource(source);
 }
 
 void AudioMixer::clearVolumeControls()

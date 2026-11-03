@@ -1,0 +1,70 @@
+/* OBS 在線: the panel's look, with the Scenes and Sources lists beside the slides. */
+body { user-select: none; }
+#root { height: 100vh; }
+
+.gate { height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.gate-box {
+  width: min(360px, 100%); display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px;
+}
+.gate-box h1 { margin: 0; font-size: var(--font-xlarge); }
+.gate-box p { margin: 0; }
+.gate-box input { padding: 8px 10px; }
+.gate-box button { justify-content: center; padding: 8px; }
+
+.editor { display: flex; height: 100%; }
+.editor-side {
+  width: 280px; flex: none; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel); border-right: 1px solid var(--line); padding: 8px; min-height: 0;
+}
+.editor-brand { display: flex; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--line); }
+.editor-brand strong { font-size: var(--font-large); }
+.save-state { flex: 1; font-size: var(--font-small); color: var(--muted); text-align: right; }
+.save-state.error, .save-state.reloaded { color: #ffb36b; }
+
+/* Like OBS Church: Scenes and Sources each take half the column, their toolbars at the bottom. */
+.side-box { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
+.side-title { margin: 0; padding: 4px 6px; font-size: var(--font-small); font-weight: 600; text-transform: none; color: var(--text); background: #262a33; border-radius: 4px 4px 0 0; }
+.side-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; background: #16181e; }
+.side-list li { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; border-left: 3px solid transparent; }
+.side-list li:hover { background: var(--panel-2); }
+.side-list li.selected { background: #333a52; border-left-color: var(--accent); }
+.side-list li.empty { cursor: default; }
+.side-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-list .kind { color: var(--muted); display: flex; }
+.side-list input { flex: 1; min-width: 0; padding: 2px 6px; }
+
+.add-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding-top: 6px; }
+.add-grid button { justify-content: center; padding: 6px 4px; }
+.add-grid button:disabled { opacity: .35; }
+
+.editor-slides { flex: 1; min-width: 0; }
+.editor-slides .app { height: 100%; }
+
+@media (max-width: 760px) {
+  .editor { flex-direction: column; }
+  .editor-side { width: auto; max-height: 45vh; }
+}
+
+.side-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0; }
+.side-toolbar button { min-width: 30px; min-height: 28px; justify-content: center; }
+.side-toolbar button:disabled { opacity: .35; }
+.editor-preview { width: clamp(240px, 25vw, 440px); flex: none; padding: 12px; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; }
+.editor-preview h2 { font-size: var(--font-large); }
+.editor-preview select { width: 100%; padding: 6px; }
+.editor-preview canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; }
+@media (max-width: 1100px) { .editor-side { width: 240px; } .editor-preview { width: 240px; } }
+@media (max-width: 760px) { .editor-slides { min-height: 45vh; } .editor-preview { width: auto; flex: none; } .editor { overflow-y: auto; } }
+
+.web-media-preview { position: relative; overflow: hidden; }
+.web-media-layers { position: absolute; inset: 0; pointer-events: none; }
+
+.templates { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.templates h2 { margin: 0; }
+.templates .hint { margin: 0; font-size: var(--font-small); }
+.template-save { display: flex; gap: 4px; }
+.template-save input { flex: 1; min-width: 0; padding: 6px; }
+.template-save button { flex: none; }
+.template-list { max-height: 30vh; flex: none; border-radius: 6px; }
+.template-list li { flex-wrap: wrap; }
+.template-list .count { font-size: var(--font-small); }

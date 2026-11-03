@@ -26,7 +26,7 @@ function pump() {
   }
 }
 
-export const Thumb = memo(function Thumb({ spec }: { spec: SlideSpec }) {
+export const Thumb = memo(function Thumb({ spec, large = false }: { spec: SlideSpec; large?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export const Thumb = memo(function Thumb({ spec }: { spec: SlideSpec }) {
 
   return (
     <div className="thumb-canvas">
-      <canvas ref={canvas} width={THUMB_W} height={THUMB_H} />
+      <canvas ref={canvas} width={large ? 960 : THUMB_W} height={large ? 540 : THUMB_H} />
       {error && <div className="thumb-error" title={error}>{error}</div>}
     </div>
   );

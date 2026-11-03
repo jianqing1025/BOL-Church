@@ -6,7 +6,7 @@ import { LANG } from './i18n';
  * 每個主題也決定標題與內文的顏色；畫面較花的主題加一層暗化並給文字陰影，確保看得清楚。
  */
 
-export type ThemeGroup = 'gradient' | 'art' | 'overlay';
+export type ThemeGroup = 'gradient' | 'modern' | 'art' | 'overlay';
 
 export interface Theme {
   id: string;
@@ -28,6 +28,10 @@ export interface Theme {
   shadow?: boolean;
   /** No background: the slide is laid over whatever is beneath it. */
   overlay?: boolean;
+  /** Typeface, as in ProPresenter's text settings: sans (default) or serif. */
+  font?: 'sans' | 'serif';
+  /** An outline around the letters (ProPresenter's "stroke"), for text over busy pictures. */
+  stroke?: string;
 }
 
 // ---------- helpers for the artwork ----------
@@ -310,11 +314,152 @@ const ART_QUIET_CROSS = svg(
    <radialGradient id="halo" cx="1500" cy="390" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#93c5fd" stop-opacity=".18"/><stop offset="1" stop-color="#93c5fd" stop-opacity="0"/></radialGradient>`,
 );
 
+
+// ---------- modern backgrounds (in the manner of ProPresenter's theme library) ----------
+
+/** Soft out-of-focus lights. */
+function bokeh(seed: number, colors: string[]) {
+  const rnd = seeded(seed);
+  let out = '';
+  for (let i = 0; i < 46; i++) {
+    const r = 30 + rnd() * 120;
+    out += `<circle cx="${(rnd() * 1920).toFixed(0)}" cy="${(rnd() * 1080).toFixed(0)}" r="${r.toFixed(0)}" fill="${colors[i % colors.length]}" opacity="${(0.05 + rnd() * 0.16).toFixed(2)}"/>`;
+  }
+  return out;
+}
+
+const ART_BOKEH = svg(
+  `<rect width="1920" height="1080" fill="url(#bg)"/><g filter="url(#soft)">${bokeh(11, ['#ffd27a', '#8fb8ff', '#ffffff', '#f6a6c8'])}</g>`,
+  `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1330"/><stop offset="1" stop-color="#1d1238"/></linearGradient>
+   <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="9"/></filter>`,
+);
+
+/** Layered soft waves across the lower half. */
+function softWaves(colors: string[]) {
+  let out = '';
+  colors.forEach((color, i) => {
+    const base = 560 + i * 110;
+    const amp = 70 - i * 8;
+    let d = `M0,${base}`;
+    for (let x = 0; x <= 1920; x += 160) {
+      const y = base + Math.sin((x / 1920) * Math.PI * 2 + i * 1.3) * amp;
+      d += ` L${x},${y.toFixed(0)}`;
+    }
+    out += `<path d="${d} L1920,1080 L0,1080 Z" fill="${color}"/>`;
+  });
+  return out;
+}
+
+const ART_SOFT_WAVES = svg(
+  `<rect width="1920" height="1080" fill="url(#bg)"/>${softWaves(['#1e3a8a55', '#2563eb44', '#38bdf833', '#0f172a99'])}`,
+  `<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#132a52"/></linearGradient>`,
+);
+
+const ART_LIGHT_BEAMS = svg(
+  `<rect width="1920" height="1080" fill="url(#bg)"/>
+   ${rays(-200, -200, 9, 40, 18, 2800, '#7dd3fc', 0.09)}
+   <rect width="1920" height="1080" fill="url(#fade)"/>`,
+  `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06233f"/><stop offset="1" stop-color="#020617"/></linearGradient>
+   <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#020617" stop-opacity="0"/><stop offset="1" stop-color="#020617" stop-opacity=".7"/></linearGradient>`,
+);
+
+/** Low-poly triangles. */
+function triangles(seed: number, hue: number) {
+  const rnd = seeded(seed);
+  let out = '';
+  const cols = 10;
+  const rows = 6;
+  const w = 1920 / cols;
+  const h = 1080 / rows;
+  const pts: number[][][] = [];
+  for (let r = 0; r <= rows; r++) {
+    pts.push([]);
+    for (let c = 0; c <= cols; c++) {
+      const jx = c === 0 || c === cols ? 0 : (rnd() - 0.5) * w * 0.6;
+      const jy = r === 0 || r === rows ? 0 : (rnd() - 0.5) * h * 0.6;
+      pts[r].push([c * w + jx, r * h + jy]);
+    }
+  }
+  const tri = (a: number[], b: number[], c: number[]) => {
+    const light = 10 + rnd() * 16 + ((a[1] + b[1] + c[1]) / 3 / 1080) * 6;
+    out += `<polygon points="${a.map((v) => v.toFixed(0)).join(',')} ${b.map((v) => v.toFixed(0)).join(',')} ${c.map((v) => v.toFixed(0)).join(',')}" fill="hsl(${hue},55%,${light.toFixed(0)}%)"/>`;
+  };
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      tri(pts[r][c], pts[r][c + 1], pts[r + 1][c]);
+      tri(pts[r][c + 1], pts[r + 1][c + 1], pts[r + 1][c]);
+    }
+  }
+  return out;
+}
+
+const ART_GEOMETRIC = svg(triangles(23, 222));
+
+const ART_NEBULA = svg(
+  `<rect width="1920" height="1080" fill="#05040f"/>
+   <g filter="url(#blur)">
+     <ellipse cx="560" cy="380" rx="520" ry="300" fill="#7c3aed" opacity=".35"/>
+     <ellipse cx="1300" cy="620" rx="600" ry="320" fill="#0ea5e9" opacity=".28"/>
+     <ellipse cx="980" cy="420" rx="360" ry="220" fill="#f472b6" opacity=".22"/>
+   </g>${stars()}`,
+  `<filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="70"/></filter>`,
+);
+
+const ART_PARCHMENT = svg(
+  `<rect width="1920" height="1080" fill="url(#paper)"/><rect width="1920" height="1080" fill="url(#vignette)"/>
+   <rect x="70" y="70" width="1780" height="940" fill="none" stroke="#8b6b3e" stroke-opacity=".35" stroke-width="3"/>`,
+  `<radialGradient id="paper" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#f8eed8"/><stop offset="1" stop-color="#e2cfa6"/></radialGradient>
+   <radialGradient id="vignette" cx="50%" cy="50%" r="72%"><stop offset=".65" stop-color="#5a3d18" stop-opacity="0"/><stop offset="1" stop-color="#5a3d18" stop-opacity=".35"/></radialGradient>`,
+);
+
+const ART_GOLD_FRAME = svg(
+  `<rect width="1920" height="1080" fill="#0b0b0d"/>
+   <rect x="60" y="60" width="1800" height="960" fill="none" stroke="#c9a54c" stroke-width="3"/>
+   <rect x="78" y="78" width="1764" height="924" fill="none" stroke="#c9a54c" stroke-opacity=".45" stroke-width="1.5"/>`,
+);
+
+const ART_SUNSET_SEA = svg(
+  `<rect width="1920" height="1080" fill="url(#sky)"/>
+   <circle cx="960" cy="700" r="170" fill="#ffd9a0" opacity=".95"/>
+   <rect y="700" width="1920" height="380" fill="url(#sea)"/>
+   ${Array.from({ length: 14 }, (_, i) => `<rect x="${760 - i * 18}" y="${720 + i * 24}" width="${400 + i * 36}" height="4" rx="2" fill="#ffe2b0" opacity="${(0.55 - i * 0.035).toFixed(2)}"/>`).join('')}`,
+  `<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b1a4a"/><stop offset=".55" stop-color="#c2546a"/><stop offset="1" stop-color="#f6a35b"/></linearGradient>
+   <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2552"/><stop offset="1" stop-color="#120a22"/></linearGradient>`,
+);
+
+const ART_AURORA_RIBBONS = svg(
+  `<rect width="1920" height="1080" fill="url(#bg)"/>
+   <g filter="url(#glow)" fill="none" stroke-linecap="round">
+     <path d="M-100,620 C400,300 900,760 1400,420 S2000,380 2100,300" stroke="#34d399" stroke-width="90" opacity=".35"/>
+     <path d="M-100,720 C500,420 1000,840 1500,520 S2000,520 2100,440" stroke="#818cf8" stroke-width="70" opacity=".3"/>
+   </g>${stars()}`,
+  `<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#020617"/><stop offset="1" stop-color="#0b2530"/></linearGradient>
+   <filter id="glow" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="40"/></filter>`,
+);
+
+function gridLines() {
+  let out = '';
+  for (let x = 0; x <= 1920; x += 80) out += `<line x1="${x}" y1="0" x2="${x}" y2="1080" stroke="#60a5fa" stroke-opacity=".08"/>`;
+  for (let y = 0; y <= 1080; y += 80) out += `<line x1="0" y1="${y}" x2="1920" y2="${y}" stroke="#60a5fa" stroke-opacity=".08"/>`;
+  return out;
+}
+
+const ART_GRID = svg(
+  `<rect width="1920" height="1080" fill="url(#bg)"/>${gridLines()}<rect width="1920" height="1080" fill="url(#glow)"/>`,
+  `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a0f1e"/><stop offset="1" stop-color="#111827"/></linearGradient>
+   <radialGradient id="glow" cx="50%" cy="40%" r="60%"><stop offset="0" stop-color="#3b82f6" stop-opacity=".18"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></radialGradient>`,
+);
+
 // ---------- the list ----------
 
 const DARK_TEXT = { title: '#fde68a', body: '#f8fafc' };
 
 export const THEMES: readonly Theme[] = [
+  { id: 'pro-violet-waves', nameEn: 'Violet Waves', name: '紫色柔波', group: 'modern', svg: svg('<rect width="1920" height="1080" fill="#170c30"/>' + softWaves(['#4c1d9588', '#7c3aed66', '#a855f744', '#2e106599'])), title: '#e9d5ff', body: '#ffffff', shadow: true },
+  { id: 'pro-purple-bokeh', nameEn: 'Purple Bokeh', name: '紫色光斑', group: 'modern', svg: svg('<rect width="1920" height="1080" fill="#1a0b2e"/>' + bokeh(37, ['#c084fc', '#a78bfa', '#f0abfc'])), title: '#f5d0fe', body: '#ffffff', shadow: true },
+  { id: 'pro-amethyst', nameEn: 'Amethyst', name: '紫水晶', group: 'modern', svg: svg(triangles(51, 272)), title: '#e9d5ff', body: '#ffffff', shadow: true },
+  { id: 'pro-violet-glow', nameEn: 'Violet Glow', name: '紫光', group: 'modern', stops: ['#10051f', '#3b1670', '#701a75'], glow: 'rgba(216,180,254,0.25)', title: '#f5d0fe', body: '#ffffff', shadow: true },
+
   // 純漸層（前十套與 bolccop meeting 一致）
   { id: 'navy', nameEn: 'Temple Blue', name: '聖殿藍', group: 'gradient', stops: ['#0f2a5c', '#1e3a8a'], glow: 'rgba(147,197,253,0.10)', ...DARK_TEXT },
   { id: 'midnight-gold', nameEn: 'Midnight Gold', name: '午夜金', group: 'gradient', stops: ['#0c0a09', '#1c1917', '#292524'], glow: 'rgba(212,175,55,0.14)', title: '#e7c873', body: '#f5f5f4' },
@@ -332,6 +477,25 @@ export const THEMES: readonly Theme[] = [
   { id: 'sky', nameEn: 'Clear Sky', name: '晴空', group: 'gradient', stops: ['#e0f2fe', '#bae6fd', '#c7d2fe'], glow: 'rgba(255,255,255,0.45)', title: '#1e3a8a', body: '#0f172a' },
   { id: 'lavender', nameEn: 'Lavender', name: '薰衣草', group: 'gradient', stops: ['#faf5ff', '#ede9fe', '#fce7f3'], glow: 'rgba(255,255,255,0.4)', title: '#6b21a8', body: '#1e1b2e' },
   { id: 'black', nameEn: 'Black', name: '純黑', group: 'gradient', stops: ['#000000', '#000000'], title: '#fde68a', body: '#ffffff' },
+  { id: 'charcoal', nameEn: 'Charcoal', name: '炭灰', group: 'gradient', stops: ['#1c1c1e', '#1c1c1e'], title: '#f5c451', body: '#f5f5f7' },
+  { id: 'deep-navy', nameEn: 'Deep Navy', name: '深藍', group: 'gradient', stops: ['#0b1d3a', '#0b1d3a'], title: '#9cc4ff', body: '#ffffff' },
+  { id: 'warm-white', nameEn: 'Warm White', name: '暖白', group: 'gradient', stops: ['#f7f3ea', '#f1eadb'], title: '#8a5a1f', body: '#1f1a14' },
+  { id: 'teal-sky', nameEn: 'Teal Sky', name: '青空', group: 'gradient', stops: ['#0f766e', '#0e7490', '#1e3a8a'], glow: 'rgba(153,246,228,0.14)', title: '#ccfbf1', body: '#ffffff' },
+  { id: 'plum', nameEn: 'Plum', name: '梅紫', group: 'gradient', stops: ['#2e1065', '#6b21a8', '#a21caf'], glow: 'rgba(240,171,252,0.14)', title: '#fbcfe8', body: '#fdf4ff' },
+  { id: 'citrus', nameEn: 'Citrus', name: '橘陽', group: 'gradient', stops: ['#7c2d12', '#c2410c', '#f59e0b'], glow: 'rgba(254,240,138,0.18)', title: '#fff7cc', body: '#ffffff', shadow: true },
+  // 現代風格（參考 ProPresenter 的主題：背景、字型、描邊、陰影一起決定）
+  { id: 'pro-bokeh', nameEn: 'Bokeh Lights', name: '光暈', group: 'modern', svg: ART_BOKEH, dim: 0.1, shadow: true, title: '#ffe7a3', body: '#ffffff' },
+  { id: 'pro-waves', nameEn: 'Soft Waves', name: '柔波', group: 'modern', svg: ART_SOFT_WAVES, dim: 0, shadow: true, title: '#93c5fd', body: '#ffffff' },
+  { id: 'pro-beams', nameEn: 'Light Beams', name: '光束', group: 'modern', svg: ART_LIGHT_BEAMS, dim: 0, shadow: true, title: '#bae6fd', body: '#ffffff' },
+  { id: 'pro-geometric', nameEn: 'Geometric', name: '幾何', group: 'modern', svg: ART_GEOMETRIC, dim: 0.15, shadow: true, title: '#c7d2fe', body: '#ffffff' },
+  { id: 'pro-nebula', nameEn: 'Nebula', name: '星雲', group: 'modern', svg: ART_NEBULA, dim: 0, shadow: true, title: '#f0abfc', body: '#ffffff' },
+  { id: 'pro-parchment', nameEn: 'Parchment', name: '羊皮紙', group: 'modern', svg: ART_PARCHMENT, dim: 0, font: 'serif', title: '#7a3f12', body: '#2b1d0e' },
+  { id: 'pro-gold-frame', nameEn: 'Gold Frame', name: '金框', group: 'modern', svg: ART_GOLD_FRAME, dim: 0, font: 'serif', title: '#d9b75c', body: '#f5f0e6' },
+  { id: 'pro-sunset-sea', nameEn: 'Sunset Sea', name: '海上夕陽', group: 'modern', svg: ART_SUNSET_SEA, dim: 0.15, shadow: true, title: '#fff1d0', body: '#ffffff' },
+  { id: 'pro-aurora', nameEn: 'Aurora Ribbons', name: '極光彩帶', group: 'modern', svg: ART_AURORA_RIBBONS, dim: 0, shadow: true, title: '#a7f3d0', body: '#ffffff' },
+  { id: 'pro-grid', nameEn: 'Fine Grid', name: '細格線', group: 'modern', svg: ART_GRID, dim: 0, title: '#93c5fd', body: '#e5edff' },
+  { id: 'pro-lyrics-outline', nameEn: 'Outlined Lyrics', name: '描邊歌詞', group: 'modern', stops: ['#000000', '#111111'], stroke: '#000000', shadow: true, title: '#ffffff', body: '#ffffff' },
+  { id: 'pro-classic-serif', nameEn: 'Classic Serif', name: '典雅襯線', group: 'modern', stops: ['#1a0f0a', '#3b1d12'], glow: 'rgba(253,230,138,0.10)', font: 'serif', title: '#e8c27a', body: '#fbf4e8' },
   // 基督教主題畫面（向量繪製）
   { id: 'art-dawn-cross', nameEn: 'Cross at Dawn', name: '晨光十字架', group: 'art', svg: ART_DAWN_CROSS, dim: 0.12, shadow: true, ...DARK_TEXT },
   { id: 'art-glory', nameEn: 'Glory', name: '榮光', group: 'art', svg: ART_GLORY, dim: 0, shadow: true, ...DARK_TEXT },
@@ -349,7 +513,8 @@ export const THEMES: readonly Theme[] = [
 ];
 
 export const THEME_GROUPS: readonly { id: ThemeGroup; name: string }[] = [
-  { id: 'gradient', name: LANG === 'zh' ? '純漸層' : 'Gradients' },
+  { id: 'gradient', name: LANG === 'zh' ? '純色與漸層' : 'Colors and gradients' },
+  { id: 'modern', name: LANG === 'zh' ? '現代風格' : 'Modern' },
   { id: 'art', name: LANG === 'zh' ? '基督教主題' : 'Christian artwork' },
   { id: 'overlay', name: LANG === 'zh' ? '透明' : 'Transparent' },
 ];

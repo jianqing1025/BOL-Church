@@ -17,6 +17,7 @@ if(TARGET OBS::browser-panels)
       # OBS Church: slide panel, three screens, Streaming/Recording dock
       church/ChurchMode.cpp
       church/ChurchMode.hpp
+      church/ChurchVersion.hpp
       church/ChurchSceneView.cpp
       church/ChurchSceneView.hpp
       church/ChurchSlidesSource.cpp

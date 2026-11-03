@@ -55,6 +55,8 @@ public:
 
 signals:
 	void StreamButtonClicked();
+	/* OBS Church: the stream settings, from the button beside Start Streaming. */
+	void StreamSettingsButtonClicked();
 	void BroadcastButtonClicked();
 	void RecordButtonClicked();
 	/* OBS Church: open the folder recordings are saved to. */

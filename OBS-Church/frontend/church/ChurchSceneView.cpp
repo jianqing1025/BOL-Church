@@ -13,6 +13,8 @@
 #include <utility/display-helpers.hpp>
 
 #include <QHBoxLayout>
+#include <QApplication>
+#include <QTimer>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QToolButton>
@@ -48,7 +50,7 @@ std::vector<Box> Boxes(obs_scene_t *scene)
 {
 	std::vector<Box> boxes;
 	auto collect = [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-		if (!obs_sceneitem_visible(item) || obs_sceneitem_get_bounds_type(item) == OBS_BOUNDS_NONE) {
+		if (!obs_sceneitem_visible(item) || obs_sceneitem_locked(item) || obs_sceneitem_get_bounds_type(item) == OBS_BOUNDS_NONE) {
 			return true;
 		}
 		vec2 pos, bounds;
@@ -71,6 +73,9 @@ ChurchSceneDisplay::ChurchSceneDisplay(QWidget *parent) : OBSQTDisplay(parent)
 	setMinimumSize(96, 54);
 	setCursor(Qt::PointingHandCursor);
 	setMouseTracking(false);
+	clickTimer = new QTimer(this);
+	clickTimer->setSingleShot(true);
+	connect(clickTimer, &QTimer::timeout, this, &ChurchSceneDisplay::clicked);
 
 	connect(this, &OBSQTDisplay::DisplayCreated, this, [this]() {
 		obs_display_set_background_color(GetDisplay(), 0x000000);
@@ -118,9 +123,18 @@ OBSSource ChurchSceneDisplay::GetSource()
 
 void ChurchSceneDisplay::SetEditing(bool on)
 {
+	textEditing = false;
 	editing = on;
 	dragItem = nullptr;
 	setCursor(on ? Qt::SizeAllCursor : Qt::PointingHandCursor);
+}
+
+void ChurchSceneDisplay::SetTextEditing(bool on, const QRectF &box)
+{
+	SetEditing(on);
+	std::lock_guard<std::mutex> guard(lock);
+	textBox = box;
+	textEditing = on;
 }
 
 void ChurchSceneDisplay::Render(void *data, uint32_t cx, uint32_t cy)
@@ -154,30 +168,40 @@ void ChurchSceneDisplay::Render(void *data, uint32_t cx, uint32_t cy)
 
 	/* Layout mode: a frame and a corner handle on every item that can be moved. */
 	obs_scene_t *scene = obs_scene_from_source(source);
-	if (view->editing && scene) {
+	if (view->editing && (scene || view->textEditing)) {
 		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 		gs_eparam_t *color = gs_effect_get_param_by_name(solid, "color");
 		vec4 yellow;
 		vec4_set(&yellow, 1.0f, 0.82f, 0.2f, 1.0f);
 		gs_effect_set_vec4(color, &yellow);
 		float handle = float(ovi.base_width) * HANDLE;
+		std::vector<Box> boxes;
+		if (view->textEditing) {
+			std::lock_guard<std::mutex> guard(view->lock);
+			const QRectF &r = view->textBox;
+			boxes.push_back({nullptr, float(r.x()), float(r.y()), float(r.width()), float(r.height())});
+		} else { boxes = Boxes(scene); }
+		/* Filled rectangles drawn with OBS's shared sprite: drawing lines through gs_render_start(true)
+		 * made and destroyed a vertex buffer per line, every frame, while Direct3D still had it bound —
+		 * the program ended as soon as the layout was being edited. */
+		auto fill = [](float rx, float ry, float rw, float rh) {
+			if (rw <= 0.0f || rh <= 0.0f) {
+				return;
+			}
+			gs_matrix_push();
+			gs_matrix_translate3f(rx, ry, 0.0f);
+			gs_matrix_scale3f(rw, rh, 1.0f);
+			gs_draw_sprite(nullptr, 0, 1, 1);
+			gs_matrix_pop();
+		};
+		float line = 3.0f / scale;
 		while (gs_effect_loop(solid, "Solid")) {
-			for (const Box &b : Boxes(scene)) {
-				for (float inset : {0.0f, 2.0f / scale}) {
-					gs_render_start(true);
-					gs_vertex2f(b.x + inset, b.y + inset);
-					gs_vertex2f(b.x + b.w - inset, b.y + inset);
-					gs_vertex2f(b.x + b.w - inset, b.y + b.h - inset);
-					gs_vertex2f(b.x + inset, b.y + b.h - inset);
-					gs_vertex2f(b.x + inset, b.y + inset);
-					gs_render_stop(GS_LINESTRIP);
-				}
-				gs_render_start(true);
-				gs_vertex2f(b.x + b.w - handle, b.y + b.h - handle);
-				gs_vertex2f(b.x + b.w, b.y + b.h - handle);
-				gs_vertex2f(b.x + b.w - handle, b.y + b.h);
-				gs_vertex2f(b.x + b.w, b.y + b.h);
-				gs_render_stop(GS_TRISTRIP);
+			for (const Box &b : boxes) {
+				fill(b.x, b.y, b.w, line);
+				fill(b.x, b.y + b.h - line, b.w, line);
+				fill(b.x, b.y, line, b.h);
+				fill(b.x + b.w - line, b.y, line, b.h);
+				fill(b.x + b.w - handle, b.y + b.h - handle, handle, handle);
 			}
 		}
 	}
@@ -230,6 +254,14 @@ void ChurchSceneDisplay::mousePressEvent(QMouseEvent *event)
 		float x, y;
 		bool corner;
 		if (ToCanvas(event->position(), x, y)) {
+			if (textEditing) {
+				std::lock_guard<std::mutex> guard(lock);
+				textDragging = textBox.adjusted(-20, -20, 20, 20).contains(x, y);
+				dragResize = x > textBox.right() - 70 && y > textBox.bottom() - 70;
+				dragOffsetX = x - float(textBox.x());
+				dragOffsetY = y - float(textBox.y());
+				return;
+			}
 			dragItem = ItemAt(x, y, corner);
 			dragResize = corner;
 			if (dragItem) {
@@ -242,13 +274,28 @@ void ChurchSceneDisplay::mousePressEvent(QMouseEvent *event)
 		return;
 	}
 	if (event->button() == Qt::LeftButton) {
-		emit clicked();
+		clickTimer->start(QApplication::doubleClickInterval());
 	}
 	OBSQTDisplay::mousePressEvent(event);
 }
 
 void ChurchSceneDisplay::mouseMoveEvent(QMouseEvent *event)
 {
+	if (textEditing && textDragging) {
+		float x, y, cx, cy; Canvas(cx, cy);
+		if (!ToCanvas(event->position(), x, y)) return;
+		QRectF result;
+		{
+			std::lock_guard<std::mutex> guard(lock);
+			if (dragResize) {
+				textBox.setWidth(std::max(80.0, double(x) - textBox.x()));
+				textBox.setHeight(std::max(50.0, double(y) - textBox.y()));
+			} else { textBox.moveTopLeft(QPointF(x - dragOffsetX, y - dragOffsetY)); }
+			result = QRectF(textBox.x() / cx, textBox.y() / cy, textBox.width() / cx, textBox.height() / cy);
+		}
+		emit textBoxChanged(result);
+		return;
+	}
 	if (!editing || !dragItem) {
 		OBSQTDisplay::mouseMoveEvent(event);
 		return;
@@ -266,7 +313,7 @@ void ChurchSceneDisplay::mouseMoveEvent(QMouseEvent *event)
 	if (dragResize) {
 		/* Keep the shape: width from the mouse, height to match. */
 		float aspect = bounds.x > 0.0f ? bounds.y / bounds.x : cy / cx;
-		float w = std::clamp(x - pos.x, cx * 0.08f, cx - pos.x);
+		float w = std::clamp(x - pos.x, cx * 0.02f, std::max(cx * 0.02f, cx - pos.x));
 		vec2_set(&bounds, w, w * aspect);
 		obs_sceneitem_set_bounds(dragItem, &bounds);
 	} else {
@@ -279,6 +326,7 @@ void ChurchSceneDisplay::mouseMoveEvent(QMouseEvent *event)
 
 void ChurchSceneDisplay::mouseReleaseEvent(QMouseEvent *event)
 {
+	if (textDragging) { textDragging = false; emit layoutChanged(); return; }
 	if (editing && dragItem) {
 		dragItem = nullptr;
 		emit layoutChanged();
@@ -289,6 +337,7 @@ void ChurchSceneDisplay::mouseReleaseEvent(QMouseEvent *event)
 
 void ChurchSceneDisplay::wheelEvent(QWheelEvent *event)
 {
+	if (textEditing) { event->accept(); return; }
 	if (!editing) {
 		OBSQTDisplay::wheelEvent(event);
 		return;
@@ -323,6 +372,7 @@ void ChurchSceneDisplay::wheelEvent(QWheelEvent *event)
 void ChurchSceneDisplay::mouseDoubleClickEvent(QMouseEvent *event)
 {
 	if (!editing && event->button() == Qt::LeftButton) {
+		clickTimer->stop();
 		emit doubleClicked();
 	}
 	OBSQTDisplay::mouseDoubleClickEvent(event);
@@ -343,10 +393,12 @@ ChurchScreen::ChurchScreen(const QString &name, QWidget *content, QWidget *paren
 	liveBadge->setVisible(false);
 
 	projectButton = new QToolButton();
-	projectButton->setText(QTStr("Church.Project"));
+	/* The theme's menu arrow sat on top of the text; a small arrow in the text instead. */
+	projectButton->setText(QTStr("Church.Project") + QString::fromUtf8(" ▾"));
 	projectButton->setToolTip(QTStr("Church.Project.Tip"));
 	projectButton->setPopupMode(QToolButton::InstantPopup);
 	projectButton->setAutoRaise(true);
+	projectButton->setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }");
 
 	QHBoxLayout *head = new QHBoxLayout();
 	head->setContentsMargins(2, 0, 2, 0);

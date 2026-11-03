@@ -13,12 +13,14 @@
 
 #include <QFrame>
 #include <QPointer>
+#include <QRectF>
 
 #include <atomic>
 #include <mutex>
 
 class QLabel;
 class QToolButton;
+class QTimer;
 
 /* Draws one scene. In layout mode its framed items (the picture-in-picture
  * camera and slides) can be dragged, resized from the corner, or scaled with
@@ -35,7 +37,11 @@ class ChurchSceneDisplay : public OBSQTDisplay {
 
 	std::atomic<bool> editing{false};
 	OBSSceneItem dragItem;
+	QTimer *clickTimer = nullptr;
 	bool dragResize = false;
+	bool textDragging = false;
+	std::atomic<bool> textEditing{false};
+	QRectF textBox;
 	float dragOffsetX = 0.0f, dragOffsetY = 0.0f;
 
 	static void Render(void *data, uint32_t cx, uint32_t cy);
@@ -54,6 +60,7 @@ signals:
 	void doubleClicked();
 	/* A layout drag finished: worth saving. */
 	void layoutChanged();
+	void textBoxChanged(const QRectF &box);
 
 public:
 	explicit ChurchSceneDisplay(QWidget *parent = nullptr);
@@ -63,6 +70,7 @@ public:
 	OBSSource GetSource();
 
 	void SetEditing(bool editing);
+	void SetTextEditing(bool on, const QRectF &box);
 	bool IsEditing() const { return editing; }
 };
 

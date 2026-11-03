@@ -136,7 +136,7 @@ bool YoutubeApiWrappers::UpdateAccessToken()
 bool YoutubeApiWrappers::InsertCommand(const char *url, const char *content_type, std::string request_type,
 				       const char *data, Json &json_out, int data_size)
 {
-	long error_code;
+	long error_code = 0;
 	bool success = TryInsertCommand(url, content_type, request_type, data, json_out, &error_code, data_size);
 
 	if (error_code == 401) {

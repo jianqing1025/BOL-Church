@@ -13,11 +13,15 @@ export type PanelToHost =
   /** The panel gained or lost the keyboard. */
   | { type: 'focus'; focused: boolean }
   | { type: 'show'; spec: SlideSpec; ref: SlideRef | null }
-  | { type: 'pick-file'; requestId: string; kind: 'ppt' | 'image' | 'video' }
+  | { type: 'pick-file'; requestId: string; kind: 'ppt' | 'image' | 'video' | 'audio' }
   /** Create (no matching source yet) or update an item; new items go into `sceneId` (or the current scene). */
-  | { type: 'save-items'; items: LibraryItem[]; sceneId: string | null }
+  | { type: 'save-items'; items: LibraryItem[]; sceneId: string | null; afterId?: string | null }
   | { type: 'remove-item'; id: string }
-  | { type: 'set-default-look'; look: Look };
+  /** A slide item dragged into `sceneId`, just before `beforeId` (null: at the end). */
+  | { type: 'move-item'; id: string; sceneId: string; beforeId: string | null }
+  | { type: 'set-default-look'; look: Look }
+  /** The profile icon on the Slides bar: OBS shows the account menu (sign in, sync, sign out). */
+  | { type: 'account-menu' };
 
 export type HostToPanel =
   | { type: 'deck'; deck: Deck }
@@ -28,9 +32,13 @@ export type HostToPanel =
   /** The buttons under the Sources list. */
   | { type: 'add'; kind: ItemKind }
   | { type: 'edit-item'; id: string }
-  | { type: 'edit-look'; id: string | null };
+  | { type: 'edit-look'; id: string | null }
+  /** Who is signed in to sync (empty: nobody). */
+  | { type: 'account'; email: string };
 
-export type OutputToHost = { type: 'output-ready' };
+export type OutputToHost =
+  | { type: 'output-ready' }
+  | { type: 'media-progress'; current: number; duration: number; playing: boolean };
 
 declare global {
   interface Window {
@@ -53,7 +61,7 @@ export function sendToHost(message: PanelToHost | OutputToHost): void {
     return;
   }
   if (message.type === 'show') dev?.postMessage(message);
-  if (devHost && message.type !== 'output-ready') devHost(message);
+  if (devHost && message.type !== 'output-ready' && message.type !== 'media-progress') devHost(message);
 }
 
 /** The panel's inbox. */
